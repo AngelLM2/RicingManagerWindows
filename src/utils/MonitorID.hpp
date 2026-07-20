@@ -13,8 +13,6 @@ struct MonitorInfo {
 class MonitorID
 {
     public:
-        MonitorID();
-        ~MonitorID();
 
         //inicializa a lista de monitores(chama get monitor device)
         HRESULT Initialize();

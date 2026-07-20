@@ -9,43 +9,14 @@
 #include "utils/WinError.hpp"
 #include "logging/Logger.hpp"
 
-#pragma comment(lib, "ole32.lib")
-
-//global
 struct global
 {
     int index = 0;
 };
 
-//simplify COM
-struct ComInit {
-    HRESULT hr;
-    Logger& logger = Logger::getInstance();
-
-    ComInit() 
-    { 
-        hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); 
-        if (FAILED(hr))
-        {
-            logger.error(std::format(L"Error COM: {}", hr));
-        }
-    }
-
-
-    ~ComInit() 
-    { 
-        if (SUCCEEDED(hr)){
-            CoUninitialize();
-        }
-    }
-};
-
-
-bool WallpaperManager::setWallpaper() // Usando função setWallpaper do WallpaperManager
+bool WallpaperManager::setWallpaper()
 {
-
     global data;
-    ComInit com;
     Logger& logger = Logger::getInstance();
     MonitorID monitorID;
 
@@ -69,7 +40,7 @@ bool WallpaperManager::setWallpaper() // Usando função setWallpaper do Wallpap
     if (!std::filesystem::exists(wallpaperPath))
     {
         DWORD error = GetLastError();
-        logger.error(std::format(L"Error in path {}", WinError::message(error)));
+        logger.error(std::format(L"Error in path: {}", WinError::message(error)));
         return 0;
     }
 
@@ -77,16 +48,20 @@ bool WallpaperManager::setWallpaper() // Usando função setWallpaper do Wallpap
     HRESULT hr = CoCreateInstance(
         CLSID_DesktopWallpaper,
         nullptr,
-        CLSCTX_INPROC_SERVER,
+        CLSCTX_ALL,
         IID_IDesktopWallpaper,
         (void**)&pWallpaper
     );
 
     if (FAILED(hr))
-    {
-        logger.error(std::format(L"Failed to create IDesktopWallpaper instance: {}", WinError::message(static_cast<DWORD>(hr))));
-        return 0;
-    }
+{
+    std::wcout << std::format(L"CoCreateInstance HRESULT = 0x{:08X}\n",
+                              static_cast<unsigned>(hr));
+
+    logger.error(std::format(L"Failed to create IDesktopWallpaper instance: {}",
+                             WinError::message(static_cast<DWORD>(hr))));
+    return 0;
+}
 
     monitorID.ListMonitors();
     int serizalize_monitor = monitorID.ChooseMonitor(data.index);
@@ -113,7 +88,6 @@ bool WallpaperManager::setWallpaper() // Usando função setWallpaper do Wallpap
 
 HRESULT WallpaperManager::getWallpaper()
 {
-    ComInit com;
     global data;
     MonitorID monitorID;
     Logger& logger = Logger::getInstance();
@@ -121,20 +95,12 @@ HRESULT WallpaperManager::getWallpaper()
     HRESULT hr = monitorID.Initialize();
     if (FAILED(hr))
     {
-        // Correção 1: Cast explícito para DWORD
         logger.error(std::format(L"Error initializing monitors: {}", WinError::message(static_cast<DWORD>(hr))));
         return hr;
     }
 
     monitorID.ListMonitors();
     monitorID.ChooseMonitor(data.index);
-
-/*  const MonitorInfo* pSelectedMonitor = monitorID.GetMonitorInfo(static_cast<UINT>(data.index));
-    if (!pSelectedMonitor)
-    {
-        logger.error(std::format(L"Monitor index {} is invalid", data.index));
-        return E_INVALIDARG;
-    }       */
 
     std::wstring devicePath = monitorID.GetDevicePath(static_cast<UINT>(data.index));
 
@@ -144,14 +110,12 @@ HRESULT WallpaperManager::getWallpaper()
         return E_INVALIDARG;
     }
 
-
     IDesktopWallpaper* pWallpaper = nullptr;
     hr = CoCreateInstance(
         CLSID_DesktopWallpaper,
         nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_IDesktopWallpaper,
-        (void**)&pWallpaper
+        CLSCTX_ALL,
+        IID_PPV_ARGS(&pWallpaper)
     );
 
     if (FAILED(hr))

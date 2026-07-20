@@ -1,22 +1,8 @@
 #include "MonitorID.hpp"
-#include <shobjidl_core.h> // Necessário para IDesktopWallpaper
+#include <shobjidl_core.h>
 #include <iostream>
 #include "../logging/Logger.hpp"
 
-
-
-#pragma comment(lib, "ole32.lib")
-
-MonitorID::MonitorID() : m_selectedIndex(UINT_MAX)
-{
-    // Inicializa COM se necessário 
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-}
-
-MonitorID::~MonitorID()
-{
-    CoUninitialize();
-}
 
 HRESULT MonitorID::Initialize()
 {
@@ -109,15 +95,11 @@ std::wstring MonitorID::GetDevicePath(UINT index) const {
     return L""; // Retorna vazio se inválido
 }
 
-// Opcional: Se quiser que a própria classe MonitorID resolva o wallpaper
 std::wstring MonitorID::GetWallpaperPath(UINT index) {
     std::wstring path = L"";
     
-    // Inicialização COM local (necessária se esta função for chamada sozinha)
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    
     IDesktopWallpaper* pWallpaper = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_DesktopWallpaper, nullptr, CLSCTX_INPROC_SERVER, IID_IDesktopWallpaper, (void**)&pWallpaper))) {
+    if (SUCCEEDED(CoCreateInstance(CLSID_DesktopWallpaper, nullptr, CLSCTX_ALL, IID_IDesktopWallpaper, (void**)&pWallpaper))) {
         std::wstring devPath = GetDevicePath(index);
         if (!devPath.empty()) {
             LPWSTR wpPath = nullptr;
@@ -129,7 +111,6 @@ std::wstring MonitorID::GetWallpaperPath(UINT index) {
         pWallpaper->Release();
     }
     
-    CoUninitialize();
     return path;
 }   
 
