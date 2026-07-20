@@ -32,6 +32,3 @@ std::wstring WinError::message(DWORD errorCode)
     return message;
 
 };
-
-
-

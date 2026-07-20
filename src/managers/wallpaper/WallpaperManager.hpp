@@ -1,10 +1,16 @@
 #pragma once
 
+#include <windows.h>
 #include <filesystem>
 
 class WallpaperManager
 {
     public:
-        bool setWallpaper(const std::filesystem::path& path);
+
+        bool setWallpaper();
+
+        HRESULT getWallpaper();
+
+
 
 };

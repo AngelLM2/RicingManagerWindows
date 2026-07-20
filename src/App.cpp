@@ -16,11 +16,6 @@ void App::run()
     Logger& logger = Logger::getInstance();
 
     // Wallpapers
-    if (!wp.setWallpaper("C:\\wallpaper.png"))
-    {
-        DWORD error = GetLastError();
-
-        logger.error(std::format(L"Error: {}", WinError::message(error)));
-    }
-
+    wp.setWallpaper();
+    wp.getWallpaper();
 }

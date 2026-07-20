@@ -11,7 +11,11 @@ enum class LogLevel {
 
 class Logger {
 public:
-    static Logger& getInstance();
+    static Logger& getInstance(){
+        static Logger instance; 
+
+        return instance;
+    };
 
     void info(const std::wstring& message);
     void warning(const std::wstring& message);
@@ -22,5 +26,4 @@ private:
     void log(LogLevel level, const std::wstring& message);
 
     std::mutex m_mutex;
-    static Logger* Instance;
 };

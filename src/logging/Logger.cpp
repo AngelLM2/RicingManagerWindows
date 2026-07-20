@@ -5,17 +5,6 @@
 
 #include "Logger.hpp"
 
-Logger* Logger::Instance = nullptr;
-
-
-Logger& Logger::getInstance() {
-    if (!Logger::Instance) {
-        Logger::Instance = new Logger();
-    }
-
-    return *Logger::Instance;
-}
-
 
 // .info()
 void Logger::info(const std::wstring& message){
@@ -44,3 +33,4 @@ void Logger::log(LogLevel level, const std::wstring& message) {
 
     std::wcout << std::format(L"{} {}\n", levelStr, message);
 }
+
