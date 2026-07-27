@@ -1,6 +1,4 @@
 #include <iostream>
-#include <windows.h>
-#include <filesystem>
 #include <format>
 #include <shobjidl.h>
 
@@ -12,6 +10,7 @@
 struct global
 {
     int index = 0;
+    int serizalize_monitor = 0;
 };
 
 bool WallpaperManager::setWallpaper()
@@ -25,7 +24,7 @@ bool WallpaperManager::setWallpaper()
         return false;
     }
 
-    std::cout << "\nWrite wallpaper path" << std::endl; 
+    std::cout << "\nWrite wallpaper path\n" << std::endl; 
 
     std::wstring wallpaperPath;
     std::getline(std::wcin, wallpaperPath);
@@ -63,10 +62,14 @@ bool WallpaperManager::setWallpaper()
     return 0;
 }
 
-    monitorID.ListMonitors();
-    int serizalize_monitor = monitorID.ChooseMonitor(data.index);
+    if (monitorID.GetCount())
+    {
+        monitorID.ListMonitors();
+        data.serizalize_monitor = monitorID.ChooseMonitor(data.index);
+    }
 
-    std::wstring devicePath = monitorID.GetDevicePath(serizalize_monitor);
+
+    std::wstring devicePath = monitorID.GetDevicePath(data.serizalize_monitor);
 
 
 
@@ -99,8 +102,11 @@ HRESULT WallpaperManager::getWallpaper()
         return hr;
     }
 
-    monitorID.ListMonitors();
-    monitorID.ChooseMonitor(data.index);
+   if (monitorID.GetCount())
+    {
+        monitorID.ListMonitors();
+        data.serizalize_monitor = monitorID.ChooseMonitor(data.index);
+    }
 
     std::wstring devicePath = monitorID.GetDevicePath(static_cast<UINT>(data.index));
 
@@ -129,7 +135,6 @@ HRESULT WallpaperManager::getWallpaper()
 
     if (SUCCEEDED(hr) && wallpaperPath != nullptr)
     {
-        std::wcout << L"\nWallpaper Path: " << wallpaperPath << std::endl;
         logger.info(std::format(L"Retrieved wallpaper: {}", wallpaperPath));
         CoTaskMemFree(wallpaperPath);
     }

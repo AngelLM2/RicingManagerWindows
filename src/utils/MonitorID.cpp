@@ -95,25 +95,6 @@ std::wstring MonitorID::GetDevicePath(UINT index) const {
     return L""; // Retorna vazio se inválido
 }
 
-std::wstring MonitorID::GetWallpaperPath(UINT index) {
-    std::wstring path = L"";
-    
-    IDesktopWallpaper* pWallpaper = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_DesktopWallpaper, nullptr, CLSCTX_ALL, IID_IDesktopWallpaper, (void**)&pWallpaper))) {
-        std::wstring devPath = GetDevicePath(index);
-        if (!devPath.empty()) {
-            LPWSTR wpPath = nullptr;
-            if (SUCCEEDED(pWallpaper->GetWallpaper(devPath.c_str(), &wpPath))) {
-                path = std::wstring(wpPath);
-                CoTaskMemFree(wpPath);
-            }
-        }
-        pWallpaper->Release();
-    }
-    
-    return path;
-}   
-
 // WALLPAPER
 
 

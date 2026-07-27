@@ -11,6 +11,4 @@ class WallpaperManager
 
         HRESULT getWallpaper();
 
-
-
 };

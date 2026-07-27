@@ -33,8 +33,6 @@ class MonitorID
 
         std::wstring GetDevicePath(UINT index) const;
 
-        std::wstring GetWallpaperPath(UINT index);
-
         int ChooseMonitor(int index);
 
     private:
