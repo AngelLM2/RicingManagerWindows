@@ -45,8 +45,9 @@ Result<engine::CaptureResult> captureFromJson(const Json& json)
 // ---- core side --------------------------------------------------------------------------------------
 
 HelperModuleRunner::HelperModuleRunner(std::filesystem::path coreExecutable,
-                                       std::chrono::milliseconds timeout)
+                                       std::filesystem::path dataDirectory, std::chrono::milliseconds timeout)
     : m_executable(std::move(coreExecutable))
+    , m_dataDirectory(std::move(dataDirectory))
     , m_timeout(timeout)
 {
 }
@@ -76,9 +77,10 @@ Result<void> HelperModuleRunner::start()
     {
         return std::unexpected(std::move(server.error()));
     }
-    auto child =
-        platform::ChildProcess::spawn(m_executable, L"--apply-helper --pipe " + name,
-                                      {.memoryLimitBytes = kHelperMemoryLimit, .inheritHandles = {}});
+    auto child = platform::ChildProcess::spawn(
+        m_executable,
+        std::format(L"--apply-helper --pipe {} --data-dir \"{}\"", name, m_dataDirectory.native()),
+        {.memoryLimitBytes = kHelperMemoryLimit, .inheritHandles = {}});
     if (!child)
     {
         return std::unexpected(std::move(child.error()));

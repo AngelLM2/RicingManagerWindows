@@ -656,7 +656,7 @@ void Resident::refresh()
     m_core->syncPluginHost();
     const bool resident = safe() || m_loaded.settings.needsResidency() || m_core->schedule().has_value() ||
                           !m_core->rotation().empty() || m_core->barPlan().has_value() ||
-                          m_core->pluginsWanted();
+                          m_core->videoPlan().has_value() || m_core->pluginsWanted();
     if (resident != m_resident)
     {
         log::info("{}", resident ? "resident" : "not resident: exits when idle");
@@ -675,6 +675,7 @@ void Resident::refresh()
     armSchedule();
     syncPages();
     syncBar();
+    syncVideo();
     publishStatus();
 }
 
@@ -739,6 +740,33 @@ void Resident::syncBar()
         log::error("the bar did not start: {}", started.error().toString());
     }
     m_barStartedFor = plan;
+}
+
+void Resident::syncVideo()
+{
+    const auto plan = m_core->videoPlan();
+    const bool wanted = !safe() && plan.has_value();
+    if (!wanted)
+    {
+        if (m_videoStartedFor)
+        {
+            m_core->stopVideo();
+            m_videoStartedFor.reset();
+        }
+        return;
+    }
+    // A running rmw-wallpaper follows the plan file by itself; a new plan restarts one that gave up.
+    if (m_videoStartedFor &&
+        (*m_videoStartedFor == *plan || json::boolOr(m_core->videoStatus(), "running", false)))
+    {
+        m_videoStartedFor = plan;
+        return;
+    }
+    if (auto started = m_core->startVideo(); !started)
+    {
+        log::error("the video wallpaper did not start: {}", started.error().toString());
+    }
+    m_videoStartedFor = plan;
 }
 
 void Resident::emergency()

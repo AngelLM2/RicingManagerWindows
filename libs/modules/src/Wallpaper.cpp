@@ -365,7 +365,8 @@ Result<Json> WallpaperLogic::desiredFromRice(const domain::Rice& rice, engine::I
         }
         else
         {
-            // Video plays in a later version; its fallback image stands in until then.
+            // Under a video Windows shows its fallback image: rmw-wallpaper plays over it, and it is
+            // what stays when the video pauses for long or cannot play.
             const std::string& source =
                 rule->kind == domain::WallpaperKind::Video ? rule->fallbackImage : rule->source;
             if (source.empty())

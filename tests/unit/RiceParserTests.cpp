@@ -131,8 +131,8 @@ TEST(RiceParser, ReadsTheDocumentedExample)
 {
     const auto [result, diagnostics] = parse(kFullRice);
     ASSERT_TRUE(result.has_value()) << dump(diagnostics);
-    // Only the notes about what this version cannot do yet: video, and a fit per monitor.
-    ASSERT_EQ(diagnostics.all().size(), 2u) << dump(diagnostics);
+    // Only the note about what this version cannot do yet: a fit per monitor (videos play since M6).
+    ASSERT_EQ(diagnostics.all().size(), 1u) << dump(diagnostics);
     for (const auto& d : diagnostics.all())
     {
         EXPECT_EQ(d.severity, Severity::Warning);

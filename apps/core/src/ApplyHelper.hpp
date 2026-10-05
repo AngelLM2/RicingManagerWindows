@@ -21,8 +21,9 @@ inline constexpr std::uint64_t kHelperMemoryLimit = 1ull << 30;
 class HelperModuleRunner final : public engine::IModuleRunner
 {
 public:
-    explicit HelperModuleRunner(std::filesystem::path coreExecutable,
-                                std::chrono::milliseconds timeout = kHelperTimeout);
+    // `dataDirectory`: the core's, so the helper logs next to it (logs\apply-helper.log).
+    HelperModuleRunner(std::filesystem::path coreExecutable, std::filesystem::path dataDirectory,
+                       std::chrono::milliseconds timeout = kHelperTimeout);
 
     [[nodiscard]] Result<engine::CaptureResult> capture(std::string_view moduleId,
                                                         std::span<const std::string> fields) override;
@@ -36,6 +37,7 @@ private:
     [[nodiscard]] Result<void> start();
 
     std::filesystem::path m_executable;
+    std::filesystem::path m_dataDirectory;
     std::chrono::milliseconds m_timeout;
     std::unique_ptr<platform::ChildProcess> m_child;
     std::unique_ptr<platform::PipeConnection> m_connection;
