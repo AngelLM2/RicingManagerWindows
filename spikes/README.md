@@ -7,3 +7,4 @@ under `docs/adr/`, which is what matters.
 | Spike | Folder | ADR |
 |---|---|---|
 | S6 — process mitigations | `s6-mitigations/` | [ADR-0002](../docs/adr/0002-s6-mitigacoes-de-processo.md) |
+| S3 — native taskbar (run in Windows Sandbox only) | `s3-taskbar/` | [ADR-0003](../docs/adr/0003-s3-barra-nativa.md) |

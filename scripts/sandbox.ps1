@@ -13,8 +13,10 @@
 param(
     [ValidateSet('debug', 'release', 'asan')]
     [string] $Preset = 'debug',
-    [ValidateSet('unit', 'system')]
+    [ValidateSet('unit', 'system', 'spike')]
     [string] $Suite = 'unit',
+    # For -Suite spike: executable path relative to the build folder, e.g. spikes\s3-taskbar\spike_s3_taskbar.exe
+    [string] $Spike,
     [int] $TimeoutMinutes = 20,
     [switch] $KeepOpen
 )
@@ -38,8 +40,16 @@ if (-not (Test-Path (Join-Path $buildDir 'tests'))) {
 if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
+if ($Suite -eq 'spike') {
+    if (-not $Spike -or $Spike -notmatch '^[\w\-\\.]+\.exe$' -or $Spike -match '\.\.') {
+        throw '-Spike must be a relative path to an .exe inside the build folder.'
+    }
+    if (-not (Test-Path (Join-Path $buildDir $Spike))) { throw "Spike not found: $Spike" }
+}
+
 $shutdown = if ($KeepOpen) { '' } else { ' -Shutdown' }
-$logon = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\rmw\runner\run-in-sandbox.ps1 -Suite $Suite$shutdown"
+$spikeArg = if ($Suite -eq 'spike') { " -Spike $Spike" } else { '' }
+$logon = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\rmw\runner\run-in-sandbox.ps1 -Suite $Suite$spikeArg$shutdown"
 
 function Escape-Xml([string] $text) { [System.Security.SecurityElement]::Escape($text) }
 
