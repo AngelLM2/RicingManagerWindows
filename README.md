@@ -1,97 +1,59 @@
 # Ricing Manager for Windows
 
-Um projeto em C++ para ajudar na personalização visual do Windows, com foco em gerenciamento de papéis de parede, temas e componentes modulares para facilitar futuras extensões.
+> 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-## O que é este projeto?
+**Status: pre-alpha.** The foundation is being built (see [docs/04-mvp.md](docs/04-mvp.md)). Nothing here is ready for end users yet.
 
-O Ricing Manager for Windows é uma aplicação experimental voltada para automação de personalização de ambiente desktop. A ideia é fornecer uma base organizada para:
+---
 
-- alterar papéis de parede;
-- gerenciar configurações de tema;
-- adicionar plugins no futuro;
-- manter uma arquitetura modular e escalável.
+## Português
 
-## Funcionalidades
+Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: wallpaper estático e em vídeo por monitor, modo claro/escuro (inclusive por horário), cor de destaque, cursores, **barra de tarefas própria totalmente dimensionável** e **plugins da comunidade** — tudo descrito num arquivo `rice.toml` que você pode compartilhar.
 
-Atualmente, o projeto já possui uma estrutura inicial com:
+### Princípios
 
-- gerenciamento de wallpaper;
-- camada de logging para mensagens de erro e informação;
-- configuração centralizada;
-- arquitetura baseada em managers e módulos separados.
+- **Leve**: o que fica residente custa poucos MB; sem nada dinâmico ativo, nada fica rodando.
+- **Seguro e reversível**: toda mudança tem snapshot e pode ser desfeita; "Restaurar Windows original" sempre disponível. Sem admin por padrão. O app nunca injeta código em outros processos nem altera arquivos do sistema.
+- **Extensível**: widgets, skins, ajustes, ações e regras podem ser criados pela comunidade, rodando isolados e com permissões.
 
-## Estrutura do projeto
+Planejamento completo: [docs/README.md](docs/README.md).
 
-```text
-src/
-├── App.cpp / App.hpp
-├── main.cpp
-├── config/
-├── GUI/
-├── logging/
-├── managers/
-│   ├── explorer/
-│   ├── plugins/
-│   ├── registry/
-│   ├── theme/
-│   └── wallpaper/
-├── Settings/
-└── utils/
+### Compilar
+
+Requisitos: Windows 11, Visual Studio 2022+ ou Build Tools com *Desktop development with C++*, componentes *MSVC Spectre-mitigated libs*, *C++ Clang tools for Windows* e *vcpkg*.
+
+```powershell
+.\scripts\build.ps1 -Preset debug -Test     # compila e roda os testes
+.\scripts\build.ps1 -Preset release         # build de distribuição
+.\scripts\build.ps1 -Preset asan -Test      # testes com AddressSanitizer
+.\scripts\sandbox.ps1 -Preset debug         # testes dentro do Windows Sandbox
 ```
 
-## Requisitos
+---
 
-- Windows 10/11
-- CMake 3.10 ou superior
-- Compilador com suporte a C++20 (recomendado: MSVC/Visual Studio)
-- Git para controlar versões
+## English
 
-## Como compilar e executar
+A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: static and video wallpapers per monitor, light/dark mode (also scheduled), accent color, cursors, a **fully resizable custom taskbar** and **community plugins** — all described in a shareable `rice.toml` file.
 
-### 1. Clone o repositório
+### Principles
 
-```bash
-git clone https://github.com/seu-usuario/RicingManagerWindows.git
-cd RicingManagerWindows
+- **Lightweight**: resident parts cost a few MB; with nothing dynamic active, nothing keeps running.
+- **Safe and reversible**: every change is snapshotted and can be undone; "Restore original Windows" is always available. No admin by default. The app never injects code into other processes and never modifies system files.
+- **Extensible**: widgets, skins, tweaks, actions and rules can be written by the community, running isolated and with permissions.
+
+The planning documents (in Portuguese) are in [docs/](docs/README.md).
+
+### Build
+
+Requirements: Windows 11, Visual Studio 2022+ or Build Tools with *Desktop development with C++*, plus the *MSVC Spectre-mitigated libs*, *C++ Clang tools for Windows* and *vcpkg* components.
+
+```powershell
+.\scripts\build.ps1 -Preset debug -Test
+.\scripts\build.ps1 -Preset release
+.\scripts\build.ps1 -Preset asan -Test
+.\scripts\sandbox.ps1 -Preset debug
 ```
 
-### 2. Gere os arquivos de build
+## License
 
-```bash
-cmake -S . -B build
-```
-
-### 3. Compile o projeto
-
-```bash
-cmake --build build
-```
-
-### 4. Execute a aplicação
-
-```bash
-./build/Debug/RicingManagerWindows.exe
-```
-
-> Em alguns ambientes Windows, o executável pode estar em outra pasta de configuração do build, como `build/Release/`.
-
-## Status do projeto
-
-Este projeto está em fase inicial de desenvolvimento. A estrutura já foi organizada para crescimento, mas ainda há espaço para melhorias em:
-
-- integração completa de temas;
-- suporte a plugins;
-- interface gráfica;
-- configuração persistente do usuário.
-
-## Contribuição
-
-Contribuições são bem-vindas. Se quiser colaborar:
-
-1. faça um fork do projeto;
-2. crie uma branch para sua feature;
-3. envie um pull request com descrição clara das mudanças.
-
-## Observação
-
-Este projeto foi criado com o objetivo de servir como base para um gerenciador de personalização mais completo no ambiente Windows.
+[GPL-3.0-or-later](LICENSE).
