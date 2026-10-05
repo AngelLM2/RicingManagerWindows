@@ -11,6 +11,7 @@ rmw_add_library(platform
         src/MessageWindow.cpp
         src/Pipe.cpp
         src/Process.cpp
+        src/Supervisor.cpp
         src/ProcessHardening.cpp
         src/Win32Display.cpp
         src/Win32Registry.cpp

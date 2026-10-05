@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace rmw::platform
 {
@@ -15,6 +16,14 @@ struct ChildOptions
 {
     // Hard ceiling on committed memory (0 = none). Disabled under ASan, which reserves terabytes.
     std::uint64_t memoryLimitBytes = 0;
+    // The job reports JOB_OBJECT_MSG_NOTIFICATION_LIMIT once committed memory passes this (0 =
+    // none): the hard ceiling only makes allocations fail, it never ends the process (docs/03 §2.4).
+    std::uint64_t memoryNotifyBytes = 0;
+    // Job messages (memory, exit) go to this I/O completion port with this key (ownJob only).
+    void* completionPort = nullptr;
+    std::uintptr_t completionKey = 0;
+    // The only handles the child inherits (each must be inheritable). Empty = none.
+    std::vector<void*> inheritHandles;
     // Start outside any job the parent belongs to (the core must outlive the terminal that
     // started it, docs/03 §2.1).
     bool breakawayFromJob = false;
