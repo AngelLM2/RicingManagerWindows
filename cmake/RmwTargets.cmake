@@ -30,6 +30,18 @@ function(rmw_add_library name)
     rmw_configure_target(rmw_${name})
 endfunction()
 
+# Generated code we do not own (e.g. sources produced by slint_target_sources) is compiled
+# without first-party warning policy; our own sources in the same target keep /W4 /WX.
+function(rmw_relax_generated_sources target pattern)
+    get_target_property(sources ${target} SOURCES)
+    foreach(source IN LISTS sources)
+        if(source MATCHES "${pattern}")
+            set_source_files_properties("${source}" TARGET_DIRECTORY ${target}
+                PROPERTIES COMPILE_OPTIONS "/W0;/WX-")
+        endif()
+    endforeach()
+endfunction()
+
 function(rmw_enable_clang_tidy)
     find_program(
         RMW_CLANG_TIDY_EXE clang-tidy
