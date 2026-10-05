@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -113,6 +114,30 @@ TEST(WidgetSource, AcceptsARealWidgetAndRewritesIt)
     const auto& in = checked->interface.inProperties;
     EXPECT_EQ(in, (std::vector<std::string>{"foreground", "vertical", "title", "playing", "lines"}));
     EXPECT_EQ(checked->interface.callbacks, (std::vector<std::string>{"toggle", "seek"}));
+}
+
+TEST(WidgetSource, KeepsEveryTokenOnItsLine)
+{
+    // So Slint's messages point at the plugin's own lines, though comments and imports are gone.
+    const auto checked = checkWidgetSource(kNowPlaying, "widget.slint", options());
+    ASSERT_TRUE(checked.has_value()) << checked.error().message();
+    const auto lineOf = [](std::string_view text, std::string_view what) {
+        const auto at = text.find(what);
+        return at == std::string_view::npos
+                   ? std::size_t{0}
+                   : static_cast<std::size_t>(std::ranges::count(text.substr(0, at), '\n')) + 1;
+    };
+    for (const auto& [in, out] :
+         {std::pair<std::string_view, std::string_view>{"export struct Line", "export struct Rmwp7-Line"},
+          {"component Icon", "component Rmwp7-Icon"},
+          {"export component NowPlaying", "export component Rmwp7-NowPlaying"},
+          {"animate color", "animate color"},
+          {"for i in 3", "for i in 3"},
+          {"TouchArea", "TouchArea"}})
+    {
+        ASSERT_NE(lineOf(kNowPlaying, in), 0u) << in;
+        EXPECT_EQ(lineOf(checked->source, out), lineOf(kNowPlaying, in)) << in << "\n" << checked->source;
+    }
 }
 
 TEST(WidgetSource, FilesStayOutUnlessTheyAreImagesOfThePlugin)

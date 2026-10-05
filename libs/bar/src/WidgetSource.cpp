@@ -411,13 +411,20 @@ private:
     std::size_t m_count = 0;
 };
 
-// Writes tokens back: a space where the source had space or a comment, nothing where it had
-// none, so the compiler splits them exactly as we did.
-void emit(const std::vector<Token>& tokens, std::string& out)
+// Writes tokens back on the lines they had, so the compiler's messages point at the plugin's own
+// lines: a space where the source had space or a comment on the same line, nothing where it had
+// none, so the compiler splits them exactly as we did. Inside a string's \{ } everything stays on
+// the string's line.
+void emit(const std::vector<Token>& tokens, std::string& out, std::uint32_t& line, bool inString)
 {
     for (const Token& token : tokens)
     {
-        if (token.spaceBefore && !out.empty() && out.back() != '\n')
+        if (!inString && token.line > line)
+        {
+            out.append(token.line - line, '\n');
+            line = token.line;
+        }
+        else if (token.spaceBefore && !out.empty() && out.back() != '\n')
         {
             out += ' ';
         }
@@ -431,7 +438,7 @@ void emit(const std::vector<Token>& tokens, std::string& out)
                 if (i < token.interpolations.size())
                 {
                     out += "\\{";
-                    emit(token.interpolations[i], out);
+                    emit(token.interpolations[i], out, line, true);
                     out += '}';
                 }
             }
@@ -444,10 +451,6 @@ void emit(const std::vector<Token>& tokens, std::string& out)
         default:
             out += token.text;
             break;
-        }
-        if (token.is(";") || token.is("{") || token.is("}"))
-        {
-            out += '\n';
         }
     }
 }
@@ -502,7 +505,9 @@ public:
             result.verticalInterface = interfaceOf(m_options.verticalComponent);
         }
         renameIn(m_output);
-        emit(m_output, result.source);
+        std::uint32_t line = 1;
+        emit(m_output, result.source, line, false);
+        result.source += '\n';
         return result;
     }
 

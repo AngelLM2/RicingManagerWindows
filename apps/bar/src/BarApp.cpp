@@ -13,6 +13,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -302,6 +303,53 @@ void BarApp::watchDevPlugins(const std::vector<bar::PlanPlugin>& plugins)
     }
 }
 
+// Tries each plugin widget alone in `config`'s bar. The ones Slint refuses are left out, with
+// Slint's messages pointed at their own files; true when one was.
+bool BarApp::leaveOutBrokenWidgets(const domain::BarConfig& config)
+{
+    std::vector<std::string> broken;
+    for (const auto& widget : m_plugins.all())
+    {
+        std::vector<bar::WidgetKind> kinds(builtinKinds().begin(), builtinKinds().end());
+        kinds.push_back(widget->kind);
+        const bar::GeneratedBar generated =
+            bar::generateBarSource(config, kinds, PluginWidgets::sourcesWith(*widget, builtinSources()));
+        slint::interpreter::ComponentCompiler compiler;
+        if (compiler.build_from_source(generated.source, "bar.slint"))
+        {
+            continue;
+        }
+        const std::size_t before = PluginWidgets::lineBefore(generated.source, widget->id);
+        const auto lines = static_cast<std::size_t>(std::ranges::count(widget->checked.source, '\n'));
+        for (const auto& diagnostic : compiler.diagnostics())
+        {
+            if (diagnostic.level != slint::interpreter::DiagnosticLevel::Error)
+            {
+                continue;
+            }
+            const std::size_t line = diagnostic.line;
+            if (before != 0 && line > before && line <= before + lines)
+            {
+                log::error("bar: plugin widget {}: {}:{}:{}: {}", widget->id, widget->manifest.ui,
+                           line - before, diagnostic.column, std::string_view(diagnostic.message));
+            }
+            else
+            {
+                // In the bar around it: the component does not fit what plugin.toml declares.
+                log::error("bar: plugin widget {}: does not fit plugin.toml: {}", widget->id,
+                           std::string_view(diagnostic.message));
+            }
+        }
+        log::error("bar: plugin widget {} left out: Slint refuses it", widget->id);
+        broken.push_back(widget->id);
+    }
+    for (const auto& id : broken)
+    {
+        m_plugins.remove(id);
+    }
+    return !broken.empty();
+}
+
 std::unique_ptr<slint::platform::WindowAdapter> BarApp::createAdapter()
 {
     if (!m_pending)
@@ -373,16 +421,25 @@ bool BarApp::rebuild()
     const bool light = systemLight();
     m_plugins.load(plan->plugins);
     watchDevPlugins(plan->plugins);
-    const auto pluginKinds = m_plugins.kinds();
-    const std::string pluginSources = m_plugins.sources(builtinSources());
+    auto pluginKinds = m_plugins.kinds();
+    std::string pluginSources = m_plugins.sources(builtinSources());
     for (const auto& config : plan->bars)
     {
         bar::GeneratedBar generated = bar::generateBarSource(config, pluginKinds, pluginSources);
         slint::interpreter::ComponentCompiler compiler;
         auto definition = compiler.build_from_source(generated.source, "bar.slint");
+        // A plugin widget the checks let through but Slint refuses must not take the bar down:
+        // the ones Slint refuses alone are left out, and the rest shows.
+        if (!definition && !m_plugins.all().empty() && leaveOutBrokenWidgets(config))
+        {
+            pluginKinds = m_plugins.kinds();
+            pluginSources = m_plugins.sources(builtinSources());
+            generated = bar::generateBarSource(config, pluginKinds, pluginSources);
+            definition = compiler.build_from_source(generated.source, "bar.slint");
+        }
         if (!definition && !m_plugins.all().empty())
         {
-            // A plugin widget the checks let through but Slint refuses must not take the bar down.
+            // Only together do they fail: the bar shows without any.
             for (const auto& diagnostic : compiler.diagnostics())
             {
                 log::error("bar: with plugin widgets {}:{}: {}", diagnostic.line, diagnostic.column,

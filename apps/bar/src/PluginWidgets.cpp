@@ -11,8 +11,10 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <format>
+#include <span>
 
 namespace rmw::barapp
 {
@@ -101,6 +103,46 @@ Value defaultOf(domain::WidgetType type)
         return {slint::Image()};
     }
     return {};
+}
+
+std::string marker(std::string_view id)
+{
+    return std::format("// ---- plugin widget {} ----\n", id);
+}
+
+// std-widgets imports first, then the built-in sources, then the plugins'. Each plugin's source
+// starts on the line after its marker, so Slint's line numbers map back to the plugin's file.
+std::string joinSources(std::span<const PluginWidget* const> widgets, std::string_view builtin)
+{
+    std::vector<std::string> imports;
+    for (const PluginWidget* widget : widgets)
+    {
+        for (const auto& name : widget->checked.stdWidgets)
+        {
+            if (!declares(imports, name))
+            {
+                imports.push_back(name);
+            }
+        }
+    }
+    std::string source;
+    if (!imports.empty())
+    {
+        source = "import { ";
+        for (std::size_t i = 0; i < imports.size(); ++i)
+        {
+            source += (i == 0 ? "" : ", ") + imports[i];
+        }
+        source += " } from \"std-widgets.slint\";\n";
+    }
+    source += builtin;
+    for (const PluginWidget* widget : widgets)
+    {
+        source += '\n';
+        source += marker(widget->id);
+        source += widget->checked.source;
+    }
+    return source;
 }
 
 } // namespace
@@ -247,34 +289,35 @@ std::vector<bar::WidgetKind> PluginWidgets::kinds() const
 
 std::string PluginWidgets::sources(std::string_view builtin) const
 {
-    std::vector<std::string> imports;
+    std::vector<const PluginWidget*> widgets;
+    widgets.reserve(m_widgets.size());
     for (const auto& widget : m_widgets)
     {
-        for (const auto& name : widget->checked.stdWidgets)
-        {
-            if (!declares(imports, name))
-            {
-                imports.push_back(name);
-            }
-        }
+        widgets.push_back(widget.get());
     }
-    std::string source;
-    if (!imports.empty())
+    return joinSources(widgets, builtin);
+}
+
+std::string PluginWidgets::sourcesWith(const PluginWidget& widget, std::string_view builtin)
+{
+    const std::array<const PluginWidget*, 1> one{&widget};
+    return joinSources(one, builtin);
+}
+
+std::size_t PluginWidgets::lineBefore(std::string_view generated, std::string_view id)
+{
+    const auto at = generated.find(marker(id));
+    if (at == std::string_view::npos)
     {
-        source = "import { ";
-        for (std::size_t i = 0; i < imports.size(); ++i)
-        {
-            source += (i == 0 ? "" : ", ") + imports[i];
-        }
-        source += " } from \"std-widgets.slint\";\n";
+        return 0;
     }
-    source += builtin;
-    for (const auto& widget : m_widgets)
-    {
-        source += std::format("\n// ---- plugin widget {} ----\n", widget->id);
-        source += widget->checked.source;
-    }
-    return source;
+    // The marker's own line: the plugin's source starts on the next one.
+    return static_cast<std::size_t>(std::ranges::count(generated.substr(0, at), '\n')) + 1;
+}
+
+void PluginWidgets::remove(std::string_view id)
+{
+    std::erase_if(m_widgets, [id](const auto& widget) { return widget->id == id; });
 }
 
 Result<Value> PluginWidgets::convert(const PluginWidget& widget, const domain::WidgetTypeRef& type,
