@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: beta (v0.6.0, milestone M6 "Vídeo").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows and video wallpapers; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
+**Status: beta (v0.7.0, milestone M7 "Interface").** A settings window and the command line: apply a rice, edit it, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows and video wallpapers; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. Packaging (installer, official rices) comes next (see [docs/04-mvp.md](docs/04-mvp.md)).
 
 ---
 
@@ -18,7 +18,22 @@ Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: w
 
 Planejamento completo: [docs/README.md](docs/README.md).
 
-### Usar (linha de comando, v0.6)
+### A janela de configurações (v0.7)
+
+`rmw-settings.exe` abre a janela do Ricing Manager (Fluent, claro ou escuro como o Windows, em pt-BR ou inglês):
+
+- **Início:** o rice aplicado, o que está sendo gerenciado, "Desfazer" e "Restaurar o Windows original", e o histórico.
+- **Rices:** aplicar, editar, duplicar, salvar o visual atual como um rice, adicionar uma pasta.
+- **Aparência, Wallpapers, Cursores, Barra de tarefas e Plugins:** mudam o rice escolhido.
+  - Os arquivos que você escolhe são copiados para dentro do rice, que continua inteiro e compartilhável.
+  - As barras próprias têm um editor visual: arraste os widgets entre as zonas, ou use os botões.
+- **Atalhos e regras:** inclusive "Abrir um app" (`launch.app`), escolhido na lista de apps instalados.
+- **Diagnóstico:** processos, memória, problemas recentes e um pacote de suporte.
+- **Configurações:** iniciar com o Windows, idioma, sobre.
+
+Fechar a janela encerra o processo: ela não fica rodando.
+
+### Usar (linha de comando, v0.7)
 
 Um rice é uma pasta com um `rice.toml` e seus arquivos:
 
@@ -58,6 +73,7 @@ rmw restore --snapshot 3       # volta a antes da operação 3
 rmw restore --original         # volta ao Windows de antes do primeiro apply
 rmw export .\meu-visual        # salva o visual atual como um rice
 rmw monitors                   # monitores e suas chaves (para match = "edid:...")
+rmw apps                       # apps instalados e seus ids (para launch.app)
 rmw status                     # o que está gerenciado, agendamento, atalhos, modo seguro
 ```
 
@@ -68,6 +84,9 @@ Ajustes que você mudar por conta própria depois de aplicar deixam de seguir o 
 ```toml
 [core]
 keep_in_tray = true
+
+[ui]
+language = "pt-BR"            # ou "en"; sem isto, o idioma do Windows
 
 [[hotkey]]
 keys = "Win+Alt+D"
@@ -83,7 +102,7 @@ when = "battery"             # "time" (com at = "HH:MM"), "battery", "ac", "moni
 action = "appearance.dark"
 ```
 
-Ações: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next` — e as dos plugins, como `<id do plugin>:<ação>`. Com atalhos, regras ou agendamento, o app fica residente (ícone na bandeja); sem nada disso, ele aplica e sai.
+Ações: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next`, `launch.app` (com `app = "<id>"`, de `rmw apps`) — e as dos plugins, como `<id do plugin>:<ação>`. Com atalhos, regras ou agendamento, o app fica residente (ícone na bandeja); sem nada disso, ele aplica e sai.
 
 ```powershell
 rmw autostart on               # iniciar com o Windows (desligado até você pedir)
@@ -177,7 +196,11 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 
 The planning documents (in Portuguese) are in [docs/](docs/README.md).
 
-### Use (command line, v0.6)
+### The settings window (v0.7)
+
+`rmw-settings.exe` opens Ricing Manager's window (Fluent, light or dark like Windows, in English or Portuguese). Home shows the applied rice, what is managed, Undo, Restore the original Windows and the history; Rices applies, edits, duplicates and saves your current look as a rice. Appearance, Wallpapers, Cursors, Taskbar (with a visual editor of your own bars: drag widgets between zones, or use the buttons) and Plugins change the chosen rice; the files you pick are copied into it, so it stays whole and shareable. Hotkeys and rules include `Open an app` (`launch.app`, picked from the installed apps); Diagnostics shows processes, memory, recent problems and makes a support bundle. Closing the window ends the process.
+
+### Use (command line, v0.7)
 
 A rice is a folder with a `rice.toml` (example above) and its files.
 
@@ -189,12 +212,13 @@ rmw restore --snapshot 3       # back to before operation 3
 rmw restore --original         # back to the Windows you had before the first apply
 rmw export .\my-look           # save the current look as a rice
 rmw monitors                   # monitors and their keys (for match = "edid:...")
+rmw apps                       # installed apps and their ids (for launch.app)
 rmw status                     # what is managed, schedule, hotkeys, safe mode
 ```
 
 Settings you change yourself after applying stop following the rice (your change stays) and are not undone by mistake (`--force` restores them anyway).
 
-**Hotkeys and rules** live in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (example above; re-read as soon as you save it). Actions: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next` — and plugins' own, as `<plugin id>:<action>`. With hotkeys, rules or a schedule the app stays resident (tray icon); otherwise it applies and exits.
+**Hotkeys and rules** live in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (example above; re-read as soon as you save it). Actions: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next`, `launch.app` (with `app = "<id>"`, from `rmw apps`) — and plugins' own, as `<plugin id>:<action>`. With hotkeys, rules or a schedule the app stays resident (tray icon); otherwise it applies and exits.
 
 ```powershell
 rmw autostart on               # start with Windows (off until you ask)

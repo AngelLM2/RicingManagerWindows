@@ -1,0 +1,136 @@
+// Names the core uses (modules, worker states, plugin states, actions) as the user reads them.
+export global Words {
+    public pure function module(name: string) -> string {
+        return name == "appearance" ? @tr("Light/dark mode and accent")
+            : name == "wallpaper" ? @tr("Wallpaper")
+            : name == "cursors" ? @tr("Cursors")
+            : name == "taskbar" ? @tr("Windows' taskbar")
+            : name == "bar" ? @tr("Ricing Manager's bar")
+            : name == "tweaks" ? @tr("Tweaks from plugins")
+            : name;
+    }
+
+    public pure function worker(key: string) -> string {
+        return key == "bar" ? @tr("Bar")
+            : key == "video" ? @tr("Video wallpaper")
+            : key == "plugins" ? @tr("Plugins")
+            : key == "schedule" ? @tr("Light/dark schedule")
+            : key == "safe-mode" ? @tr("Safe mode")
+            : key == "tools" ? @tr("Other customizers")
+            : key;
+    }
+
+    public pure function state(state: string) -> string {
+        return state == "running" ? @tr("running")
+            : state == "starting" ? @tr("starting")
+            : state == "off" ? @tr("off")
+            : state == "on" ? @tr("on")
+            : state == "disabled" ? @tr("stopped after failing too often")
+            : state == "stopped" ? @tr("stopped")
+            : state == "enabled" ? @tr("on, not running yet")
+            : state == "needs-approval" ? @tr("waits for your approval")
+            : state == "broken" ? @tr("cannot be read")
+            : state == "paused" ? @tr("paused")
+            : state == "playing" ? @tr("playing")
+            : state == "released" ? @tr("paused, memory freed")
+            : state == "failed" ? @tr("not playing")
+            : state;
+    }
+
+    public pure function action(name: string) -> string {
+        return name == "rice.apply" ? @tr("Apply a rice")
+            : name == "rice.undo" ? @tr("Undo the last rice")
+            : name == "restore.original" ? @tr("Restore the original Windows")
+            : name == "appearance.toggle" ? @tr("Switch light/dark mode")
+            : name == "appearance.dark" ? @tr("Dark mode")
+            : name == "appearance.light" ? @tr("Light mode")
+            : name == "bar.toggle" ? @tr("Show or hide the bar")
+            : name == "bar.on" ? @tr("Show the bar")
+            : name == "bar.off" ? @tr("Hide the bar")
+            : name == "wallpaper.next" ? @tr("Next wallpaper (slideshow)")
+            : name == "launch.app" ? @tr("Open an app")
+            : name;
+    }
+
+    public pure function widget(id: string) -> string {
+        return id == "start" ? @tr("Start")
+            : id == "desktops" ? @tr("Desktops")
+            : id == "windows" ? @tr("Windows")
+            : id == "tray" ? @tr("System tray")
+            : id == "clock" ? @tr("Clock")
+            : id == "media" ? @tr("Now playing")
+            : id == "cpu" ? @tr("CPU")
+            : id == "memory" ? @tr("Memory")
+            : id == "network" ? @tr("Network")
+            : id == "volume" ? @tr("Volume")
+            : id == "battery" ? @tr("Battery")
+            : id == "notifications" ? @tr("Notifications")
+            : id;
+    }
+
+    // What a plugin may do, as its permission screen says it (docs/12 §5). `name` is a provider or an
+    // action of the plugin API, "network:<domain>" or "storage".
+    public pure function permission(name: string) -> string {
+        return name == "time" ? @tr("read the local time")
+            : name == "system.cpu" ? @tr("read the CPU usage")
+            : name == "system.memory" ? @tr("read the memory usage")
+            : name == "network.stats" ? @tr("read how much the network sends and receives")
+            : name == "battery" ? @tr("read the battery level and whether the PC is plugged in")
+            : name == "audio.volume" ? @tr("read the speaker volume")
+            : name == "monitors" ? @tr("read the list of monitors")
+            : name == "virtual-desktops" ? @tr("read how many virtual desktops there are and which one is shown")
+            : name == "media" ? @tr("see what is playing (title, artist, app)")
+            : name == "windows.list" ? @tr("see the titles of your open windows")
+            : name == "tray" ? @tr("see the icons of the system tray and their tips")
+            : name == "media.control" ? @tr("play, pause and skip what is playing")
+            : name == "window.activate" ? @tr("bring a window to the front, or minimize it")
+            : name == "window.focus" ? @tr("bring a window to the front")
+            : name == "window.minimize" ? @tr("minimize a window")
+            : name == "window.close" ? @tr("close your windows")
+            : name == "tray.click" ? @tr("click the icons of the system tray")
+            : name == "rice.apply" ? @tr("apply a rice that comes with the plugin")
+            : name == "rice.undo" ? @tr("undo the last change of rice")
+            : name == "wallpaper.next" ? @tr("show the next wallpaper of a slideshow")
+            : name == "bar.toggle" ? @tr("show or hide the bar")
+            : name == "bar.on" ? @tr("show the bar")
+            : name == "bar.off" ? @tr("hide the bar")
+            : name == "appearance.toggle" ? @tr("switch between light and dark mode")
+            : name == "appearance.dark" ? @tr("switch to dark mode")
+            : name == "appearance.light" ? @tr("switch to light mode")
+            : name == "launch.app" ? @tr("open apps installed on this PC")
+            : name == "storage" ? @tr("keep a little data of its own")
+            : name;
+    }
+
+    public pure function network(domain: string) -> string {
+        return @tr("talk to {} on the internet", domain);
+    }
+
+    public pure function bar-name(number: int, position: int, monitor: string) -> string {
+        return @tr("Bar {} — {}, {}", number,
+            position == 0 ? @tr("top") : position == 1 ? @tr("bottom") : position == 2 ? @tr("left") : @tr("right"),
+            monitor);
+    }
+
+    public pure function new-rice-name() -> string {
+        return @tr("My rice");
+    }
+
+    public pure function my-look-name() -> string {
+        return @tr("My look");
+    }
+
+    public pure function copy-name(name: string) -> string {
+        return @tr("{} (copy)", name);
+    }
+
+    public pure function match(selector: string) -> string {
+        return selector == "all" ? @tr("Every monitor")
+            : selector == "primary" ? @tr("Main monitor")
+            : selector == "left" ? @tr("Leftmost monitor")
+            : selector == "right" ? @tr("Rightmost monitor")
+            : selector == "top" ? @tr("Top monitor")
+            : selector == "bottom" ? @tr("Bottom monitor")
+            : selector;
+    }
+}

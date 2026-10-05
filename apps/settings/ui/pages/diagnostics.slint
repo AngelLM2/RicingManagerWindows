@@ -1,0 +1,106 @@
+import { Button, ScrollView, Palette } from "std-widgets.slint";
+import { Api } from "../api.slint";
+import { Card, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
+
+export component DiagnosticsPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Diagnostics");
+            subtitle: @tr("What runs, what it costs, and what went wrong lately.");
+        }
+
+        Card {
+            title: @tr("Processes");
+            subtitle: @tr("Memory is private memory (what the process alone uses); CPU is over the last seconds.");
+
+            for process in Api.processes: HorizontalLayout {
+                spacing: 12px;
+
+                Text {
+                    width: 180px;
+                    text: process.name;
+                    color: Palette.foreground;
+                }
+
+                Hint {
+                    horizontal-stretch: 1;
+                    text: process.role;
+                    font-size: Metrics.small-text;
+                }
+
+                Text {
+                    width: 90px;
+                    text: process.memory;
+                    horizontal-alignment: right;
+                    color: Palette.foreground;
+                }
+
+                Text {
+                    width: 70px;
+                    text: process.cpu;
+                    horizontal-alignment: right;
+                    color: Palette.foreground;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: @tr("Refresh");
+                    clicked => {
+                        Api.diagnostics-refresh();
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("Recent problems");
+            subtitle: @tr("Warnings and errors from the logs, newest first.");
+
+            if Api.recent-problems.length == 0: Hint {
+                text: @tr("Nothing went wrong lately.");
+            }
+
+            for line in Api.recent-problems: Text {
+                text: line;
+                wrap: word-wrap;
+                font-family: "Cascadia Mono";
+                font-size: 11px;
+                color: Palette.foreground;
+            }
+        }
+
+        Card {
+            title: @tr("Logs and support");
+            subtitle: Api.data-folder;
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                Button {
+                    text: @tr("Open the logs folder");
+                    clicked => {
+                        Api.open-logs();
+                    }
+                }
+
+                Button {
+                    text: @tr("Make a support bundle");
+                    clicked => {
+                        Api.support-bundle();
+                    }
+                }
+            }
+
+            Hint {
+                text: @tr("The bundle is a folder with the logs and the current state, your user folder hidden. Nothing is sent anywhere: you choose whom to give it to.");
+            }
+        }
+    }
+}

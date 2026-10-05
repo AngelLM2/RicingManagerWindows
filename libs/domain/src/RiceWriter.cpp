@@ -1,0 +1,510 @@
+#include "rmw/domain/RiceWriter.hpp"
+
+#include "BarReader.hpp"
+#include "EnumNames.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <format>
+
+namespace rmw::domain
+{
+
+using namespace detail;
+
+namespace
+{
+
+bool isBareKey(std::string_view key) noexcept
+{
+    return !key.empty() && std::ranges::all_of(key, [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ||
+               c == '_';
+    });
+}
+
+std::string number(double value)
+{
+    if (std::isnan(value))
+    {
+        return "nan";
+    }
+    if (std::isinf(value))
+    {
+        return value < 0 ? "-inf" : "inf";
+    }
+    std::string text = std::format("{}", value); // the shortest text that reads back the same
+    if (text.find_first_of(".eE") == std::string::npos)
+    {
+        text += ".0"; // or TOML reads an integer
+    }
+    return text;
+}
+
+std::string timeOfDay(TimeOfDay time)
+{
+    return std::format("{:02}:{:02}", time.hour, time.minute);
+}
+
+class Writer
+{
+public:
+    std::string take() { return std::move(m_text); }
+
+    void line(std::string_view text)
+    {
+        m_text += text;
+        m_text += '\n';
+    }
+    void header(std::string_view name)
+    {
+        separate();
+        line(std::format("[{}]", name));
+    }
+    void arrayHeader(std::string_view name)
+    {
+        separate();
+        line(std::format("[[{}]]", name));
+    }
+    void key(std::string_view name, std::string_view value)
+    {
+        line(std::format("{} = {}", tomlKey(name), value));
+    }
+    void string(std::string_view name, std::string_view value) { key(name, tomlQuote(value)); }
+    void boolean(std::string_view name, bool value) { key(name, value ? "true" : "false"); }
+    void integer(std::string_view name, std::int64_t value) { key(name, std::to_string(value)); }
+
+    template <class T>
+    void optional(std::string_view name, const std::optional<T>& value)
+    {
+        if (!value)
+        {
+            return;
+        }
+        if constexpr (std::is_same_v<T, bool>)
+        {
+            boolean(name, *value);
+        }
+        else
+        {
+            integer(name, static_cast<std::int64_t>(*value));
+        }
+    }
+
+private:
+    void separate()
+    {
+        if (!m_text.empty())
+        {
+            m_text += '\n';
+        }
+    }
+
+    std::string m_text;
+};
+
+void writeMeta(Writer& w, const RiceMeta& meta)
+{
+    w.header("meta");
+    if (!meta.id.empty())
+    {
+        w.string("id", meta.id);
+    }
+    w.string("name", meta.name);
+    if (!meta.author.empty())
+    {
+        w.string("author", meta.author);
+    }
+    if (!meta.description.empty())
+    {
+        w.string("description", meta.description);
+    }
+    if (meta.version)
+    {
+        w.string("version", meta.version->toString());
+    }
+    if (!meta.license.empty())
+    {
+        w.string("license", meta.license);
+    }
+    if (meta.minApp)
+    {
+        w.string("min_app", meta.minApp->toString());
+    }
+}
+
+void writeAppearance(Writer& w, const AppearanceConfig& appearance)
+{
+    w.header("appearance");
+    if (appearance.mode)
+    {
+        w.string("mode", enumToName<ThemeMode>(kThemeModeNames, *appearance.mode));
+    }
+    if (appearance.accent)
+    {
+        w.string("accent", appearance.accent->toHex());
+    }
+    w.optional("transparency", appearance.transparency);
+    w.optional("accent_on_taskbar", appearance.accentOnTaskbar);
+    if (appearance.schedule)
+    {
+        w.header("appearance.schedule");
+        w.string("light_at", timeOfDay(appearance.schedule->lightAt));
+        w.string("dark_at", timeOfDay(appearance.schedule->darkAt));
+    }
+}
+
+void writeWallpaper(Writer& w, const WallpaperConfig& wallpaper)
+{
+    w.header("wallpaper");
+    w.string("mode", enumToName<WallpaperLayout>(kWallpaperLayoutNames, wallpaper.layout));
+    if (wallpaper.background)
+    {
+        w.string("background", wallpaper.background->toHex());
+    }
+    if (wallpaper.layout == WallpaperLayout::Span)
+    {
+        w.string("source", wallpaper.spanSource);
+    }
+    const WallpaperPolicy& policy = wallpaper.policy;
+    if (policy.pauseOnFullscreen || policy.pauseOnBattery || policy.pauseWhenCovered || policy.fpsLimit ||
+        policy.mute)
+    {
+        w.header("wallpaper.policy");
+        w.optional("pause_on_fullscreen", policy.pauseOnFullscreen);
+        w.optional("pause_on_battery", policy.pauseOnBattery);
+        w.optional("pause_when_covered", policy.pauseWhenCovered);
+        w.optional("fps_limit", policy.fpsLimit);
+        w.optional("mute", policy.mute);
+    }
+    if (wallpaper.layout == WallpaperLayout::Span)
+    {
+        return;
+    }
+    for (const auto& rule : wallpaper.monitors)
+    {
+        w.arrayHeader("wallpaper.monitor");
+        w.string("match", rule.match.toString());
+        w.string("kind", enumToName<WallpaperKind>(kWallpaperKindNames, rule.kind));
+        if (rule.kind == WallpaperKind::Color)
+        {
+            if (rule.color)
+            {
+                w.string("color", rule.color->toHex());
+            }
+            continue;
+        }
+        w.string("source", rule.source);
+        w.string("fit", enumToName<WallpaperFit>(kWallpaperFitNames, rule.fit));
+        if (rule.kind == WallpaperKind::Video && !rule.fallbackImage.empty())
+        {
+            w.string("fallback_image", rule.fallbackImage);
+        }
+        if (rule.kind == WallpaperKind::Slideshow)
+        {
+            w.optional("interval", rule.intervalSeconds);
+            w.optional("shuffle", rule.shuffle);
+        }
+    }
+}
+
+void writeCursors(Writer& w, const CursorConfig& cursors)
+{
+    w.header("cursors");
+    w.string("source", cursors.source);
+    w.optional("size", cursors.size);
+    if (!cursors.map.empty())
+    {
+        w.header("cursors.map");
+        for (const auto& assignment : cursors.map)
+        {
+            w.string(riceName(assignment.role), assignment.file);
+        }
+    }
+}
+
+void writeTaskbar(Writer& w, const TaskbarConfig& taskbar)
+{
+    w.header("taskbar");
+    if (taskbar.alignment)
+    {
+        w.string("alignment", enumToName<TaskbarAlignment>(kTaskbarAlignmentNames, *taskbar.alignment));
+    }
+    w.optional("autohide", taskbar.autohide);
+    w.optional("task_view", taskbar.taskView);
+    if (taskbar.search)
+    {
+        w.string("search", enumToName<TaskbarSearch>(kTaskbarSearchNames, *taskbar.search));
+    }
+}
+
+void writePlugins(Writer& w, const Rice& rice)
+{
+    if (rice.pluginRequirements.empty() && rice.pluginSettings.empty())
+    {
+        return;
+    }
+    w.header("plugins");
+    if (!rice.pluginRequirements.empty())
+    {
+        std::string list;
+        for (const auto& requirement : rice.pluginRequirements)
+        {
+            list += list.empty() ? "" : ", ";
+            const std::string version = requirement.version.toString();
+            list += tomlQuote(version.empty() || version == "*" ? requirement.id
+                                                                : requirement.id + "@" + version);
+        }
+        w.key("requires", "[" + list + "]");
+    }
+    for (const auto& settings : rice.pluginSettings)
+    {
+        w.header("plugins." + tomlKey(settings.id));
+        if (const auto* members = settings.config.table())
+        {
+            for (const auto& member : *members)
+            {
+                if (!member.value.isNull())
+                {
+                    w.key(member.key, tomlValue(member.value));
+                }
+            }
+        }
+    }
+}
+
+std::string barItems(const std::vector<BarItem>& items)
+{
+    std::string list;
+    for (const auto& item : items)
+    {
+        list += list.empty() ? "" : ", ";
+        const auto* config = item.config.table();
+        if (config == nullptr)
+        {
+            list += tomlQuote(item.id);
+            continue;
+        }
+        list += "{ id = " + tomlQuote(item.id);
+        for (const auto& member : *config)
+        {
+            if (!member.value.isNull())
+            {
+                list += ", " + tomlKey(member.key) + " = " + tomlValue(member.value);
+            }
+        }
+        list += " }";
+    }
+    return "[" + list + "]";
+}
+
+void writeBar(Writer& w, const BarConfig& bar)
+{
+    w.arrayHeader("bar");
+    w.string("monitor", bar.monitor.toString());
+    if (!bar.skin.empty())
+    {
+        w.string("skin", bar.skin);
+    }
+    // What the bar itself sets: the keys it was read with; a new bar without a skin sets them all.
+    const bool all = bar.keys.empty() && bar.skin.empty();
+    const auto has = [&](std::string_view key) { return all || std::ranges::contains(bar.keys, key); };
+    if (has("position"))
+    {
+        w.string("position", enumToName<BarPosition>(kBarPositionNames, bar.position));
+    }
+    if (has("mode"))
+    {
+        w.string("mode", enumToName<BarMode>(kBarModeNames, bar.mode));
+    }
+    if (has("thickness"))
+    {
+        w.integer("thickness", bar.thickness);
+    }
+    if (has("length"))
+    {
+        if (bar.length.percent)
+        {
+            w.string("length", std::format("{}%", bar.length.value));
+        }
+        else
+        {
+            w.integer("length", static_cast<std::int64_t>(std::llround(bar.length.value)));
+        }
+    }
+    if (has("margin"))
+    {
+        w.key("margin",
+              std::format("[{}, {}, {}, {}]", bar.margin[0], bar.margin[1], bar.margin[2], bar.margin[3]));
+    }
+    if (has("radius"))
+    {
+        w.integer("radius", bar.radius);
+    }
+    if (has("background"))
+    {
+        std::string background =
+            "{ kind = " +
+            tomlQuote(enumToName<BarBackground::Kind>(kBarBackgroundNames, bar.background.kind));
+        if (bar.background.tint)
+        {
+            background += ", tint = " + tomlQuote(bar.background.tint->toString());
+        }
+        if (bar.background.opacity)
+        {
+            background += ", opacity = " + number(*bar.background.opacity);
+        }
+        w.key("background", background + " }");
+    }
+    if (has("foreground") && bar.foreground)
+    {
+        w.string("foreground", bar.foreground->toString());
+    }
+    if (has("autohide"))
+    {
+        w.boolean("autohide", bar.autohide);
+    }
+    if (has("hide_native_taskbar"))
+    {
+        w.boolean("hide_native_taskbar", bar.hideNativeTaskbar);
+    }
+    if (has("left"))
+    {
+        w.key("left", barItems(bar.left));
+    }
+    if (has("center"))
+    {
+        w.key("center", barItems(bar.center));
+    }
+    if (has("right"))
+    {
+        w.key("right", barItems(bar.right));
+    }
+}
+
+} // namespace
+
+std::string tomlQuote(std::string_view text)
+{
+    std::string out = "\"";
+    for (const char c : text)
+    {
+        const auto byte = static_cast<unsigned char>(c);
+        switch (c)
+        {
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            if (byte < 0x20 || byte == 0x7F)
+            {
+                out += std::format("\\u{:04X}", static_cast<unsigned>(byte));
+            }
+            else
+            {
+                out += c;
+            }
+        }
+    }
+    out += '"';
+    return out;
+}
+
+std::string tomlKey(std::string_view key)
+{
+    return isBareKey(key) ? std::string(key) : tomlQuote(key);
+}
+
+std::string tomlValue(const Value& value)
+{
+    struct Visitor
+    {
+        std::string operator()(std::monostate) const { return "{}"; }
+        std::string operator()(bool b) const { return b ? "true" : "false"; }
+        std::string operator()(std::int64_t i) const { return std::to_string(i); }
+        std::string operator()(double d) const { return number(d); }
+        std::string operator()(const std::string& s) const { return tomlQuote(s); }
+        std::string operator()(const Value::Array& array) const
+        {
+            std::string out = "[";
+            for (const auto& item : array)
+            {
+                if (item.isNull())
+                {
+                    continue;
+                }
+                out += out.size() > 1 ? ", " : "";
+                out += tomlValue(item);
+            }
+            return out + "]";
+        }
+        std::string operator()(const Value::Table& table) const
+        {
+            std::string out = "{";
+            bool first = true;
+            for (const auto& member : table)
+            {
+                if (member.value.isNull())
+                {
+                    continue;
+                }
+                out += first ? " " : ", ";
+                first = false;
+                out += tomlKey(member.key) + " = " + tomlValue(member.value);
+            }
+            return out + (first ? "}" : " }");
+        }
+    };
+    return std::visit(Visitor{}, value.data);
+}
+
+std::string writeRice(const Rice& rice)
+{
+    Writer w;
+    w.integer("schema", rice.schema);
+    writeMeta(w, rice.meta);
+    if (!rice.palette.empty())
+    {
+        w.header("palette");
+        for (const auto& entry : rice.palette)
+        {
+            w.string(entry.name, entry.color.toHex());
+        }
+    }
+    if (rice.appearance)
+    {
+        writeAppearance(w, *rice.appearance);
+    }
+    if (rice.wallpaper)
+    {
+        writeWallpaper(w, *rice.wallpaper);
+    }
+    if (rice.cursors)
+    {
+        writeCursors(w, *rice.cursors);
+    }
+    if (rice.taskbar)
+    {
+        writeTaskbar(w, *rice.taskbar);
+    }
+    writePlugins(w, rice);
+    for (const auto& bar : rice.bars)
+    {
+        writeBar(w, bar);
+    }
+    return w.take();
+}
+
+} // namespace rmw::domain

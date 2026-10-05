@@ -1,0 +1,119 @@
+import { Button, ScrollView, Palette } from "std-widgets.slint";
+import { Api, Page } from "../api.slint";
+import { Card, Hint, PageHeader, SettingRow, Chip, Problem } from "../common.slint";
+import { Words } from "../words.slint";
+
+export component HomePage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Home");
+            subtitle: @tr("What Ricing Manager manages now, and the way back.");
+        }
+
+        if Api.safe-mode: Problem {
+            error: false;
+            text: @tr("Safe mode: Ricing Manager stopped unexpectedly when starting, so nothing runs by itself. Restoring still works.");
+        }
+
+        Card {
+            title: Api.active-name != "" ? Api.active-name : @tr("No rice applied");
+            subtitle: Api.active-name != "" ? Api.active-folder : @tr("Pick one in Rices, or start your own.");
+
+            if Api.managed.length > 0: HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                for name in Api.managed: Chip {
+                    text: Words.module(name);
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                Button {
+                    text: @tr("Edit this rice");
+                    enabled: Api.active-folder != "" && !Api.busy;
+                    clicked => {
+                        Api.edit-active-rice();
+                    }
+                }
+
+                Button {
+                    text: @tr("Rices");
+                    clicked => {
+                        Api.page = Page.rices;
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("Undo");
+            subtitle: @tr("Every change is recorded and can be taken back.");
+
+            SettingRow {
+                label: @tr("Undo the last rice");
+                description: @tr("Back to the rice applied before this one.");
+                Button {
+                    text: @tr("Undo");
+                    enabled: Api.can-undo && !Api.busy;
+                    clicked => {
+                        Api.confirm-what = "undo";
+                        Api.confirm-arg = "";
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Restore the original Windows");
+                description: Api.original-captured
+                    ? @tr("Your wallpaper, colors, cursors and taskbar as they were before the first rice.")
+                    : @tr("Nothing has been changed yet.");
+                Button {
+                    text: @tr("Restore");
+                    enabled: Api.original-captured && !Api.busy;
+                    clicked => {
+                        Api.confirm-what = "restore-original";
+                        Api.confirm-arg = "";
+                    }
+                }
+            }
+        }
+
+        if Api.status-lines.length > 0: Card {
+            title: @tr("Running now");
+
+            for line in Api.status-lines: SettingRow {
+                label: Words.worker(line.key);
+                description: line.detail;
+                Chip {
+                    text: Words.state(line.state);
+                    warn: line.state == "disabled" || line.state == "stopped" || line.state == "failed";
+                }
+            }
+        }
+
+        if Api.history.length > 0: Card {
+            title: @tr("History");
+            subtitle: @tr("Go back to how things were before any of these.");
+
+            for entry in Api.history: SettingRow {
+                label: entry.label;
+                description: entry.when;
+                Button {
+                    text: @tr("Go back to before this");
+                    enabled: !Api.busy;
+                    clicked => {
+                        Api.confirm-what = "snapshot";
+                        Api.confirm-arg = entry.id;
+                    }
+                }
+            }
+        }
+    }
+}

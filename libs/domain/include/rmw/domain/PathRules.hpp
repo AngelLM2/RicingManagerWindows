@@ -17,6 +17,11 @@ namespace rmw::domain
 // 8.3 short-name aliases ("~" followed by a digit), invalid UTF-8 and over-long names.
 Result<std::string> validatePackagePath(std::string_view path);
 
+// A file or folder name made from free text (a rice's name, a picked file's name): letters,
+// digits, space . - _ and anything non-ASCII kept, everything else '-', at most 60 bytes, and
+// never a name validatePackagePath() refuses (then `fallback`).
+std::string safeFileName(std::string_view name, std::string_view fallback);
+
 // True when the path's extension (case-insensitive, without dot) is one of `allowed`,
 // e.g. hasExtension("a/b.CUR", {"cur", "ani"}).
 bool hasExtension(std::string_view path, std::initializer_list<std::string_view> allowed) noexcept;
