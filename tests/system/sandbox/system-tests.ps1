@@ -152,6 +152,12 @@ $wallpaperAfter = (Invoke-Rmw @('inspect', 'wallpaper')).output
 $shown = @(($wallpaperAfter | ConvertFrom-Json).state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } | ForEach-Object { $_.Value.file })
 Check 'apply:wallpaper' ($shown.Count -gt 0 -and @($shown | Where-Object { $_ -notlike '*\store\*' }).Count -eq 0) ($shown -join ', ')
 
+$exported = Join-Path $Work 'exported'
+$r = Invoke-Rmw @('export', $exported, '--name', 'Exported from the Sandbox')
+Check 'export' ($r.code -eq 0 -and (Test-Path (Join-Path $exported 'rice.toml'))) $r.output
+$r = Invoke-Rmw @('validate', $exported)
+Check 'export:valid' ($r.code -eq 0) $r.output
+
 $r = Invoke-Rmw @('history')
 Check 'history' ($r.code -eq 0 -and $r.output -match 'Sandbox system test') $r.output
 

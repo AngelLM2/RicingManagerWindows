@@ -1,6 +1,7 @@
 #include "rmw/platform/FileSystem.hpp"
 
 #include "rmw/base/ScopeExit.hpp"
+#include "rmw/base/Utf.hpp"
 #include "rmw/platform/WinError.hpp"
 
 #include <windows.h>
@@ -411,6 +412,74 @@ Result<void> writeFileAtomic(const std::filesystem::path& path, std::span<const 
     {
         DeleteFileW(temporary.c_str());
         return replaced;
+    }
+    return {};
+}
+
+Result<std::filesystem::path> expandEnvironment(std::string_view text)
+{
+    auto wide = utf8To16(text);
+    if (!wide)
+    {
+        return std::unexpected(std::move(wide.error()));
+    }
+    const DWORD needed = ExpandEnvironmentStringsW(wide->c_str(), nullptr, 0);
+    if (needed == 0 || needed > 32'768)
+    {
+        return fail(ErrorCode::InvalidData, "cannot expand the path");
+    }
+    std::wstring expanded(needed, L'\0');
+    const DWORD written = ExpandEnvironmentStringsW(wide->c_str(), expanded.data(), needed);
+    if (written == 0 || written > needed)
+    {
+        return fail(ErrorCode::InvalidData, "cannot expand the path");
+    }
+    expanded.resize(written - 1);
+    return std::filesystem::path(std::move(expanded));
+}
+
+std::string sniffFileType(const std::filesystem::path& file)
+{
+    const wil::unique_hfile handle(CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!handle)
+    {
+        return {};
+    }
+    std::array<unsigned char, 12> magic{};
+    DWORD read = 0;
+    if (ReadFile(handle.get(), magic.data(), static_cast<DWORD>(magic.size()), &read, nullptr) == FALSE ||
+        read < 4)
+    {
+        return {};
+    }
+    const auto starts = [&](std::initializer_list<unsigned char> bytes) {
+        return std::equal(bytes.begin(), bytes.end(), magic.begin());
+    };
+    if (starts({0xFF, 0xD8, 0xFF}))
+    {
+        return "jpg";
+    }
+    if (starts({0x89, 'P', 'N', 'G'}))
+    {
+        return "png";
+    }
+    if (starts({'B', 'M'}))
+    {
+        return "bmp";
+    }
+    if (starts({'G', 'I', 'F'}))
+    {
+        return "gif";
+    }
+    if (starts({0x00, 0x00, 0x02, 0x00}))
+    {
+        return "cur";
+    }
+    if (read >= 12 && starts({'R', 'I', 'F', 'F'}) && magic[8] == 'A' && magic[9] == 'C' &&
+        magic[10] == 'O' && magic[11] == 'N')
+    {
+        return "ani";
     }
     return {};
 }

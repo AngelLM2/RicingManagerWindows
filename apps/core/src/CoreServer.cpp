@@ -5,6 +5,8 @@
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
 #include "rmw/domain/RiceParser.hpp"
+#include "rmw/modules/Export.hpp"
+#include "rmw/platform/Customizers.hpp"
 #include "rmw/platform/FileSystem.hpp"
 
 #include <windows.h>
@@ -23,9 +25,9 @@ using namespace std::chrono_literals;
 constexpr auto kHelloTimeout = 5s;
 constexpr auto kPoll = 1s;
 constexpr auto kSendTimeout = 10s;
-constexpr std::array<std::string_view, 10> kMethods = {
-    "status.get",       "rice.validate", "rice.apply", "restore.original", "snapshot.list",
-    "snapshot.restore", "monitors.list", "action.run", "action.list",      "module.inspect",
+constexpr std::array<std::string_view, 11> kMethods = {
+    "status.get",    "rice.validate", "rice.apply",  "restore.original", "snapshot.list", "snapshot.restore",
+    "monitors.list", "action.run",    "action.list", "module.inspect",   "rice.export",
 };
 constexpr std::array<std::string_view, 3> kActions = {"rice.apply", "restore.original", "appearance.toggle"};
 
@@ -383,6 +385,10 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     {
         return exclusive([&] { return inspect(request.params); });
     }
+    if (method == "rice.export")
+    {
+        return exclusive([&] { return exportRice(request.params); });
+    }
     return runAction(request.params);
 }
 
@@ -410,6 +416,7 @@ Result<Json> CoreServer::status()
                 {"managedModules", *applied},
                 {"needsRestore", *needsRestore},
                 {"busy", !probe.owns_lock()},
+                {"otherTools", platform::detectOtherCustomizers()},
                 {"history", std::move(lastOperations)}};
 }
 
@@ -436,10 +443,28 @@ Result<Json> CoreServer::applyRice(const Json& params)
     {
         return std::unexpected(std::move(loaded->rice.error()));
     }
+    // The first apply captures "my original Windows": say if it was already customized.
+    const auto base = m_state->baseSnapshot();
+    const bool firstApply = base && !base->has_value();
+    const std::vector<std::string> others =
+        firstApply ? platform::detectOtherCustomizers() : std::vector<std::string>{};
+
     auto report = m_engine->apply(*loaded->rice, loaded->folder);
     if (!report)
     {
         return std::unexpected(std::move(report.error()));
+    }
+    if (!others.empty())
+    {
+        std::string names;
+        for (const auto& other : others)
+        {
+            names += (names.empty() ? "" : ", ") + other;
+        }
+        report->warnings.push_back(std::format("the original Windows was captured while {} {} active: it may "
+                                               "already be customized, and {} may change the same settings",
+                                               names, others.size() == 1 ? "was" : "were",
+                                               others.size() == 1 ? "it" : "they"));
     }
     Json result = reportJson(*report);
     result["name"] = loaded->rice->meta.name;
@@ -503,6 +528,104 @@ Result<Json> CoreServer::inspect(const Json& params)
     return Json{{"state", captured->state},
                 {"fidelity", captured->fidelity == engine::Fidelity::Exact ? "exact" : "lossy"},
                 {"reason", captured->lossyReason}};
+}
+
+Result<Json> CoreServer::exportRice(const Json& params)
+{
+    const std::string target = json::stringOr(params, "path", "");
+    const std::string name = json::stringOr(params, "name", "My Windows");
+    auto wideTarget = utf8To16(target);
+    if (target.empty() || !wideTarget)
+    {
+        return fail(ErrorCode::InvalidArgument, "missing 'path' (the folder to create)");
+    }
+    const std::filesystem::path folder(*wideTarget);
+    std::error_code ec;
+    if (std::filesystem::exists(folder, ec) && !std::filesystem::is_empty(folder, ec))
+    {
+        return fail(ErrorCode::AlreadyExists, std::format("'{}' exists and is not empty", target));
+    }
+
+    // What Windows has now, module by module.
+    modules::CapturedLook look;
+    for (auto [module, slot] :
+         {std::pair{"appearance", &look.appearance}, std::pair{"taskbar", &look.taskbar},
+          std::pair{"cursors", &look.cursors}, std::pair{"wallpaper", &look.wallpaper}})
+    {
+        auto captured = runner().capture(module);
+        if (!captured)
+        {
+            return std::unexpected(
+                std::move(captured.error()).withContext(std::format("capture {}", module)));
+        }
+        *slot = std::move(captured->state);
+    }
+    auto monitors = m_logic->topology.monitors();
+    if (!monitors)
+    {
+        return std::unexpected(std::move(monitors.error()));
+    }
+    look.monitors = std::move(*monitors);
+
+    const auto extensionOf = [](std::string_view source) -> std::string {
+        auto path = platform::expandEnvironment(source);
+        if (!path)
+        {
+            return {};
+        }
+        // By content: TranscodedWallpaper has no extension, and a name can lie.
+        return platform::sniffFileType(*path);
+    };
+    auto exported = modules::exportRice(name, look, extensionOf);
+    if (!exported)
+    {
+        return std::unexpected(std::move(exported.error()));
+    }
+
+    Json notes = Json::array();
+    for (const auto& note : exported->notes)
+    {
+        notes.push_back(note);
+    }
+    std::size_t copied = 0;
+    for (const auto& file : exported->files)
+    {
+        auto source = platform::expandEnvironment(file.source);
+        auto relative = utf8To16(file.relative);
+        if (!source || !relative)
+        {
+            notes.push_back(std::format("{}: unreadable path", file.relative));
+            continue;
+        }
+        const std::filesystem::path destination = folder / std::filesystem::path(*relative);
+        std::filesystem::create_directories(destination.parent_path(), ec);
+        const auto dot = file.relative.rfind('.');
+        const std::string_view extension =
+            dot == std::string::npos ? std::string_view{} : std::string_view(file.relative).substr(dot + 1);
+        auto copy = platform::copyHashed(*source, destination, engine::assetSizeLimit(extension));
+        if (!copy)
+        {
+            notes.push_back(std::format("{}: {}", file.relative, copy.error().message()));
+            continue;
+        }
+        ++copied;
+    }
+    const auto* bytes = reinterpret_cast<const std::byte*>(exported->toml.data());
+    if (auto written =
+            platform::writeFileAtomic(folder / L"rice.toml", std::span(bytes, exported->toml.size()));
+        !written)
+    {
+        return std::unexpected(std::move(written.error()));
+    }
+
+    // Read it back as any rice would be: what we wrote must be valid.
+    domain::Diagnostics diagnostics;
+    const auto check = domain::parseRice(exported->toml, diagnostics);
+    return Json{{"path", target},
+                {"files", copied},
+                {"valid", check.has_value()},
+                {"diagnostics", diagnosticsJson(diagnostics)},
+                {"notes", std::move(notes)}};
 }
 
 Result<Json> CoreServer::runAction(const Json& params)

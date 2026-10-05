@@ -67,6 +67,7 @@ private:
     [[nodiscard]] Result<ipc::Json> monitors();
     [[nodiscard]] Result<ipc::Json> runAction(const ipc::Json& params);
     [[nodiscard]] Result<ipc::Json> inspect(const ipc::Json& params);
+    [[nodiscard]] Result<ipc::Json> exportRice(const ipc::Json& params);
     [[nodiscard]] engine::IModuleRunner& runner() noexcept;
 
     CoreOptions m_options;

@@ -67,6 +67,13 @@ struct HashedCopy
 [[nodiscard]] Result<void> writeFileAtomic(const std::filesystem::path& path,
                                            std::span<const std::byte> bytes);
 
+// %VARS% expanded (UTF-8 in, path out).
+[[nodiscard]] Result<std::filesystem::path> expandEnvironment(std::string_view text);
+
+// The type of a file by its first bytes: "jpg", "png", "bmp", "gif", "cur", "ani", or empty
+// when unknown or unreadable.
+[[nodiscard]] std::string sniffFileType(const std::filesystem::path& file);
+
 // The path with every link resolved (GetFinalPathNameByHandle), without the \\?\ prefix.
 [[nodiscard]] Result<std::filesystem::path> finalPath(const std::filesystem::path& path);
 

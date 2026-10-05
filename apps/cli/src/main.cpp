@@ -36,6 +36,7 @@ Commands:
   history                               Operations you can go back to
   restore --original [--force]          Back to the Windows you had before the first apply
   restore --snapshot <id> [--force]     Back to how things were before operation <id>
+  export <folder> [--name <name>]       Save the current look as a rice in a new folder
   monitors                              Connected monitors and their keys (for edid:<key>)
   inspect <module>                      What Windows has now for a module (appearance,
                                         taskbar, cursors, wallpaper), as JSON
@@ -202,6 +203,7 @@ struct Options
     bool original = false;
     std::optional<std::int64_t> snapshot;
     std::string path;
+    std::string name;
     std::filesystem::path dataDirectory;
 };
 
@@ -230,7 +232,7 @@ Result<Options> parseOptions(std::span<const std::string> args)
         {
             options.original = true;
         }
-        else if (arg == "--snapshot" || arg == "--path" || arg == "--data-dir")
+        else if (arg == "--snapshot" || arg == "--path" || arg == "--data-dir" || arg == "--name")
         {
             auto text = value();
             if (!text)
@@ -250,6 +252,10 @@ Result<Options> parseOptions(std::span<const std::string> args)
             else if (arg == "--path")
             {
                 options.path = std::move(*text);
+            }
+            else if (arg == "--name")
+            {
+                options.name = std::move(*text);
             }
             else
             {
@@ -377,7 +383,7 @@ int run(std::span<const std::string> args)
         return Usage;
     }
     const std::string& command = args[0];
-    const auto needsFolder = command == "apply" || command == "validate";
+    const auto needsFolder = command == "apply" || command == "validate" || command == "export";
     if (needsFolder && options->positional.size() != 1)
     {
         err(std::format("rmw: '{}' needs exactly one folder\n\n{}", command, kUsage));
@@ -466,6 +472,15 @@ int run(std::span<const std::string> args)
         {
             out("An operation is running right now.");
         }
+        std::string others;
+        for (const auto& tool : json::memberOr(*status, "otherTools", Json::array()))
+        {
+            others += (others.empty() ? "" : ", ") + (tool.is_string() ? tool.get<std::string>() : "?");
+        }
+        if (!others.empty())
+        {
+            out("Other customization tools found: " + others + " (they may change the same settings)");
+        }
         return Ok;
     }
     if (command == "history")
@@ -502,6 +517,33 @@ int run(std::span<const std::string> args)
                             json::stringOr(m, "key", "")));
         }
         return Ok;
+    }
+    if (command == "export")
+    {
+        auto folder = absoluteFolder(options->positional[0]);
+        if (!folder)
+        {
+            err("rmw: " + folder.error().message());
+            return Usage;
+        }
+        Json params{{"path", *folder}};
+        if (!options->name.empty())
+        {
+            params["name"] = options->name;
+        }
+        auto exported = operation(client, "rice.export", params, options->wait);
+        if (!exported)
+        {
+            return failure(exported.error());
+        }
+        out(std::format("Exported your current look to {} ({} files).", *folder,
+                        json::intOr(*exported, "files", 0)));
+        for (const auto& note : json::memberOr(*exported, "notes", Json::array()))
+        {
+            out("  note: " + (note.is_string() ? note.get<std::string>() : std::string("?")));
+        }
+        printDiagnostics(json::memberOr(*exported, "diagnostics", Json::array()));
+        return json::boolOr(*exported, "valid", false) ? Ok : Failed;
     }
     if (command == "inspect")
     {
