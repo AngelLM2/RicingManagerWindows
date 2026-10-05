@@ -9,6 +9,7 @@
 
 #include <bcrypt.h>
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <utility>
@@ -298,6 +299,54 @@ Result<HashedCopy> copyHashed(const std::filesystem::path& source, const std::fi
     }
     removeTarget.release();
     return HashedCopy{toHex(*digest), total, std::move(*sourceFinal)};
+}
+
+Result<std::vector<std::byte>> readFileLimited(const std::filesystem::path& path, std::uint64_t maxBytes)
+{
+    const wil::unique_hfile file(
+        CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                    FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    if (!file)
+    {
+        return std::unexpected(lastError("open file"));
+    }
+    FILE_ATTRIBUTE_TAG_INFO tag{};
+    if (GetFileInformationByHandleEx(file.get(), FileAttributeTagInfo, &tag, sizeof(tag)) == FALSE)
+    {
+        return std::unexpected(lastError("read file attributes"));
+    }
+    if ((tag.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) != 0)
+    {
+        return fail(ErrorCode::InvalidData, "not a regular file (links and folders are refused)");
+    }
+    LARGE_INTEGER size{};
+    if (GetFileSizeEx(file.get(), &size) == FALSE)
+    {
+        return std::unexpected(lastError("read file size"));
+    }
+    if (std::cmp_greater(size.QuadPart, maxBytes))
+    {
+        return fail(ErrorCode::LimitExceeded,
+                    std::format("file is too large ({} bytes, limit {})", size.QuadPart, maxBytes));
+    }
+    std::vector<std::byte> bytes(static_cast<std::size_t>(size.QuadPart));
+    std::size_t total = 0;
+    while (total < bytes.size())
+    {
+        const auto chunk = static_cast<DWORD>(std::min<std::size_t>(bytes.size() - total, kChunkBytes));
+        DWORD read = 0;
+        if (ReadFile(file.get(), bytes.data() + total, chunk, &read, nullptr) == FALSE)
+        {
+            return std::unexpected(lastError("read file"));
+        }
+        if (read == 0)
+        {
+            bytes.resize(total); // shrank while reading
+            break;
+        }
+        total += read;
+    }
+    return bytes;
 }
 
 Result<void> replaceFile(const std::filesystem::path& from, const std::filesystem::path& to)

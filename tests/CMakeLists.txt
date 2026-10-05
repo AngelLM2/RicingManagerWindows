@@ -6,6 +6,8 @@ add_executable(rmw_unit_tests
     unit/AppearanceTaskbarTests.cpp
     unit/CheckedCastTests.cpp
     unit/ConsoleTests.cpp
+    unit/CursorFilesTests.cpp
+    unit/CursorsModuleTests.cpp
     unit/DatabaseTests.cpp
     unit/DomainValueTests.cpp
     unit/ErrorTests.cpp

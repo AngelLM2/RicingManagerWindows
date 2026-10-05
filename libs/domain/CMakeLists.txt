@@ -6,6 +6,7 @@ find_package(tomlplusplus CONFIG REQUIRED)
 rmw_add_library(domain
     SOURCES
         src/Color.cpp
+        src/CursorFiles.cpp
         src/Diagnostics.cpp
         src/Identifiers.cpp
         src/MonitorSelector.cpp

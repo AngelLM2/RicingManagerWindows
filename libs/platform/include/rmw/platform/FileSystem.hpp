@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <vector>
 
 // File operations with the guarantees docs/03 §7 and docs/06 §4 ask for: SHA-256 via CNG,
 // atomic replacement, and copies that refuse reparse points and report where the source
@@ -53,6 +54,10 @@ struct HashedCopy
 // reparse points are refused — and at most `maxBytes` long. On failure `target` is removed.
 [[nodiscard]] Result<HashedCopy> copyHashed(const std::filesystem::path& source,
                                             const std::filesystem::path& target, std::uint64_t maxBytes);
+
+// Reads a whole regular file (no links or reparse points) of at most `maxBytes`.
+[[nodiscard]] Result<std::vector<std::byte>> readFileLimited(const std::filesystem::path& path,
+                                                             std::uint64_t maxBytes);
 
 // Renames `from` over `to` atomically (POSIX semantics where the volume supports them).
 [[nodiscard]] Result<void> replaceFile(const std::filesystem::path& from, const std::filesystem::path& to);

@@ -196,7 +196,7 @@ StoreAssetSink::StoreAssetSink(ContentStore& store, std::filesystem::path packag
 {
 }
 
-Result<std::filesystem::path> StoreAssetSink::fromPackage(std::string_view relativePath)
+Result<std::filesystem::path> StoreAssetSink::resolve(std::string_view relativePath) const
 {
     if (m_packageRoot.empty())
     {
@@ -212,8 +212,7 @@ Result<std::filesystem::path> StoreAssetSink::fromPackage(std::string_view relat
     {
         return std::unexpected(std::move(root.error()).withContext("open the rice folder"));
     }
-    const std::filesystem::path source = *root / std::filesystem::path(*wide);
-    auto sourceFinal = platform::finalPath(source);
+    auto sourceFinal = platform::finalPath(*root / std::filesystem::path(*wide));
     if (!sourceFinal)
     {
         return std::unexpected(
@@ -225,11 +224,33 @@ Result<std::filesystem::path> StoreAssetSink::fromPackage(std::string_view relat
         return fail(ErrorCode::AccessDenied,
                     std::format("asset '{}' resolves outside the rice folder", relativePath));
     }
-    const std::string extension = extensionOf(source);
-    return m_store.import(*sourceFinal, assetSizeLimit(extension), extension)
-        .transform_error([&](Error error) {
-            return std::move(error).withContext(std::format("asset '{}'", relativePath));
-        });
+    return sourceFinal;
+}
+
+Result<std::filesystem::path> StoreAssetSink::fromPackage(std::string_view relativePath)
+{
+    auto source = resolve(relativePath);
+    if (!source)
+    {
+        return source;
+    }
+    const std::string extension = extensionOf(*source);
+    return m_store.import(*source, assetSizeLimit(extension), extension).transform_error([&](Error error) {
+        return std::move(error).withContext(std::format("asset '{}'", relativePath));
+    });
+}
+
+Result<std::vector<std::byte>> StoreAssetSink::readPackageFile(std::string_view relativePath,
+                                                               std::uint64_t maxBytes)
+{
+    auto source = resolve(relativePath);
+    if (!source)
+    {
+        return std::unexpected(std::move(source.error()));
+    }
+    return platform::readFileLimited(*source, maxBytes).transform_error([&](Error error) {
+        return std::move(error).withContext(std::format("asset '{}'", relativePath));
+    });
 }
 
 Result<std::filesystem::path> StoreAssetSink::fromSystem(const std::filesystem::path& file,
