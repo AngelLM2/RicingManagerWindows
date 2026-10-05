@@ -71,6 +71,9 @@ private:
     void sendInstances();
     void applyProperties(const PluginSlot& slot, const domain::Value::Table& properties);
     void windowAction(const bar::bridge::Action& action);
+    void trayAction(const bar::bridge::Action& action);
+    void watchTray(bool wanted);
+    void provideTray();
 
     Win32Platform* m_loop;
     std::filesystem::path m_planFile;
@@ -81,6 +84,7 @@ private:
     void* m_events = nullptr;    // HWND: display changes, Explorer restarts, the rebuild timer
     void* m_planWatch = nullptr; // change notification on the plan's folder
     unsigned m_taskbarCreated = 0;
+    std::size_t m_traySubscription = 0; // plugins watch "tray"
 
     PluginWidgets m_plugins;
     std::vector<PluginSlot> m_pluginSlots;

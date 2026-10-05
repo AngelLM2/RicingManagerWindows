@@ -60,7 +60,24 @@ struct Action
     domain::Value arguments;
 };
 
-using Message = std::variant<Hello, Instances, Set, Event, Action>;
+// host -> bar: the providers only the bar has ("tray": it owns the tray window) that plugins
+// watch now. An empty list stops them.
+struct Watch
+{
+    std::vector<std::string> providers;
+};
+
+// bar -> host: a value of a provider the host asked for (Watch), whenever it changes.
+struct Provide
+{
+    std::string name;
+    domain::Value value;
+};
+
+// The providers a Watch may name.
+[[nodiscard]] bool isBarProvider(std::string_view name) noexcept;
+
+using Message = std::variant<Hello, Instances, Set, Event, Action, Watch, Provide>;
 
 [[nodiscard]] std::string encode(const Message& message);
 // The JSON limits apply; unknown kinds and wrong shapes are errors.

@@ -1324,15 +1324,20 @@ Result<void> checkScalar(WidgetType type, const Value& value)
         {
             return {};
         }
-        if (text->starts_with("window:"))
+        // A window's icon (windows.list) or a tray icon (tray), by the provider's id.
+        for (const std::string_view scheme : {std::string_view("window:"), std::string_view("tray:")})
         {
-            const std::string_view id = std::string_view(*text).substr(7);
+            if (!text->starts_with(scheme))
+            {
+                continue;
+            }
+            const std::string_view id = std::string_view(*text).substr(scheme.size());
             if (!id.empty() && id.size() <= 20 &&
                 std::ranges::all_of(id, [](char c) { return c >= '0' && c <= '9'; }))
             {
                 return {};
             }
-            return fail(ErrorCode::InvalidData, "expected \"window:<id>\"");
+            return fail(ErrorCode::InvalidData, std::format("expected \"{}<id>\"", scheme));
         }
         auto path = validatePackagePath(*text);
         if (!path)

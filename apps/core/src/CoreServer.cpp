@@ -733,12 +733,29 @@ void CoreServer::onWorkerEvent(const platform::WorkerEvent& event)
     {
         return;
     }
-    // The bar is gone — crashed, hung, leaked or left: Windows' taskbar must not stay hidden.
+    // The bar is gone — crashed, hung, leaked or left: Windows' taskbar must not stay hidden, and
+    // its tray gets every app's icons again (the bar's tray window may have held some, ADR-0012).
     platform::showNativeTaskbars();
+    platform::askAppsForTrayIcons();
     if (event.kind == platform::WorkerEventKind::Disabled && m_window != nullptr && m_resident != nullptr)
     {
         Resident* resident = m_resident;
         m_window->post([resident] { resident->onBarDisabled(); });
+    }
+}
+
+void CoreServer::pluginStopped(const std::string& id)
+{
+    std::string name = id;
+    if (const auto entry = m_plugins->find(id); entry && entry->manifest)
+    {
+        name = entry->manifest->name;
+    }
+    if (m_window != nullptr && m_resident != nullptr)
+    {
+        Resident* resident = m_resident;
+        auto names = std::make_shared<const std::pair<std::string, std::string>>(std::move(name), id);
+        m_window->post([resident, names] { resident->onPluginStopped(names->first, names->second); });
     }
 }
 
@@ -1665,7 +1682,7 @@ Result<Json> CoreServer::pluginMethod(const ipc::Request& request)
             return fail(ErrorCode::InvalidArgument, "invalid plugin id");
         }
         m_plugins->disable(plugin, json::stringOr(request.params, "reason", "failed too often"));
-        notifyResident();
+        pluginStopped(plugin);
         return Json{{"ok", true}};
     }
     Result<PluginEntry> entry = fail(ErrorCode::NotFound, std::format("unknown method '{}'", method));
@@ -1865,7 +1882,7 @@ void CoreServer::onPluginHostFailure(const platform::WorkerEvent& event)
     if (disable)
     {
         m_plugins->disable(blamed, "it brought the plugin host down twice (hung or out of memory)");
-        notifyResident(); // the next host runs without it
+        pluginStopped(blamed); // and the next host runs without it
     }
 }
 

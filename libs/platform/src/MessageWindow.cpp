@@ -1,6 +1,7 @@
 #include "rmw/platform/MessageWindow.hpp"
 
 #include "rmw/base/Log.hpp"
+#include "rmw/platform/NativeTaskbar.hpp"
 #include "rmw/platform/WinError.hpp"
 
 #include <windows.h>
@@ -31,7 +32,7 @@ constexpr UINT kTrayIconId = 1;
 std::uint32_t explorerPid() noexcept
 {
     DWORD pid = 0;
-    if (const auto tray = FindWindowW(L"Shell_TrayWnd", nullptr))
+    if (auto* const tray = static_cast<HWND>(nativeTrayWindow())) // not our bar's tray window
     {
         GetWindowThreadProcessId(tray, &pid);
     }
