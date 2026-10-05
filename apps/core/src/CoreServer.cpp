@@ -1241,7 +1241,10 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     {
         return std::unexpected(std::move(loaded->rice.error()));
     }
-    const domain::Rice& rice = *loaded->rice;
+    domain::Rice rice = *loaded->rice;
+    // The values of the tweak plugins it requires go through the engine like any module.
+    std::vector<std::string> tweakNotes;
+    rice.tweaks = m_plugins->tweaksFor(rice, tweakNotes);
     // The first apply captures "my original Windows": say if it was already customized.
     const auto base = m_state->baseSnapshot();
     const bool firstApply = base && !base->has_value();
@@ -1275,6 +1278,10 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     {
         setRotation(previousRotation);
         return std::unexpected(std::move(report.error()));
+    }
+    for (auto& note : tweakNotes)
+    {
+        report->warnings.push_back(std::move(note));
     }
     // What the rice asks of plugins; and which rice to go back to (rice.undo).
     RicePlugins ricePlugins;
@@ -1337,7 +1344,7 @@ Result<Json> CoreServer::setAppearance(std::string_view action, Origin origin)
     if (action == "appearance.toggle")
     {
         // Flip whatever Windows shows now.
-        auto now = runner().capture("appearance");
+        auto now = runner().capture("appearance", {});
         if (!now)
         {
             return std::unexpected(std::move(now.error()));
@@ -1415,7 +1422,7 @@ Result<Json> CoreServer::inspect(const Json& params)
     {
         return fail(ErrorCode::NotFound, std::format("unknown module '{}'", module));
     }
-    auto captured = runner().capture(module);
+    auto captured = runner().capture(module, {});
     if (!captured)
     {
         return std::unexpected(std::move(captured.error()));
@@ -1458,7 +1465,7 @@ Result<Json> CoreServer::exportRice(const Json& params)
          {std::pair{"appearance", &look.appearance}, std::pair{"taskbar", &look.taskbar},
           std::pair{"cursors", &look.cursors}, std::pair{"wallpaper", &look.wallpaper}})
     {
-        auto captured = runner().capture(module);
+        auto captured = runner().capture(module, {});
         if (!captured)
         {
             return std::unexpected(
