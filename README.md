@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: alpha (v0.5.0, milestone M5 "Bandeja").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
+**Status: beta (v0.6.0, milestone M6 "Vídeo").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows and video wallpapers; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
 
 ---
 
@@ -18,7 +18,7 @@ Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: w
 
 Planejamento completo: [docs/README.md](docs/README.md).
 
-### Usar (linha de comando, v0.5)
+### Usar (linha de comando, v0.6)
 
 Um rice é uma pasta com um `rice.toml` e seus arquivos:
 
@@ -114,6 +114,25 @@ right = ["tray", "media", "cpu", "memory", "network", "volume", "battery", "noti
 
 O `tray` é a bandeja do sistema: os ícones dos apps (Discord, Steam, OneDrive…), com clique, menu e dica; mostra os que o Windows mostra na barra dele e guarda o resto atrás de uma seta (`{ id = "tray", show = "all" }` mostra todos). Salvar o `rice.toml` atualiza a barra na hora. Se algo der errado, **Ctrl+Alt+Win+T** desliga a barra e traz a do Windows de volta (`rmw action bar.on` religa). Se a barra travar ou cair, a do Windows volta em menos de um segundo.
 
+**Wallpaper em vídeo** — MP4 (H.264; HEVC/AV1 se a extensão da Microsoft Store estiver instalada) atrás dos ícones, por monitor, decodificado pela GPU:
+
+```toml
+[wallpaper.policy]
+pause_on_fullscreen = true     # jogo ou vídeo em tela cheia: pausa
+pause_on_battery = true        # na bateria ou na economia de energia: pausa
+pause_when_covered = true      # janela maximizada por cima: pausa
+fps_limit = 30
+
+[[wallpaper.monitor]]
+match = "primary"
+kind = "video"
+source = "assets/loop.mp4"
+fallback_image = "assets/loop.jpg"   # o wallpaper do Windows por baixo do vídeo
+fit = "fill"
+```
+
+Pausado, o vídeo não gasta CPU; depois de 2 minutos pausado, a memória dele é liberada e a imagem de reserva aparece. Se o processo do vídeo cair ou travar, ele volta sozinho em segundos — e a imagem de reserva está sempre por baixo. `rmw status` mostra o que toca em cada monitor e, se algo não toca, por quê.
+
 **Plugins** — widgets da barra, skins, tweaks, ações e regras feitos pela comunidade. Scripts em Luau rodam isolados num processo próprio, só com as permissões que você aprovou; a barra e o core nunca executam código de plugin.
 
 ```powershell
@@ -158,7 +177,7 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 
 The planning documents (in Portuguese) are in [docs/](docs/README.md).
 
-### Use (command line, v0.5)
+### Use (command line, v0.6)
 
 A rice is a folder with a `rice.toml` (example above) and its files.
 
@@ -185,6 +204,8 @@ rmw settings reload            # re-read settings.toml
 If the app stops unexpectedly 3 starts in a row (or `Shift` is held at sign-in), it opens in **safe mode**: nothing is applied automatically and "Restore original Windows" is at hand.
 
 **A taskbar of your own** — as many as you like, on any edge and monitor, any size: see the `[[bar]]` example above (widgets: `start`, `windows`, `desktops`, `tray` — the system tray, with the apps' icons, clicks, menus and tips —, `clock`, `media`, `cpu`, `memory`, `network`, `volume`, `battery`, `notifications`). Saving `rice.toml` updates it live. If anything goes wrong, **Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back (`rmw action bar.on` turns it on again); if the bar hangs or crashes, Windows' taskbar is back in under a second.
+
+**Video wallpapers** — MP4 (H.264; HEVC/AV1 with the Microsoft Store extension installed) behind the desktop icons, per monitor, decoded by the GPU: `kind = "video"` with a `fallback_image` in a `[[wallpaper.monitor]]` (example above), and a `[wallpaper.policy]` to pause on fullscreen apps, on battery or when the desktop is covered, with an FPS limit. Paused, it costs no CPU; paused for 2 minutes, its memory is freed and the fallback image shows. If the video process crashes or hangs it comes back by itself in seconds, and the fallback image is always underneath. `rmw status` shows what plays on each monitor and, when something does not, why.
 
 **Plugins** — bar widgets, skins, tweaks, actions and rules made by the community. Luau scripts run isolated in a process of their own, with only the permissions you approved; the bar and the core never run plugin code. `rmw plugin install <folder>` shows what a plugin asks for and asks you; `rmw plugin new widget <folder>` starts one (with the API's types for your editor) and `rmw plugin dev <folder>` runs it from the folder, reloading on save. A rice asks for plugins in `[plugins] requires` and puts widgets in a `[[bar]]` by their id. Eight examples are in [`plugins/examples`](plugins/examples); the plugin author's guide (in Portuguese) is in [docs/plugins](docs/plugins/README.md).
 
