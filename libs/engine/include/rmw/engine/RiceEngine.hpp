@@ -126,7 +126,12 @@ private:
                                                     const RestoreOptions& options, AppliedUpdate update);
     [[nodiscard]] Result<void> undo(const Json& beforeModules, const Json& desired,
                                     const std::vector<std::string>& touched);
-    [[nodiscard]] Result<CaptureResult> captureInternalized(const IModuleLogic& module);
+    // `fields`: what the operation is about; the fields we set before are always added.
+    [[nodiscard]] Result<CaptureResult> captureInternalized(const IModuleLogic& module,
+                                                            std::span<const std::string> fields = {});
+    // Fields set for the first time keep their value from before in the base snapshot, so the
+    // original Windows comes back for them too (a monitor connected later, a tweak).
+    [[nodiscard]] Result<void> rememberOriginals(const Json& beforeModules, const Json& desiredAll);
     [[nodiscard]] Result<void> undoOpenJournalIfAny();
     void collectGarbage(OperationReport& report);
 

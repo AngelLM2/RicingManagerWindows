@@ -1,16 +1,23 @@
 #include "BarApp.hpp"
 
+#include "WindowList.hpp"
+
 #include "rmw/bar/Plan.hpp"
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
 #include "rmw/domain/MonitorSelector.hpp"
 #include "rmw/platform/FileSystem.hpp"
+#include "rmw/platform/Pipe.hpp"
 #include "rmw/platform/Win32Ports.hpp"
+#include "rmw/providers/Windows.hpp"
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
+#include <format>
 
 namespace rmw::barapp
 {
@@ -22,6 +29,53 @@ using slint::interpreter::Value;
 constexpr const wchar_t* kEventsClass = L"RicingManagerWindows.BarEvents";
 constexpr UINT_PTR kRebuildTimer = 1;
 constexpr UINT kRebuildDelayMs = 1500; // displays and Explorer settle first (docs/03 §9)
+constexpr UINT kReloadDelayMs = 150;   // a saved plugin file: editors write in bursts
+constexpr std::size_t kMaxDevWatches = 16;
+
+// A callback's arguments as the plugin host gets them.
+domain::Value::Array argumentsOf(std::span<const Value> arguments)
+{
+    domain::Value::Array list;
+    for (const auto& argument : arguments)
+    {
+        if (const auto number = argument.to_number())
+        {
+            list.push_back(domain::Value{*number});
+        }
+        else if (const auto text = argument.to_string())
+        {
+            list.push_back(domain::Value{std::string(*text)});
+        }
+        else if (const auto flag = argument.to_bool())
+        {
+            list.push_back(domain::Value{*flag});
+        }
+        else
+        {
+            list.emplace_back();
+        }
+    }
+    return list;
+}
+
+// Whether a value names a window's icon somewhere (it must follow the window list).
+bool hasWindowImage(const domain::Value& value)
+{
+    if (const auto* text = std::get_if<std::string>(&value.data))
+    {
+        return text->starts_with("window:");
+    }
+    if (const auto* items = std::get_if<domain::Value::Array>(&value.data))
+    {
+        return std::ranges::any_of(*items, hasWindowImage);
+    }
+    if (const auto* members = value.table())
+    {
+        return std::ranges::any_of(*members,
+                                   [](const domain::ValueMember& m) { return hasWindowImage(m.value); });
+    }
+    return false;
+}
 
 slint::Color colorOf(const domain::Color& color, double opacity)
 {
@@ -111,7 +165,7 @@ struct BarApp::Access
     }
 };
 
-BarApp::BarApp(Win32Platform& loop, std::filesystem::path planFile)
+BarApp::BarApp(Win32Platform& loop, std::filesystem::path planFile, std::wstring bridgePipe)
     : m_loop(&loop)
     , m_planFile(std::move(planFile))
 {
@@ -131,10 +185,34 @@ BarApp::BarApp(Win32Platform& loop, std::filesystem::path planFile)
         ChangeWindowMessageFilterEx(events, m_taskbarCreated, MSGFLT_ALLOW, nullptr);
     }
     m_events = events;
+    if (!bridgePipe.empty())
+    {
+        auto self = platform::currentExecutable();
+        const auto host = self ? self->parent_path() / L"rmw-plugin-host.exe" : std::filesystem::path();
+        m_bridge = std::make_unique<PluginBridge>(
+            std::move(bridgePipe), host,
+            [this](bar::bridge::Message message) { onPluginMessage(std::move(message)); },
+            [this] {
+                m_bridge->send(bar::bridge::Hello{});
+                sendInstances();
+            });
+    }
 }
 
 BarApp::~BarApp()
 {
+    try
+    {
+        m_bridge.reset(); // joins its threads
+        watchDevPlugins({});
+        if (m_windowSubscription != 0)
+        {
+            WindowTracker::instance().unsubscribe(m_windowSubscription);
+        }
+    }
+    catch (...) // NOLINT(bugprone-empty-catch): the native taskbar must still come back below
+    {
+    }
     if (m_planWatch != nullptr)
     {
         m_loop->unwatch(m_planWatch);
@@ -177,6 +255,101 @@ void BarApp::scheduleRebuild()
     }
 }
 
+void BarApp::scheduleReload()
+{
+    if (m_events != nullptr)
+    {
+        SetTimer(static_cast<HWND>(m_events), kRebuildTimer, kReloadDelayMs, nullptr);
+    }
+}
+
+void BarApp::watchDevPlugins(const std::vector<bar::PlanPlugin>& plugins)
+{
+    std::vector<std::filesystem::path> wanted;
+    for (const auto& plugin : plugins)
+    {
+        if (plugin.dev && wanted.size() < kMaxDevWatches)
+        {
+            wanted.push_back(plugin.folder);
+        }
+    }
+    std::erase_if(m_devWatches, [&](const auto& watch) {
+        if (std::ranges::find(wanted, watch.first) != wanted.end())
+        {
+            return false;
+        }
+        m_loop->unwatch(watch.second);
+        FindCloseChangeNotification(watch.second);
+        return true;
+    });
+    for (const auto& folder : wanted)
+    {
+        if (std::ranges::any_of(m_devWatches, [&](const auto& watch) { return watch.first == folder; }))
+        {
+            continue;
+        }
+        void* watch = FindFirstChangeNotificationW(
+            folder.c_str(), TRUE,
+            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_DIR_NAME);
+        if (watch == INVALID_HANDLE_VALUE)
+        {
+            continue;
+        }
+        m_devWatches.emplace_back(folder, watch);
+        m_loop->watch(watch, [this, watch] {
+            FindNextChangeNotification(watch);
+            scheduleReload();
+        });
+    }
+}
+
+// Tries each plugin widget alone in `config`'s bar. The ones Slint refuses are left out, with
+// Slint's messages pointed at their own files; true when one was.
+bool BarApp::leaveOutBrokenWidgets(const domain::BarConfig& config)
+{
+    std::vector<std::string> broken;
+    for (const auto& widget : m_plugins.all())
+    {
+        std::vector<bar::WidgetKind> kinds(builtinKinds().begin(), builtinKinds().end());
+        kinds.push_back(widget->kind);
+        const bar::GeneratedBar generated =
+            bar::generateBarSource(config, kinds, PluginWidgets::sourcesWith(*widget, builtinSources()));
+        slint::interpreter::ComponentCompiler compiler;
+        if (compiler.build_from_source(generated.source, "bar.slint"))
+        {
+            continue;
+        }
+        const std::size_t before = PluginWidgets::lineBefore(generated.source, widget->id);
+        const auto lines = static_cast<std::size_t>(std::ranges::count(widget->checked.source, '\n'));
+        for (const auto& diagnostic : compiler.diagnostics())
+        {
+            if (diagnostic.level != slint::interpreter::DiagnosticLevel::Error)
+            {
+                continue;
+            }
+            const std::size_t line = diagnostic.line;
+            if (before != 0 && line > before && line <= before + lines)
+            {
+                log::error("bar: plugin widget {}: {}:{}:{}: {}", widget->id, widget->manifest.ui,
+                           line - before, diagnostic.column, std::string_view(diagnostic.message));
+            }
+            else
+            {
+                // In the bar around it: the component does not fit what plugin.toml declares.
+                log::error("bar: plugin widget {}: does not fit plugin.toml: {}", widget->id,
+                           std::string_view(diagnostic.message));
+            }
+        }
+        log::error("bar: plugin widget {} left out: Slint refuses it", widget->id);
+        broken.push_back(widget->id);
+    }
+    for (const auto& id : broken)
+    {
+        m_plugins.remove(id);
+    }
+    return !broken.empty();
+}
+
 std::unique_ptr<slint::platform::WindowAdapter> BarApp::createAdapter()
 {
     if (!m_pending)
@@ -193,6 +366,7 @@ std::unique_ptr<slint::platform::WindowAdapter> BarApp::createAdapter()
 
 void BarApp::clear()
 {
+    m_pluginSlots.clear();
     // Old windows go first: their app bars give the space back before new ones ask for it.
     for (auto& shown : m_bars)
     {
@@ -245,15 +419,40 @@ bool BarApp::rebuild()
 
     std::vector<void*> hideOn;
     const bool light = systemLight();
+    m_plugins.load(plan->plugins);
+    watchDevPlugins(plan->plugins);
+    auto pluginKinds = m_plugins.kinds();
+    std::string pluginSources = m_plugins.sources(builtinSources());
     for (const auto& config : plan->bars)
     {
-        const bar::GeneratedBar generated = bar::generateBarSource(config, builtinKinds(), builtinSources());
+        bar::GeneratedBar generated = bar::generateBarSource(config, pluginKinds, pluginSources);
+        slint::interpreter::ComponentCompiler compiler;
+        auto definition = compiler.build_from_source(generated.source, "bar.slint");
+        // A plugin widget the checks let through but Slint refuses must not take the bar down:
+        // the ones Slint refuses alone are left out, and the rest shows.
+        if (!definition && !m_plugins.all().empty() && leaveOutBrokenWidgets(config))
+        {
+            pluginKinds = m_plugins.kinds();
+            pluginSources = m_plugins.sources(builtinSources());
+            generated = bar::generateBarSource(config, pluginKinds, pluginSources);
+            definition = compiler.build_from_source(generated.source, "bar.slint");
+        }
+        if (!definition && !m_plugins.all().empty())
+        {
+            // Only together do they fail: the bar shows without any.
+            for (const auto& diagnostic : compiler.diagnostics())
+            {
+                log::error("bar: with plugin widgets {}:{}: {}", diagnostic.line, diagnostic.column,
+                           std::string_view(diagnostic.message));
+            }
+            log::error("bar: the plugin widgets do not compile; showing the bar without them");
+            generated = bar::generateBarSource(config, builtinKinds(), builtinSources());
+            definition = compiler.build_from_source(generated.source, "bar.slint");
+        }
         for (const auto& unknown : generated.unknown)
         {
             log::warn("bar: no widget '{}'; left out", unknown);
         }
-        slint::interpreter::ComponentCompiler compiler;
-        const auto definition = compiler.build_from_source(generated.source, "bar.slint");
         if (!definition)
         {
             for (const auto& diagnostic : compiler.diagnostics())
@@ -294,6 +493,30 @@ bool BarApp::rebuild()
             auto shown = std::make_unique<Shown>(Shown{instance, {}});
             for (const auto& slot : generated.slots)
             {
+                if (const PluginWidget* widget = m_plugins.find(slot.kind->id))
+                {
+                    PluginSlot plugin{std::format("{}/{}", m_bars.size(), slot.prefix), widget, slot.prefix,
+                                      instance, slot.item->config};
+                    for (const auto& callback : widget->manifest.callbacks)
+                    {
+                        instance->set_callback(
+                            std::format("{}-{}", slot.prefix, callback.name),
+                            [this, key = plugin.key, name = callback.name](std::span<const Value> args) {
+                                if (m_bridge)
+                                {
+                                    m_bridge->send(bar::bridge::Event{key, name, argumentsOf(args)});
+                                }
+                                return Value();
+                            });
+                    }
+                    if (const auto cached = m_pluginValues.find(plugin.key);
+                        cached != m_pluginValues.end() && cached->second.plugin == widget->id)
+                    {
+                        applyProperties(plugin, cached->second.values);
+                    }
+                    m_pluginSlots.push_back(std::move(plugin));
+                    continue;
+                }
                 if (auto provider = makeProvider(slot, instance))
                 {
                     shown->providers.push_back(std::move(provider));
@@ -308,8 +531,153 @@ bool BarApp::rebuild()
         }
     }
     m_native.hide(std::move(hideOn));
+    // Values of widgets that are gone (or whose place another plugin took) go with them.
+    std::erase_if(m_pluginValues, [this](const auto& entry) {
+        return std::ranges::none_of(m_pluginSlots, [&](const PluginSlot& slot) {
+            return slot.key == entry.first && slot.widget->id == entry.second.plugin;
+        });
+    });
+    if (!m_pluginSlots.empty() && m_windowSubscription == 0)
+    {
+        // Window icons a plugin shows load late: show them when they come.
+        m_windowSubscription = WindowTracker::instance().subscribe([this] {
+            for (const auto& slot : m_pluginSlots)
+            {
+                const auto cached = m_pluginValues.find(slot.key);
+                if (cached != m_pluginValues.end() && hasWindowImage(domain::Value{cached->second.values}))
+                {
+                    applyProperties(slot, cached->second.values);
+                }
+            }
+        });
+    }
+    sendInstances();
     log::info("bar: {} bar window(s) shown", m_bars.size());
     return true;
+}
+
+void BarApp::sendInstances()
+{
+    if (!m_bridge)
+    {
+        return;
+    }
+    bar::bridge::Instances instances;
+    for (const auto& slot : m_pluginSlots)
+    {
+        instances.list.push_back({slot.key, slot.widget->id, slot.config});
+    }
+    m_bridge->send(instances);
+}
+
+void BarApp::onPluginMessage(bar::bridge::Message message)
+{
+    if (const auto* set = std::get_if<bar::bridge::Set>(&message))
+    {
+        const auto slot = std::ranges::find(m_pluginSlots, set->key, &PluginSlot::key);
+        if (slot == m_pluginSlots.end() || set->properties.table() == nullptr)
+        {
+            return; // a widget the bar no longer shows
+        }
+        auto& entry = m_pluginValues[slot->key];
+        if (entry.plugin != slot->widget->id)
+        {
+            log::info("bar: first values for {} ({})", slot->key, slot->widget->id);
+            entry = {slot->widget->id, {}};
+        }
+        auto& cached = entry.values;
+        for (const auto& member : *set->properties.table())
+        {
+            const auto found = std::ranges::find(cached, member.key, &domain::ValueMember::key);
+            if (found != cached.end())
+            {
+                found->value = member.value;
+            }
+            else
+            {
+                cached.push_back(member);
+            }
+        }
+        applyProperties(*slot, *set->properties.table());
+    }
+    else if (const auto* action = std::get_if<bar::bridge::Action>(&message))
+    {
+        windowAction(*action);
+    }
+    else if (const auto* hello = std::get_if<bar::bridge::Hello>(&message))
+    {
+        if (hello->version != bar::bridge::kVersion)
+        {
+            log::error("bar: the plugin host speaks bridge version {} (we speak {})", hello->version,
+                       bar::bridge::kVersion);
+        }
+    }
+}
+
+void BarApp::applyProperties(const PluginSlot& slot, const domain::Value::Table& properties)
+{
+    auto instance = slot.instance.lock();
+    if (!instance)
+    {
+        return;
+    }
+    for (const auto& member : properties)
+    {
+        const auto& declared = slot.widget->manifest.properties;
+        const auto property = std::ranges::find(declared, member.key, &domain::WidgetProperty::name);
+        if (property == declared.end())
+        {
+            log::warn("bar: {} has no property '{}'", slot.widget->id, member.key);
+            continue;
+        }
+        auto value = m_plugins.convert(*slot.widget, property->type, member.value);
+        if (!value)
+        {
+            log::warn("bar: {}.{}: {}", slot.widget->id, member.key, value.error().message());
+            continue;
+        }
+        if (!(*instance)->set_property(std::format("{}-{}", slot.prefix, member.key), *value))
+        {
+            log::warn("bar: {}.{} was refused by the widget", slot.widget->id, member.key);
+        }
+    }
+}
+
+void BarApp::windowAction(const bar::bridge::Action& action)
+{
+    const auto* id = action.arguments.find("id");
+    std::uint64_t handle = 0;
+    if (id != nullptr)
+    {
+        if (const auto* number = std::get_if<std::int64_t>(&id->data); number != nullptr && *number > 0)
+        {
+            handle = static_cast<std::uint64_t>(*number);
+        }
+    }
+    auto* window =
+        reinterpret_cast<void*>(static_cast<std::uintptr_t>(handle)); // NOLINT(performance-no-int-to-ptr)
+    // Only windows a taskbar would show: a plugin cannot reach anything else.
+    if (window == nullptr || !providers::isTaskbarWindow(window))
+    {
+        log::warn("bar: {}: not a window of the taskbar", action.name);
+        return;
+    }
+    if (action.name == "window.activate")
+    {
+        providers::activateWindow(window); // the foreground now, not what the plugin last heard
+    }
+    else if (action.name == "window.focus")
+    {
+        providers::focusWindow(window);
+    }
+    else if (action.name == "window.minimize")
+    {
+        providers::minimizeWindow(window);
+    }
+    else if (action.name == "window.close")
+    {
+        providers::closeWindow(window);
+    }
 }
 
 } // namespace rmw::barapp

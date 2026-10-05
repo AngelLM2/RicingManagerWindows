@@ -1,0 +1,18 @@
+schema = 1
+
+[meta]
+name        = "Focus"
+author      = "Ricing Manager"
+description = "Applied by the Focus mode plugin: nothing on the desktop to look at."
+
+[appearance]
+mode = "dark"
+
+[wallpaper]
+mode       = "per-monitor"
+background = "#101014"
+
+[[wallpaper.monitor]]
+match = "all"
+kind  = "color"
+color = "#101014"

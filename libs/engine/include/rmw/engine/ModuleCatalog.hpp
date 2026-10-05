@@ -35,7 +35,8 @@ class LocalModuleRunner final : public IModuleRunner
 public:
     void add(IModuleSystem& system) { m_systems.push_back(&system); }
 
-    [[nodiscard]] Result<CaptureResult> capture(std::string_view moduleId) override;
+    [[nodiscard]] Result<CaptureResult> capture(std::string_view moduleId,
+                                                std::span<const std::string> fields) override;
     [[nodiscard]] Result<void> apply(std::string_view moduleId, const Json& desired) override;
 
 private:

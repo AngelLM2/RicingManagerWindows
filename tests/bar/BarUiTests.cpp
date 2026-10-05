@@ -1,12 +1,16 @@
+#include "PluginWidgets.hpp"
 #include "Surface.hpp"
 #include "Widgets.hpp"
 
 #include "rmw/bar/Source.hpp"
+#include "rmw/bar/WidgetSource.hpp"
 
 #include <gtest/gtest.h>
 #include <slint-interpreter.h>
 #include <slint-platform.h>
 
+#include <filesystem>
+#include <fstream>
 #include <regex>
 
 // The bar's drawing without windows: a platform whose windows are only a renderer and a size.
@@ -201,6 +205,193 @@ TEST(BarSurface, TheStartZoneNeverRunsIntoTheCenter)
     const auto centerStart = instance->get_property("layout-center-start")->to_number().value();
     EXPECT_LE(startEnd, centerStart) << "the window list runs under the clock";
     EXPECT_GT(startEnd, 300.0); // and it still uses the room it has
+}
+
+TEST(PluginWidgetSource, WhatTheCheckerWritesCompiles)
+{
+    // The checker re-writes the source token by token: the result must still be Slint.
+    const auto folder = std::filesystem::temp_directory_path() / "rmw-widget-source-test";
+    std::filesystem::create_directories(folder / "icons");
+    {
+        std::ofstream(folder / "icons" / "play.svg")
+            << R"(<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>)";
+    }
+    constexpr std::string_view kWidget = R"slint(
+import { Button } from "std-widgets.slint";
+export struct Line { text: string, bold: bool }
+component Icon inherits Image { width: 16px; height: 16px; }
+export component NowPlaying inherits HorizontalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <string> title: "?";
+    in property <[Line]> lines;
+    callback toggle();
+    spacing: 6px;
+    Icon { source: @image-url("icons/play.svg"); }
+    Text { text: "\{root.title} (\{root.lines.length})"; color: root.foreground; }
+    for line[i] in root.lines: Text { text: line.text; font-weight: line.bold ? 700 : 400; }
+    for i in 3: Rectangle { width: 2px; background: #ff000080; }
+    Button { text: "x"; clicked => { root.toggle(); } }
+}
+)slint";
+    rmw::bar::WidgetSourceOptions options;
+    options.prefix = "Rmwp1";
+    options.component = "NowPlaying";
+    options.resolveImage = [&folder](std::string_view path) -> rmw::Result<std::string> {
+        return (folder / std::filesystem::path(path)).generic_string();
+    };
+    const auto checked = rmw::bar::checkWidgetSource(kWidget, "widget.slint", options);
+    ASSERT_TRUE(checked.has_value()) << checked.error().message();
+    std::string source = "import { Button } from \"std-widgets.slint\";\n" + checked->source;
+    source += std::format("export component Test inherits Window {{ width: 300px; height: 40px; {} {{ title: "
+                          "\"playing\"; lines: [{{ text: \"a\", bold: true }}]; }} }}\n",
+                          checked->component);
+    auto instance = compile(source);
+    HeadlessPlatform::last->resize(300, 40);
+    Surface surface;
+    HeadlessPlatform::last->draw(surface, false, [](bool) {});
+    std::filesystem::remove_all(folder);
+}
+
+TEST(PluginWidgetSource, EveryExampleWidgetCompilesInABar)
+{
+    // plugins/examples: what `rmw plugin validate` cannot check (it has no Slint) is checked here.
+    const std::filesystem::path examples = std::filesystem::path(RMW_SOURCE_DIR) / "plugins" / "examples";
+    std::vector<rmw::bar::PlanPlugin> plugins;
+    rmw::domain::BarConfig config;
+    for (const auto& entry : std::filesystem::directory_iterator(examples))
+    {
+        if (!std::filesystem::exists(entry.path() / "widget.slint"))
+        {
+            continue;
+        }
+        const auto toml = std::filesystem::path(entry.path() / "plugin.toml");
+        rmw::domain::Diagnostics diagnostics;
+        std::ifstream file(toml, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        const auto manifest = rmw::domain::parsePluginManifest(text, diagnostics, {});
+        ASSERT_TRUE(manifest.has_value()) << toml.string();
+        plugins.push_back({manifest->id, std::filesystem::absolute(entry.path()), false});
+        config.right.push_back({manifest->id, {}});
+    }
+    ASSERT_GE(plugins.size(), 6u);
+    rmw::barapp::PluginWidgets widgets;
+    widgets.load(plugins);
+    ASSERT_EQ(widgets.all().size(), plugins.size()) << "some example widget did not load (see the log)";
+    const auto kinds = widgets.kinds();
+    const auto generated =
+        rmw::bar::generateBarSource(config, kinds, widgets.sources(rmw::barapp::builtinSources()));
+    EXPECT_TRUE(generated.unknown.empty());
+    auto instance = compile(generated.source);
+    HeadlessPlatform::last->resize(1600, 44);
+    // Values as the host would send them, converted by the bar.
+    for (const auto& slot : generated.slots)
+    {
+        const auto* widget = widgets.find(slot.kind->id);
+        ASSERT_NE(widget, nullptr);
+        for (const auto& property : widget->manifest.properties)
+        {
+            rmw::domain::Value value;
+            using rmw::domain::WidgetType;
+            if (!property.type.array && property.type.structName.empty())
+            {
+                switch (property.type.type)
+                {
+                case WidgetType::String:
+                    value = rmw::domain::Value{std::string("text")};
+                    break;
+                case WidgetType::Int:
+                    value = rmw::domain::Value{std::int64_t{3}};
+                    break;
+                case WidgetType::Float:
+                case WidgetType::Length:
+                    value = rmw::domain::Value{0.5};
+                    break;
+                case WidgetType::Bool:
+                    value = rmw::domain::Value{true};
+                    break;
+                case WidgetType::Color:
+                    value = rmw::domain::Value{std::string("#ff0000")};
+                    break;
+                case WidgetType::Image:
+                    value = rmw::domain::Value{std::string()};
+                    break;
+                }
+            }
+            else
+            {
+                value = rmw::domain::Value{rmw::domain::Value::Array{}};
+            }
+            auto converted = widgets.convert(*widget, property.type, value);
+            ASSERT_TRUE(converted.has_value()) << slot.kind->id << "." << property.name;
+            EXPECT_TRUE(instance->set_property(std::format("{}-{}", slot.prefix, property.name), *converted))
+                << slot.kind->id << "." << property.name;
+        }
+    }
+    Surface surface;
+    HeadlessPlatform::last->draw(surface, false, matteOf(instance));
+}
+
+TEST(PluginWidgetSource, SlintErrorsPointAtThePluginsOwnLine)
+{
+    // What the checks let through but Slint refuses: the bar tries the widget alone and reports
+    // Slint's message at the line of widget.slint (BarApp::leaveOutBrokenWidgets).
+    const auto folder = std::filesystem::temp_directory_path() / "rmw-broken-widget-test";
+    std::filesystem::create_directories(folder);
+    {
+        std::ofstream(folder / "plugin.toml") << R"(schema = 1
+[plugin]
+id      = "io.github.test.broken"
+name    = "Broken"
+version = "1.0.0"
+api     = "^1.0"
+kind    = ["bar.widget"]
+[widget]
+ui        = "widget.slint"
+component = "Broken"
+[widget.properties]
+text = "string"
+)";
+        std::ofstream(folder / "widget.slint") << R"(// line 1
+/* a comment
+   on two lines */
+import { Button } from "std-widgets.slint";
+export component Broken inherits Rectangle {
+    in property <string> text;
+    Text { text: root.missing; }
+}
+)";
+    }
+    rmw::barapp::PluginWidgets widgets;
+    widgets.load({{"io.github.test.broken", folder, false}});
+    ASSERT_EQ(widgets.all().size(), 1u);
+    const auto& widget = *widgets.all().front();
+
+    rmw::domain::BarConfig config;
+    config.right.push_back({widget.id, {}});
+    std::vector<rmw::bar::WidgetKind> kinds(rmw::barapp::builtinKinds().begin(),
+                                            rmw::barapp::builtinKinds().end());
+    kinds.push_back(widget.kind);
+    const auto generated = rmw::bar::generateBarSource(
+        config, kinds, rmw::barapp::PluginWidgets::sourcesWith(widget, rmw::barapp::builtinSources()));
+    slint::interpreter::ComponentCompiler compiler;
+    EXPECT_FALSE(compiler.build_from_source(generated.source, "bar.slint").has_value());
+    const std::size_t before = rmw::barapp::PluginWidgets::lineBefore(generated.source, widget.id);
+    ASSERT_GT(before, 0u);
+    std::size_t errors = 0;
+    for (const auto& diagnostic : compiler.diagnostics())
+    {
+        if (diagnostic.level == slint::interpreter::DiagnosticLevel::Error)
+        {
+            ++errors;
+            EXPECT_EQ(diagnostic.line - before, 7u) << std::string_view(diagnostic.message);
+        }
+    }
+    EXPECT_GE(errors, 1u);
+
+    widgets.remove(widget.id);
+    EXPECT_TRUE(widgets.all().empty());
+    std::filesystem::remove_all(folder);
 }
 
 TEST(BarClock, FormatsSafely)

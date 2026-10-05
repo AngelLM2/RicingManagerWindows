@@ -58,9 +58,21 @@ RiceEngine::RiceEngine(StateDb& state, ContentStore& store, const ModuleCatalog&
 {
 }
 
-Result<CaptureResult> RiceEngine::captureInternalized(const IModuleLogic& module)
+Result<CaptureResult> RiceEngine::captureInternalized(const IModuleLogic& module,
+                                                      std::span<const std::string> asked)
 {
-    auto captured = m_runner.capture(module.id());
+    std::vector<std::string> fields(asked.begin(), asked.end());
+    if (auto applied = m_state.applied(module.id()); applied && applied->is_object())
+    {
+        for (const auto& [field, value] : applied->items())
+        {
+            if (std::ranges::find(fields, field) == fields.end())
+            {
+                fields.push_back(field);
+            }
+        }
+    }
+    auto captured = m_runner.capture(module.id(), fields);
     if (!captured)
     {
         return propagate(captured, std::format("capture {}", module.id()));
@@ -507,6 +519,58 @@ Result<OperationReport> RiceEngine::restoreTo(const Json& targetModules, const s
     return run("restore", label, std::move(steps), update, std::move(report));
 }
 
+Result<void> RiceEngine::rememberOriginals(const Json& beforeModules, const Json& desiredAll)
+{
+    auto base = m_state.baseSnapshot();
+    if (!base)
+    {
+        return std::unexpected(std::move(base.error()));
+    }
+    if (!*base)
+    {
+        return {};
+    }
+    Json modules = (*base)->modules;
+    bool changed = false;
+    for (const auto& [id, fields] : desiredAll.items())
+    {
+        const Json* before = stateIn(beforeModules, id);
+        auto applied = m_state.applied(id);
+        if (before == nullptr || !fields.is_object() || !applied)
+        {
+            continue;
+        }
+        Json& entry = modules[id];
+        if (!entry.is_object())
+        {
+            entry = Json{{"state", Json::object()}, {"fidelity", "exact"}, {"reason", ""}};
+        }
+        Json& state = entry["state"];
+        if (!state.is_object())
+        {
+            state = Json::object();
+        }
+        for (const auto& [field, value] : fields.items())
+        {
+            // Only a field we never set: otherwise "before" holds our own value, not the original.
+            if (state.contains(field) || applied->contains(field))
+            {
+                continue;
+            }
+            if (const auto original = before->find(field); original != before->end())
+            {
+                state[field] = *original;
+                changed = true;
+            }
+        }
+    }
+    if (!changed)
+    {
+        return {};
+    }
+    return m_state.setSnapshotModules((*base)->id, modules);
+}
+
 Result<OperationReport> RiceEngine::run(std::string_view operation, const std::string& label,
                                         std::vector<Step> steps, AppliedUpdate update, OperationReport report,
                                         bool automatic)
@@ -519,7 +583,12 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         const std::string id(step.module->id());
         if (!step.current)
         {
-            auto captured = captureInternalized(*step.module);
+            std::vector<std::string> fields;
+            for (const auto& [field, value] : step.desired.items())
+            {
+                fields.push_back(field);
+            }
+            auto captured = captureInternalized(*step.module, fields);
             if (!captured)
             {
                 return propagate(captured);
@@ -554,6 +623,14 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         if (steps.empty())
         {
             return report;
+        }
+    }
+
+    if (operation == "apply")
+    {
+        if (auto remembered = rememberOriginals(beforeModules, desiredAll); !remembered)
+        {
+            return propagate(remembered);
         }
     }
 

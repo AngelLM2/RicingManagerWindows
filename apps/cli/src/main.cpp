@@ -1,5 +1,7 @@
 // rmw.exe — command-line client of rmw-core (docs/04 M1). English on purpose for v1.0.
 
+#include "PluginTools.hpp"
+
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
@@ -8,6 +10,7 @@
 #include "rmw/platform/Pipe.hpp"
 #include "rmw/platform/Process.hpp"
 #include "rmw/platform/ProcessHardening.hpp"
+#include "rmw/plugins/HostPlan.hpp"
 
 #include <windows.h>
 
@@ -45,18 +48,34 @@ Commands:
   monitors                              Connected monitors and their keys (for edid:<key>)
   inspect <module>                      What Windows has now for a module (appearance,
                                         taskbar, cursors, wallpaper), as JSON
-  action <name> [--path <folder>]       Run an action: rice.apply, restore.original,
+  action <name> [--path <folder>]       Run an action: rice.apply, rice.undo, restore.original,
                                         appearance.toggle, appearance.dark, appearance.light,
-                                        bar.on, bar.off
+                                        bar.on, bar.off, bar.toggle, wallpaper.next, or a
+                                        plugin's own: <plugin id>:<action>
   settings reload                       Re-read config\settings.toml (hotkeys, rules, tray)
   autostart on|off|status               Start with Windows (a per-user Run entry; off until
                                         you turn it on)
   shutdown                              Stop the background core
+  plugin list                           Installed plugins, what they ask for, whether they run
+  plugin new <kind> <folder> [--id <id>]
+                                        Start a plugin from a template: widget, action, rule,
+                                        tweak or skin
+  plugin validate <folder>              Run the install checks on a plugin folder
+  plugin dev <folder> [--yes] [--no-log]
+                                        Run a plugin from its folder: it reloads when you save,
+                                        and its log shows here (Ctrl+C stops showing it)
+  plugin dev <id> --stop                Stop running it from its folder
+  plugin pack <folder> [--out <file>]   Make the .rmwp to share it
+  plugin install <folder> [--yes]       Install a plugin folder (shows what it asks for)
+  plugin approve <id> [--yes]           Approve what an installed plugin asks for
+  plugin enable|disable <id>            Run an action or rule plugin without a rice, or stop it
+  plugin remove <id>                    Uninstall a plugin and its data
+  plugin status                         What the plugin host runs now
   --version, --help
 
 Restores skip settings you changed yourself after applying; --force restores them too.
 
-Exit codes: 0 ok, 1 failed, 2 usage, 3 busy, 4 the rice has errors.)";
+Exit codes: 0 ok, 1 failed, 2 usage, 3 busy, 4 the rice (or plugin) has errors.)";
 
 enum Exit : int
 {
@@ -259,6 +278,11 @@ struct Options
     bool wait = false;
     bool force = false;
     bool original = false;
+    bool yes = false;
+    bool stop = false;
+    bool noLog = false;
+    std::string out;
+    std::string id;
     std::optional<std::int64_t> snapshot;
     std::string path;
     std::string name;
@@ -290,7 +314,20 @@ Result<Options> parseOptions(std::span<const std::string> args)
         {
             options.original = true;
         }
-        else if (arg == "--snapshot" || arg == "--path" || arg == "--data-dir" || arg == "--name")
+        else if (arg == "--yes")
+        {
+            options.yes = true;
+        }
+        else if (arg == "--stop")
+        {
+            options.stop = true;
+        }
+        else if (arg == "--no-log")
+        {
+            options.noLog = true;
+        }
+        else if (arg == "--snapshot" || arg == "--path" || arg == "--data-dir" || arg == "--name" ||
+                 arg == "--out" || arg == "--id")
         {
             auto text = value();
             if (!text)
@@ -314,6 +351,14 @@ Result<Options> parseOptions(std::span<const std::string> args)
             else if (arg == "--name")
             {
                 options.name = std::move(*text);
+            }
+            else if (arg == "--out")
+            {
+                options.out = std::move(*text);
+            }
+            else if (arg == "--id")
+            {
+                options.id = std::move(*text);
             }
             else
             {
@@ -422,6 +467,404 @@ Result<Json> operation(CoreClient& client, std::string_view method, const Json& 
     }
 }
 
+// ---- plugins -------------------------------------------------------------------------------------
+
+// y/N on the console; a script (no console) must pass --yes.
+bool confirm(std::string_view question)
+{
+    HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    if (input == nullptr || GetConsoleMode(input, &mode) == FALSE)
+    {
+        err("rmw: not asking without a console; pass --yes to agree");
+        return false;
+    }
+    out(std::format("{} [y/N]", question));
+    std::array<wchar_t, 16> buffer{};
+    DWORD read = 0;
+    if (ReadConsoleW(input, buffer.data(), static_cast<DWORD>(buffer.size() - 1), &read, nullptr) == FALSE ||
+        read == 0)
+    {
+        return false;
+    }
+    return buffer[0] == L'y' || buffer[0] == L'Y';
+}
+
+void printPermissions(const domain::PluginPermissions& permissions)
+{
+    const auto lines = cli::describePermissions(permissions);
+    if (lines.empty())
+    {
+        out("It asks for no permissions.");
+        return;
+    }
+    out("It asks to:");
+    for (const auto& line : lines)
+    {
+        out("  " + line);
+    }
+    if (permissions.hasSensitive())
+    {
+        out("(!) touches your privacy or reaches outside this PC.");
+    }
+}
+
+// Prints what the checks found; false when there are errors.
+bool printCheck(const cli::PluginCheck& check)
+{
+    for (const auto& warning : check.warnings)
+    {
+        err("warning: " + warning);
+    }
+    for (const auto& error : check.errors)
+    {
+        err("error: " + error);
+    }
+    return check.errors.empty();
+}
+
+// Shows the plugin's lines of the host's and the bar's logs as they come, until Ctrl+C.
+void followLogs(const std::filesystem::path& dataDirectory, const std::string& id)
+{
+    struct Tail
+    {
+        std::filesystem::path file;
+        std::uint64_t at = 0;
+        std::string partial;
+    };
+    std::array<Tail, 2> tails{Tail{dataDirectory / L"logs" / L"plugins.log", 0, {}},
+                              Tail{dataDirectory / L"logs" / L"bar.log", 0, {}}};
+    for (auto& tail : tails)
+    {
+        std::error_code ec;
+        tail.at = std::filesystem::file_size(tail.file, ec);
+    }
+    while (true)
+    {
+        for (auto& tail : tails)
+        {
+            std::error_code ec;
+            const auto size = std::filesystem::file_size(tail.file, ec);
+            if (ec)
+            {
+                continue;
+            }
+            if (size < tail.at)
+            {
+                tail.at = 0; // rotated
+            }
+            if (size == tail.at)
+            {
+                continue;
+            }
+            HANDLE file = CreateFileW(tail.file.c_str(), GENERIC_READ,
+                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+            {
+                continue;
+            }
+            LARGE_INTEGER offset{};
+            offset.QuadPart = static_cast<LONGLONG>(tail.at);
+            SetFilePointerEx(file, offset, nullptr, FILE_BEGIN);
+            std::string chunk(static_cast<std::size_t>(std::min<std::uint64_t>(size - tail.at, 1u << 20)),
+                              '\0');
+            DWORD read = 0;
+            ReadFile(file, chunk.data(), static_cast<DWORD>(chunk.size()), &read, nullptr);
+            CloseHandle(file);
+            tail.at += read;
+            tail.partial.append(chunk.data(), read);
+            for (std::size_t end = tail.partial.find('\n'); end != std::string::npos;
+                 end = tail.partial.find('\n'))
+            {
+                std::string line = tail.partial.substr(0, end);
+                tail.partial.erase(0, end + 1);
+                if (!line.empty() && line.back() == '\r')
+                {
+                    line.pop_back();
+                }
+                if (line.find(id) != std::string::npos)
+                {
+                    out(line);
+                }
+            }
+        }
+        std::this_thread::sleep_for(250ms);
+    }
+}
+
+int pluginCommand(const Options& options)
+{
+    const auto& args = options.positional;
+    const std::string sub = args.empty() ? std::string() : args[0];
+    const auto folderAt = [&](std::size_t index) -> Result<std::filesystem::path> {
+        if (index >= args.size())
+        {
+            return fail(ErrorCode::InvalidArgument, std::format("'plugin {}' needs a folder", sub));
+        }
+        auto folder = absoluteFolder(args[index]);
+        if (!folder)
+        {
+            return std::unexpected(std::move(folder.error()));
+        }
+        return std::filesystem::path(utf8To16Lossy(*folder));
+    };
+
+    // Local: no core needed.
+    if (sub == "validate" || sub == "pack")
+    {
+        auto folder = folderAt(1);
+        if (!folder)
+        {
+            err("rmw: " + folder.error().message());
+            return Usage;
+        }
+        const auto check = cli::checkPlugin(*folder);
+        if (!printCheck(check))
+        {
+            return InvalidRice;
+        }
+        const auto& manifest = *check.manifest;
+        if (sub == "validate")
+        {
+            std::string kinds;
+            for (const auto kind : manifest.kinds)
+            {
+                kinds += (kinds.empty() ? "" : ", ") + std::string(domain::toString(kind));
+            }
+            out(std::format("{} {} ({}): OK", manifest.id, manifest.version.toString(), kinds));
+            printPermissions(manifest.permissions);
+            return Ok;
+        }
+        const std::filesystem::path target =
+            options.out.empty()
+                ? folder->parent_path() /
+                      utf8To16Lossy(std::format("{}-{}.rmwp", manifest.id, manifest.version.toString()))
+                : std::filesystem::absolute(utf8To16Lossy(options.out));
+        auto packed = cli::packPlugin(*folder, target);
+        if (!packed)
+        {
+            return failure(packed.error());
+        }
+        out(std::format("Packed {} ({} KB)", utf16To8Lossy(target.native()), (*packed + 1023) / 1024));
+        return Ok;
+    }
+    if (sub == "new")
+    {
+        if (args.size() != 3)
+        {
+            err("rmw: usage: rmw plugin new <widget|action|rule|tweak|skin> <folder> [--id <id>]");
+            return Usage;
+        }
+        auto folder = folderAt(2);
+        if (!folder)
+        {
+            err("rmw: " + folder.error().message());
+            return Usage;
+        }
+        if (auto created = cli::newPlugin(args[1], *folder, options.id); !created)
+        {
+            return failure(created.error());
+        }
+        out(std::format("Created {}. Try it: rmw plugin dev \"{}\"", utf16To8Lossy(folder->native()),
+                        utf16To8Lossy(folder->native())));
+        return Ok;
+    }
+
+    constexpr std::array<std::string_view, 9> kWithCore = {
+        "list", "status", "approve", "enable", "disable", "remove", "install", "dev", "help"};
+    if (std::ranges::find(kWithCore, sub) == kWithCore.end() || sub == "help")
+    {
+        err(std::format("rmw: unknown plugin command '{}'\n\n{}", sub, kUsage));
+        return Usage;
+    }
+    CoreClient client(options.dataDirectory);
+    if (auto connected = client.connect(); !connected)
+    {
+        return failure(connected.error());
+    }
+    if (sub == "list")
+    {
+        auto list = client.call("plugin.list", Json::object(), 30s);
+        if (!list)
+        {
+            return failure(list.error());
+        }
+        if (list->empty())
+        {
+            out("No plugins. Install one with: rmw plugin install <folder>");
+            return Ok;
+        }
+        for (const auto& plugin : *list)
+        {
+            std::string state = json::boolOr(plugin, "dev", false) ? "dev" : "installed";
+            if (!json::stringOr(plugin, "problem", "").empty())
+            {
+                state = "broken: " + json::stringOr(plugin, "problem", "");
+            }
+            else if (!json::stringOr(plugin, "disabled", "").empty())
+            {
+                state = "stopped: " + json::stringOr(plugin, "disabled", "");
+            }
+            else if (json::boolOr(plugin, "needsApproval", false))
+            {
+                state = "waits for approval";
+            }
+            const Json host = json::memberOr(plugin, "host", Json::object());
+            if (!json::stringOr(host, "error", "").empty())
+            {
+                state += ", error: " + json::stringOr(host, "error", "");
+            }
+            else if (host.contains("memory"))
+            {
+                state += std::format(", running ({} KB)", json::intOr(host, "memory", 0) / 1024);
+            }
+            std::string kinds;
+            for (const auto& kind : json::memberOr(plugin, "kinds", Json::array()))
+            {
+                kinds += (kinds.empty() ? "" : ",") + kind.get<std::string>();
+            }
+            out(std::format("{} {} [{}]{} - {}", json::stringOr(plugin, "id", "?"),
+                            json::stringOr(plugin, "version", "?"), kinds,
+                            json::boolOr(plugin, "enabled", false) ? " on" : "", state));
+            for (const auto& action : json::memberOr(plugin, "actions", Json::array()))
+            {
+                out(std::format("    action {}: {}", json::stringOr(action, "name", "?"),
+                                json::stringOr(action, "label", "")));
+            }
+        }
+        return Ok;
+    }
+    if (sub == "status")
+    {
+        auto status = client.call("plugin.status", Json::object(), 30s);
+        if (!status)
+        {
+            return failure(status.error());
+        }
+        out(json::dumpPretty(*status));
+        return Ok;
+    }
+    if (sub == "install" || sub == "dev")
+    {
+        if (sub == "dev" && options.stop)
+        {
+            if (args.size() != 2)
+            {
+                err("rmw: usage: rmw plugin dev <id> --stop");
+                return Usage;
+            }
+            auto stopped = client.call("plugin.dev", Json{{"id", args[1]}, {"stop", true}}, 30s);
+            if (!stopped)
+            {
+                return failure(stopped.error());
+            }
+            out(std::format("{} no longer runs from its folder.", args[1]));
+            return Ok;
+        }
+        auto folder = folderAt(1);
+        if (!folder)
+        {
+            err("rmw: " + folder.error().message());
+            return Usage;
+        }
+        const auto check = cli::checkPlugin(*folder);
+        if (!printCheck(check))
+        {
+            return InvalidRice;
+        }
+        const auto& manifest = *check.manifest;
+        out(std::format("{} {} — {}", manifest.name, manifest.version.toString(), manifest.id));
+        printPermissions(manifest.permissions);
+        const auto& asked = manifest.permissions;
+        const bool asks =
+            !asked.providers.empty() || !asked.actions.empty() || !asked.network.empty() || asked.storage;
+        bool approve = options.yes;
+        if (asks && !approve)
+        {
+            approve = confirm("Allow it?");
+            if (!approve)
+            {
+                out("Not approved: it is installed but its script will not run until `rmw plugin approve " +
+                    manifest.id + "`.");
+            }
+        }
+        const std::string method = sub == "install" ? "plugin.install" : "plugin.dev";
+        auto entry =
+            client.call(method, Json{{"path", utf16To8Lossy(folder->native())}, {"approve", approve}}, 60s);
+        if (!entry)
+        {
+            return failure(entry.error());
+        }
+        if (sub == "install")
+        {
+            out(std::format("Installed {}.", manifest.id));
+            return Ok;
+        }
+        out(std::format("{} runs from {}: save a file and it reloads.", manifest.id,
+                        utf16To8Lossy(folder->native())));
+        if (options.noLog)
+        {
+            return Ok;
+        }
+        out("Its log follows (Ctrl+C to stop showing it; `rmw plugin dev " + manifest.id +
+            " --stop` to stop it):");
+        auto data = options.dataDirectory.empty() ? platform::defaultDataDirectory()
+                                                  : Result<std::filesystem::path>(options.dataDirectory);
+        if (data)
+        {
+            followLogs(*data, manifest.id);
+        }
+        return Ok;
+    }
+    if (args.size() != 2)
+    {
+        err(std::format("rmw: usage: rmw plugin {} <id>", sub));
+        return Usage;
+    }
+    const std::string& id = args[1];
+    if (sub == "approve")
+    {
+        auto list = client.call("plugin.list", Json::object(), 30s);
+        if (!list)
+        {
+            return failure(list.error());
+        }
+        const auto found =
+            std::ranges::find_if(*list, [&](const Json& p) { return json::stringOr(p, "id", "") == id; });
+        if (found == list->end())
+        {
+            err(std::format("rmw: plugin '{}' is not installed", id));
+            return Failed;
+        }
+        auto permissions =
+            plugins::permissionsFromJson(json::memberOr(*found, "permissions", Json::object()));
+        if (permissions)
+        {
+            printPermissions(*permissions);
+        }
+        if (!options.yes && !confirm("Allow it?"))
+        {
+            out("Nothing changed.");
+            return Ok;
+        }
+    }
+    const std::string method = sub == "approve"   ? "plugin.approve"
+                               : sub == "enable"  ? "plugin.enable"
+                               : sub == "disable" ? "plugin.disable"
+                                                  : "plugin.remove";
+    auto done = client.call(method, Json{{"id", id}}, 60s);
+    if (!done)
+    {
+        return failure(done.error());
+    }
+    out(sub == "approve"   ? std::format("{} approved.", id)
+        : sub == "enable"  ? std::format("{} is on.", id)
+        : sub == "disable" ? std::format("{} is off.", id)
+                           : std::format("{} removed.", id));
+    return Ok;
+}
+
 int run(std::span<const std::string> args)
 {
     if (args.empty() || args[0] == "--help" || args[0] == "-h" || args[0] == "help")
@@ -441,6 +884,10 @@ int run(std::span<const std::string> args)
         return Usage;
     }
     const std::string& command = args[0];
+    if (command == "plugin")
+    {
+        return pluginCommand(*options);
+    }
     constexpr std::array<std::string_view, 12> kCommands = {
         "apply",    "validate", "status", "history",  "restore",   "export",
         "monitors", "inspect",  "action", "settings", "autostart", "shutdown",
@@ -707,6 +1154,11 @@ int run(std::span<const std::string> args)
         if (!done)
         {
             return failure(done.error());
+        }
+        if (options->positional[0].find(':') != std::string::npos)
+        {
+            out(std::format("Done ({})", options->positional[0])); // a plugin's action: no report
+            return Ok;
         }
         printReport(*done, std::format("Done ({})", options->positional[0]));
         return Ok;

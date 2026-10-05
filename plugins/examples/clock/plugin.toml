@@ -1,0 +1,27 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.clock"
+name        = "Clock"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = "The bar's built-in clock, written as a plugin: the plugin API is all it needs."
+kind        = ["bar.widget"]
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui        = "widget.slint"
+component = "Clock"
+
+[widget.properties]
+time = "string"
+date = "string"
+
+[config]
+format      = { type = "string", default = "%H:%M", max_length = 32, label = "Time (os.date format)" }
+date_format = { type = "string", default = "%d/%m/%Y", max_length = 32, label = "Date (empty: no date)" }

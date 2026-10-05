@@ -62,6 +62,11 @@ Result<ChildProcess> ChildProcess::spawn(const std::filesystem::path& executable
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags =
             options.killOnClose ? JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE : 0;
+        if (options.noChildProcesses)
+        {
+            limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+            limits.BasicLimitInformation.ActiveProcessLimit = 1;
+        }
 #if !defined(__SANITIZE_ADDRESS__)
         if (options.memoryLimitBytes > 0)
         {

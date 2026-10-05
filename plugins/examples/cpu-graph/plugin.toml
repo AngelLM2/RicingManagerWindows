@@ -1,0 +1,36 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.cpu-graph"
+name        = "CPU graph"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = "The CPU use of the last seconds as a small bar graph."
+kind        = ["bar.widget"]
+
+[permissions]
+providers = ["system.cpu"]
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui        = "widget.slint"
+component = "CpuGraph"
+
+[widget.structs.Sample]
+level = "float"
+
+[widget.properties]
+samples = "[Sample]"
+slots   = "int"
+label   = "string"
+accent  = "color"
+
+[config]
+count  = { type = "int", default = 24, min = 8, max = 60, label = "Samples shown" }
+color  = { type = "color", default = "palette.accent", label = "Bar color" }
+number = { type = "bool", default = true, label = "Show the percentage" }

@@ -190,6 +190,11 @@ Result<std::optional<SnapshotRecord>> StateDb::baseSnapshot()
         readSnapshot);
 }
 
+Result<void> StateDb::setSnapshotModules(std::int64_t id, const Json& modules)
+{
+    return execute(m_db, "UPDATE snapshots SET modules_json = ?1 WHERE id = ?2;", json::dump(modules), id);
+}
+
 Result<void> StateDb::deleteSnapshot(std::int64_t id)
 {
     return execute(m_db, "DELETE FROM snapshots WHERE id = ?1 AND kind = 'before';", id);

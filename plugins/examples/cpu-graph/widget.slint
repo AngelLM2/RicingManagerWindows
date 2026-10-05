@@ -1,0 +1,40 @@
+// One thin bar per sample, as tall as the use; the percentage at the side.
+export struct Sample {
+    level: float,
+}
+
+export component CpuGraph inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[Sample]> samples;
+    in property <int> slots: 24;
+    in property <string> label;
+    in property <color> accent: #4cc2ff;
+    min-height: 32px;
+    border-radius: 6px;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 3px * root.slots;
+                height: 20px;
+                for sample[i] in root.samples: Rectangle {
+                    x: parent.width - (root.samples.length - i) * 3px;
+                    y: parent.height - self.height;
+                    width: 2px;
+                    height: max(1px, parent.height * min(1, max(0, sample.level)));
+                    background: root.accent;
+                }
+            }
+        }
+        if root.label != "": Text {
+            text: root.label;
+            color: root.foreground;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}

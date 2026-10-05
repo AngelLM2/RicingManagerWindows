@@ -1,0 +1,8 @@
+{
+    "luau-lsp.platform.type": "standard",
+    "luau-lsp.types.definitionFiles": ["rmw.d.luau"],
+    "luau-lsp.sourcemap.enabled": false,
+    "files.associations": {
+        "*.luau": "luau"
+    }
+}

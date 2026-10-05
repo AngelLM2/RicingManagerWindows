@@ -125,7 +125,10 @@ struct Supervisor::State
         options.completionPort = port.get();
         options.completionKey = key;
         options.killOnClose = worker.spec.endsWithCore;
+        options.noChildProcesses = worker.spec.noChildProcesses;
         options.inheritHandles = {mapping.get()};
+        options.inheritHandles.insert(options.inheritHandles.end(), worker.spec.inheritHandles.begin(),
+                                      worker.spec.inheritHandles.end());
         std::wstring arguments = std::format(L"{} --heartbeat {}", worker.spec.arguments,
                                              reinterpret_cast<std::uintptr_t>(mapping.get()));
         wil::unique_handle core; // our copy closes after the spawn; the child keeps its own

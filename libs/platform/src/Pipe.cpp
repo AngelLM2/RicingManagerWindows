@@ -54,7 +54,9 @@ DWORD waitMs(std::chrono::milliseconds timeout) noexcept
     return timeout.count() >= INFINITE ? INFINITE - 1 : static_cast<DWORD>(timeout.count());
 }
 
-Result<std::filesystem::path> imageOf(DWORD pid)
+} // namespace
+
+Result<std::filesystem::path> processImagePath(std::uint32_t pid)
 {
     const wil::unique_handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
     if (!process)
@@ -78,13 +80,12 @@ bool samePath(const std::filesystem::path& a, const std::filesystem::path& b)
                                 TRUE) == CSTR_EQUAL;
 }
 
-} // namespace
-
 // ---- connection -------------------------------------------------------------------------------
 
 PipeConnection::PipeConnection(void* pipe, std::uint32_t peer)
     : m_pipe(pipe)
     , m_event(CreateEventW(nullptr, TRUE, FALSE, nullptr))
+    , m_writeEvent(CreateEventW(nullptr, TRUE, FALSE, nullptr))
     , m_peer(peer)
 {
 }
@@ -97,6 +98,7 @@ PipeConnection::~PipeConnection()
 PipeConnection::PipeConnection(PipeConnection&& other) noexcept
     : m_pipe(std::exchange(other.m_pipe, nullptr))
     , m_event(std::exchange(other.m_event, nullptr))
+    , m_writeEvent(std::exchange(other.m_writeEvent, nullptr))
     , m_peer(std::exchange(other.m_peer, 0))
     , m_decoder(std::move(other.m_decoder))
 {
@@ -109,6 +111,7 @@ PipeConnection& PipeConnection::operator=(PipeConnection&& other) noexcept
         close();
         m_pipe = std::exchange(other.m_pipe, nullptr);
         m_event = std::exchange(other.m_event, nullptr);
+        m_writeEvent = std::exchange(other.m_writeEvent, nullptr);
         m_peer = std::exchange(other.m_peer, 0);
         m_decoder = std::move(other.m_decoder);
     }
@@ -123,23 +126,36 @@ void PipeConnection::close() noexcept
         CloseHandle(m_pipe);
         m_pipe = nullptr;
     }
-    if (m_event != nullptr)
+    for (void** event : {&m_event, &m_writeEvent})
     {
-        CloseHandle(m_event);
-        m_event = nullptr;
+        if (*event != nullptr)
+        {
+            CloseHandle(*event);
+            *event = nullptr;
+        }
+    }
+}
+
+void PipeConnection::cancel() noexcept
+{
+    if (m_pipe != nullptr)
+    {
+        CancelIoEx(m_pipe, nullptr);
     }
 }
 
 Result<std::size_t> PipeConnection::transfer(bool write, void* buffer, std::size_t bytes,
                                              std::chrono::milliseconds timeout)
 {
-    if (m_pipe == nullptr || m_event == nullptr)
+    // Reads and writes have events of their own: one thread may read while another writes.
+    void* const event = write ? m_writeEvent : m_event;
+    if (m_pipe == nullptr || event == nullptr)
     {
         return fail(ErrorCode::InvalidArgument, "the pipe is closed");
     }
     OVERLAPPED overlapped{};
-    overlapped.hEvent = m_event;
-    ResetEvent(m_event);
+    overlapped.hEvent = event;
+    ResetEvent(event);
     const auto chunk = static_cast<DWORD>(bytes > kBufferBytes ? kBufferBytes : bytes);
     DWORD done = 0;
     const BOOL started = write ? WriteFile(m_pipe, buffer, chunk, &done, &overlapped)
@@ -155,7 +171,7 @@ Result<std::size_t> PipeConnection::transfer(bool write, void* buffer, std::size
         {
             return std::unexpected(win32Error(error, write ? "write to pipe" : "read from pipe"));
         }
-        if (WaitForSingleObject(m_event, waitMs(timeout)) == WAIT_TIMEOUT)
+        if (WaitForSingleObject(event, waitMs(timeout)) == WAIT_TIMEOUT)
         {
             CancelIoEx(m_pipe, &overlapped);
             GetOverlappedResult(m_pipe, &overlapped, &done,
@@ -417,7 +433,7 @@ Result<PipeConnection> connectPipe(const std::wstring& name, std::chrono::millis
     {
         return fail(ErrorCode::AccessDenied, "the pipe is served from another session");
     }
-    auto image = imageOf(serverPid);
+    auto image = processImagePath(serverPid);
     if (!image)
     {
         return std::unexpected(std::move(image.error()));
