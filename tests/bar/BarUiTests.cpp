@@ -1,3 +1,4 @@
+#include "PluginWidgets.hpp"
 #include "Surface.hpp"
 #include "Widgets.hpp"
 
@@ -250,6 +251,85 @@ export component NowPlaying inherits HorizontalLayout {
     Surface surface;
     HeadlessPlatform::last->draw(surface, false, [](bool) {});
     std::filesystem::remove_all(folder);
+}
+
+TEST(PluginWidgetSource, EveryExampleWidgetCompilesInABar)
+{
+    // plugins/examples: what `rmw plugin validate` cannot check (it has no Slint) is checked here.
+    const std::filesystem::path examples = std::filesystem::path(RMW_SOURCE_DIR) / "plugins" / "examples";
+    std::vector<rmw::bar::PlanPlugin> plugins;
+    rmw::domain::BarConfig config;
+    for (const auto& entry : std::filesystem::directory_iterator(examples))
+    {
+        if (!std::filesystem::exists(entry.path() / "widget.slint"))
+        {
+            continue;
+        }
+        const auto toml = std::filesystem::path(entry.path() / "plugin.toml");
+        rmw::domain::Diagnostics diagnostics;
+        std::ifstream file(toml, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        const auto manifest = rmw::domain::parsePluginManifest(text, diagnostics, {});
+        ASSERT_TRUE(manifest.has_value()) << toml.string();
+        plugins.push_back({manifest->id, std::filesystem::absolute(entry.path()), false});
+        config.right.push_back({manifest->id, {}});
+    }
+    ASSERT_GE(plugins.size(), 6u);
+    rmw::barapp::PluginWidgets widgets;
+    widgets.load(plugins);
+    ASSERT_EQ(widgets.all().size(), plugins.size()) << "some example widget did not load (see the log)";
+    const auto kinds = widgets.kinds();
+    const auto generated =
+        rmw::bar::generateBarSource(config, kinds, widgets.sources(rmw::barapp::builtinSources()));
+    EXPECT_TRUE(generated.unknown.empty());
+    auto instance = compile(generated.source);
+    HeadlessPlatform::last->resize(1600, 44);
+    // Values as the host would send them, converted by the bar.
+    for (const auto& slot : generated.slots)
+    {
+        const auto* widget = widgets.find(slot.kind->id);
+        ASSERT_NE(widget, nullptr);
+        for (const auto& property : widget->manifest.properties)
+        {
+            rmw::domain::Value value;
+            using rmw::domain::WidgetType;
+            if (!property.type.array && property.type.structName.empty())
+            {
+                switch (property.type.type)
+                {
+                case WidgetType::String:
+                    value = rmw::domain::Value{std::string("text")};
+                    break;
+                case WidgetType::Int:
+                    value = rmw::domain::Value{std::int64_t{3}};
+                    break;
+                case WidgetType::Float:
+                case WidgetType::Length:
+                    value = rmw::domain::Value{0.5};
+                    break;
+                case WidgetType::Bool:
+                    value = rmw::domain::Value{true};
+                    break;
+                case WidgetType::Color:
+                    value = rmw::domain::Value{std::string("#ff0000")};
+                    break;
+                case WidgetType::Image:
+                    value = rmw::domain::Value{std::string()};
+                    break;
+                }
+            }
+            else
+            {
+                value = rmw::domain::Value{rmw::domain::Value::Array{}};
+            }
+            auto converted = widgets.convert(*widget, property.type, value);
+            ASSERT_TRUE(converted.has_value()) << slot.kind->id << "." << property.name;
+            EXPECT_TRUE(instance->set_property(std::format("{}-{}", slot.prefix, property.name), *converted))
+                << slot.kind->id << "." << property.name;
+        }
+    }
+    Surface surface;
+    HeadlessPlatform::last->draw(surface, false, matteOf(instance));
 }
 
 TEST(BarClock, FormatsSafely)

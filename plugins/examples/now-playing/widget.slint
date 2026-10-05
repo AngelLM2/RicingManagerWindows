@@ -1,0 +1,67 @@
+// What is playing: title (and artist), previous / play-pause / next. Glyphs from Segoe Fluent Icons.
+
+component Glyph inherits Rectangle {
+    in property <string> glyph;
+    in property <color> foreground;
+    callback clicked();
+    width: 28px;
+    border-radius: 6px;
+    background: touch.has-hover ? rgba(255, 255, 255, 0.14) : transparent;
+    Text {
+        text: root.glyph;
+        font-family: "Segoe Fluent Icons";
+        font-size: 12px;
+        color: root.foreground;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component NowPlaying inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <string> title;
+    in property <bool> playing;
+    in property <bool> shown;
+    in property <length> limit: 260px;
+    callback toggle();
+    callback next();
+    callback previous();
+    visible: root.shown;
+    min-width: root.shown ? 120px : 0px;
+    preferred-width: root.shown ? root.limit : 0px;
+    max-width: root.shown ? root.limit : 0px;
+    min-height: root.shown ? 32px : 0px;
+    border-radius: 6px;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 2px;
+        spacing: 2px;
+        Text {
+            text: root.title;
+            color: root.foreground;
+            font-size: 12px;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Glyph {
+            glyph: "\u{E892}";
+            foreground: root.foreground;
+            clicked => { root.previous(); }
+        }
+        Glyph {
+            glyph: root.playing ? "\u{E769}" : "\u{E768}";
+            foreground: root.foreground;
+            clicked => { root.toggle(); }
+        }
+        Glyph {
+            glyph: "\u{E893}";
+            foreground: root.foreground;
+            clicked => { root.next(); }
+        }
+    }
+}

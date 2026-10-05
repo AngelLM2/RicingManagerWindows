@@ -1,0 +1,28 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.focus-mode"
+name        = "Focus mode"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = """Hides the bar and calms the desktop down (a plain dark wallpaper, dark mode);
+the same action again brings your rice back. Bind it to a hotkey in settings.toml:
+  [[hotkey]]
+  keys   = "Ctrl+Alt+F"
+  action = "io.github.angellm2.focus-mode:toggle\""""
+kind        = ["action"]
+
+[permissions]
+actions = ["bar.on", "bar.off", "rice.apply", "rice.undo"]
+storage = true
+
+[entry]
+script = "main.luau"
+
+[[action]]
+name        = "toggle"
+label       = "Focus mode"
+description = "Switch focus mode on or off"
