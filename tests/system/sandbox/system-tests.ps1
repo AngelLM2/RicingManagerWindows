@@ -123,8 +123,15 @@ $diag = & $rmw apply $rice --data-dir $diagData 2>&1 | Out-String
 $diagCode = $LASTEXITCODE
 $results.Add([pscustomobject]@{ name = 'diag:apply-without-mitigations'; ok = $true; detail = "exit=$diagCode $($diag.Trim())" })
 if ($diagCode -eq 0) {
-    $diag = & $rmw restore --original --data-dir $diagData 2>&1 | Out-String
-    $results.Add([pscustomobject]@{ name = 'diag:restore-without-mitigations'; ok = $true; detail = "exit=$LASTEXITCODE $($diag.Trim())" })
+    # The sections below start from what this leaves: a restore that timed out (Windows can be slow
+    # to report a theme in a fresh sandbox) gets a second chance.
+    foreach ($try in 1..3) {
+        $diag = & $rmw restore --original --data-dir $diagData 2>&1 | Out-String
+        $restoreCode = $LASTEXITCODE
+        if ($restoreCode -eq 0) { break }
+        Start-Sleep -Seconds 3
+    }
+    $results.Add([pscustomobject]@{ name = 'diag:restore-without-mitigations'; ok = $true; detail = "exit=$restoreCode tries=$try $($diag.Trim())" })
 }
 & $rmw shutdown --data-dir $diagData *> $null
 Remove-Item Env:\RMW_DISABLE_MITIGATIONS

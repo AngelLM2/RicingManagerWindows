@@ -310,7 +310,16 @@ Result<void> CoreServer::initialize()
         return {};
     }
     // A crash in the middle of an operation is always undone first (docs/03 §5).
-    if (auto recovered = m_engine->recover(); !recovered)
+    auto recovered = m_engine->recover();
+    if (!recovered && recovered.error().code() == ErrorCode::Timeout)
+    {
+        // Windows may still be busy with the change the crash interrupted (a theme switch takes
+        // its time): one more try once it has settled.
+        log::warn("undo timed out ({}); trying again", recovered.error().message());
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        recovered = m_engine->recover();
+    }
+    if (!recovered)
     {
         log::error("could not undo the interrupted operation: {}", recovered.error().toString());
     }
