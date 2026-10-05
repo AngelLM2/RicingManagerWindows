@@ -118,6 +118,61 @@ Result<Json> parse(std::string_view text, const ParseLimits& limits)
     }
 }
 
+bool boolOr(const Json& object, std::string_view key, bool fallback)
+{
+    if (!object.is_object())
+    {
+        return fallback;
+    }
+    const auto it = object.find(key);
+    return it != object.end() && it->is_boolean() ? it->get<bool>() : fallback;
+}
+
+std::int64_t intOr(const Json& object, std::string_view key, std::int64_t fallback)
+{
+    if (!object.is_object())
+    {
+        return fallback;
+    }
+    const auto it = object.find(key);
+    if (it == object.end() || !it->is_number_integer())
+    {
+        return fallback;
+    }
+    if (it->is_number_unsigned() &&
+        it->get<std::uint64_t>() > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+    {
+        return fallback;
+    }
+    return it->get<std::int64_t>();
+}
+
+std::string stringOr(const Json& object, std::string_view key, std::string_view fallback)
+{
+    if (object.is_object())
+    {
+        const auto it = object.find(key);
+        if (it != object.end() && it->is_string())
+        {
+            return it->get<std::string>();
+        }
+    }
+    return std::string(fallback);
+}
+
+Json memberOr(const Json& object, std::string_view key, Json fallback)
+{
+    if (object.is_object())
+    {
+        const auto it = object.find(key);
+        if (it != object.end())
+        {
+            return *it;
+        }
+    }
+    return fallback;
+}
+
 std::string dump(const Json& value)
 {
     return value.dump(-1, ' ', false, Json::error_handler_t::replace);

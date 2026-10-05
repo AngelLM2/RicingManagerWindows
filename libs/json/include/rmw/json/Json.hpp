@@ -63,6 +63,13 @@ private:
     std::string m_path;
 };
 
+// object[key] when present with the right type, otherwise `fallback`. Never throws (unlike
+// nlohmann's value(), which throws when the key exists with another type).
+[[nodiscard]] bool boolOr(const Json& object, std::string_view key, bool fallback);
+[[nodiscard]] std::int64_t intOr(const Json& object, std::string_view key, std::int64_t fallback);
+[[nodiscard]] std::string stringOr(const Json& object, std::string_view key, std::string_view fallback);
+[[nodiscard]] Json memberOr(const Json& object, std::string_view key, Json fallback);
+
 // "object", "string"... for messages.
 [[nodiscard]] std::string_view typeName(const Json& value) noexcept;
 

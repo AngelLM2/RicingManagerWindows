@@ -12,6 +12,7 @@ add_executable(rmw_unit_tests
     unit/DomainValueTests.cpp
     unit/ErrorTests.cpp
     unit/FileSystemTests.cpp
+    unit/IpcTests.cpp
     unit/JsonTests.cpp
     unit/LogTests.cpp
     unit/MonitorSelectorTests.cpp
@@ -30,6 +31,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::base
     rmw::domain
     rmw::engine
+    rmw::ipc
     rmw::json
     rmw::modules
     rmw::platform

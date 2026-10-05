@@ -6,6 +6,7 @@ rmw_add_library(platform
     SOURCES
         src/Console.cpp
         src/FileSystem.cpp
+        src/Pipe.cpp
         src/ProcessHardening.cpp
         src/Win32Display.cpp
         src/Win32Registry.cpp
@@ -14,6 +15,7 @@ rmw_add_library(platform
         src/WinError.cpp
     PUBLIC_DEPS
         rmw::base
+        rmw::ipc
         rmw::ports
     PRIVATE_DEPS
         WIL::WIL

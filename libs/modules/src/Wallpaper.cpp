@@ -312,8 +312,8 @@ Result<void> WallpaperLogic::internalize(Json& state, engine::IAssetSink& assets
             continue;
         }
         const std::string file = value["file"].get<std::string>();
-        const bool keep = value.value("keep", false);
-        const std::string extension = value.value("ext", std::string());
+        const bool keep = json::boolOr(value, "keep", false);
+        const std::string extension = json::stringOr(value, "ext", "");
         value.erase("keep");
         value.erase("ext");
         if (file.empty() || keep)
@@ -469,8 +469,14 @@ Result<void> WallpaperSystem::apply(const Json& desired)
             }
             state.items.push_back(item.get<std::string>());
         }
-        state.shuffle = slideshow->value("shuffle", false);
-        state.intervalMs = slideshow->value("intervalMs", kDefaultSlideSeconds * 1000);
+        state.shuffle = json::boolOr(*slideshow, "shuffle", false);
+        const std::int64_t interval =
+            json::intOr(*slideshow, "intervalMs", std::int64_t{kDefaultSlideSeconds} * 1000);
+        if (interval < 1000 || interval > 7LL * 24 * 3600 * 1000)
+        {
+            return fail(ErrorCode::InvalidArgument, "slideshow interval out of range");
+        }
+        state.intervalMs = static_cast<std::uint32_t>(interval);
         if (auto set = m_wallpaper.setSlideshow(state); !set)
         {
             return set;
