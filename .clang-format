@@ -1,0 +1,37 @@
+---
+Language: Cpp
+BasedOnStyle: Microsoft
+Standard: Latest
+ColumnLimit: 110
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+NamespaceIndentation: None
+FixNamespaceComments: true
+PointerAlignment: Left
+ReferenceAlignment: Left
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AlwaysBreakTemplateDeclarations: Yes
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
+SpaceAfterTemplateKeyword: true
+IncludeBlocks: Regroup
+SortIncludes: CaseSensitive
+IncludeCategories:
+  # Own header first is handled by IncludeIsMainRegex; then project, then third-party, then standard.
+  - Regex: '^"rmw/'
+    Priority: 2
+  - Regex: '^<(windows|winnt|winuser|wil/|shobjidl|shlobj|dwmapi|d3d|dxgi|dcomp|mf|wincodec)'
+    Priority: 4
+  - Regex: '^<.*\.h(pp)?>'
+    Priority: 3
+  - Regex: '^<'
+    Priority: 5
+  - Regex: '.*'
+    Priority: 1
+InsertNewlineAtEOF: true
+...
