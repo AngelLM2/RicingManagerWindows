@@ -9,6 +9,7 @@ rmw_add_library(domain
         src/CursorFiles.cpp
         src/Diagnostics.cpp
         src/Identifiers.cpp
+        src/Images.cpp
         src/MonitorSelector.cpp
         src/PathRules.cpp
         src/Rice.cpp

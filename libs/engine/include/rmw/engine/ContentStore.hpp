@@ -25,6 +25,10 @@ public:
                                                        std::uint64_t maxBytes,
                                                        std::string_view extension = {});
 
+    // Stores generated content (deduplicated by content too).
+    [[nodiscard]] Result<std::filesystem::path> importBytes(std::span<const std::byte> bytes,
+                                                            std::string_view extension);
+
     // Deletes stored files whose hash `isReferenced` does not recognize; returns how many.
     [[nodiscard]] Result<std::size_t> collectGarbage(
         const std::function<bool(std::string_view sha256)>& isReferenced);
@@ -45,6 +49,9 @@ public:
     [[nodiscard]] Result<std::filesystem::path> fromPackage(std::string_view relativePath) override;
     [[nodiscard]] Result<std::vector<std::byte>> readPackageFile(std::string_view relativePath,
                                                                  std::uint64_t maxBytes) override;
+    [[nodiscard]] Result<std::vector<std::string>> listPackageFolder(std::string_view relativePath) override;
+    [[nodiscard]] Result<std::filesystem::path> fromBytes(std::span<const std::byte> bytes,
+                                                          std::string_view extension) override;
     [[nodiscard]] Result<std::filesystem::path> fromSystem(const std::filesystem::path& file,
                                                            std::string_view extension) override;
 

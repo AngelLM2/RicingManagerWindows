@@ -349,10 +349,42 @@ private:
                         errorAt(m_diagnostics, node, path, "expected a table ([[wallpaper.monitor]])");
                     }
                 }
+                warnAboutUnfinishedWallpaperFeatures(t, config);
             }
         }
         t.reportUnknownKeys();
         m_rice.wallpaper = std::move(config);
+    }
+
+    // Say what this version does instead of silently differing from the rice.
+    static void warnAboutUnfinishedWallpaperFeatures(TableReader& t, const WallpaperConfig& config)
+    {
+        std::optional<WallpaperFit> firstFit;
+        for (const auto& rule : config.monitors)
+        {
+            if (rule.kind == WallpaperKind::Color)
+            {
+                continue;
+            }
+            if (!firstFit)
+            {
+                firstFit = rule.fit;
+            }
+            else if (rule.fit != *firstFit)
+            {
+                t.warning("monitor",
+                          std::format("for now every monitor uses fit = \"{}\" (a different fit per "
+                                      "monitor needs pre-rendering, coming in a later version)",
+                                      toString(*firstFit)));
+                break;
+            }
+        }
+        if (std::ranges::any_of(config.monitors,
+                                [](const auto& r) { return r.kind == WallpaperKind::Video; }))
+        {
+            t.warning("monitor",
+                      "video wallpapers arrive in a later version; until then fallback_image is shown");
+        }
     }
 
     void readMonitorRule(const toml::table& table, const std::string& path,

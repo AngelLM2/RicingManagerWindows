@@ -21,6 +21,7 @@ add_executable(rmw_unit_tests
     unit/ScopeExitTests.cpp
     unit/StatementTests.cpp
     unit/UtfTests.cpp
+    unit/WallpaperModuleTests.cpp
     unit/Win32PortsTests.cpp
     unit/WinErrorTests.cpp
 )

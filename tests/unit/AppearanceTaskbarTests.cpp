@@ -34,6 +34,14 @@ public:
     {
         return rmw::fail(rmw::ErrorCode::Unsupported, "no assets");
     }
+    rmw::Result<std::vector<std::string>> listPackageFolder(std::string_view) override
+    {
+        return rmw::fail(rmw::ErrorCode::Unsupported, "no assets");
+    }
+    rmw::Result<std::filesystem::path> fromBytes(std::span<const std::byte>, std::string_view) override
+    {
+        return rmw::fail(rmw::ErrorCode::Unsupported, "no assets");
+    }
     rmw::Result<std::filesystem::path> fromSystem(const std::filesystem::path&, std::string_view) override
     {
         return rmw::fail(rmw::ErrorCode::Unsupported, "no assets");

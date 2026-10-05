@@ -49,6 +49,13 @@ public:
     // The bytes of a package file, to validate it (or read install.inf). Same containment rules.
     [[nodiscard]] virtual Result<std::vector<std::byte>> readPackageFile(std::string_view relativePath,
                                                                          std::uint64_t maxBytes) = 0;
+    // Regular files directly inside a package folder (names only, sorted, each a valid path
+    // component), e.g. the images of a slideshow folder.
+    [[nodiscard]] virtual Result<std::vector<std::string>> listPackageFolder(
+        std::string_view relativePath) = 0;
+    // Content the module generated (e.g. a solid-color image).
+    [[nodiscard]] virtual Result<std::filesystem::path> fromBytes(std::span<const std::byte> bytes,
+                                                                  std::string_view extension) = 0;
     // A file the system uses right now (e.g. the current wallpaper), for snapshots. `extension`
     // (without dot) names the type when the file has none; empty keeps the file's own.
     [[nodiscard]] virtual Result<std::filesystem::path> fromSystem(const std::filesystem::path& file,

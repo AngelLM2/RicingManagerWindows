@@ -3,6 +3,7 @@
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
+#include "rmw/domain/PathRules.hpp"
 #include "rmw/platform/FileSystem.hpp"
 
 #include <algorithm>
@@ -145,6 +146,37 @@ Result<std::filesystem::path> ContentStore::import(const std::filesystem::path& 
     return stored;
 }
 
+Result<std::filesystem::path> ContentStore::importBytes(std::span<const std::byte> bytes,
+                                                        std::string_view extension)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(m_directory, ec);
+    if (ec)
+    {
+        return fail(ErrorCode::Io, std::format("cannot create the content store: {}", ec.message()),
+                    ec.value());
+    }
+    auto digest = platform::sha256(bytes);
+    if (!digest)
+    {
+        return std::unexpected(std::move(digest.error()));
+    }
+    std::filesystem::path stored = m_directory / std::filesystem::path(platform::toHex(*digest));
+    if (const std::string cleanExt = cleanExtension(extension); !cleanExt.empty())
+    {
+        stored += std::filesystem::path("." + cleanExt);
+    }
+    if (std::filesystem::exists(stored, ec))
+    {
+        return stored;
+    }
+    if (auto written = platform::writeFileAtomic(stored, bytes); !written)
+    {
+        return std::unexpected(std::move(written.error()));
+    }
+    return stored;
+}
+
 Result<std::size_t> ContentStore::collectGarbage(
     const std::function<bool(std::string_view sha256)>& isReferenced)
 {
@@ -251,6 +283,51 @@ Result<std::vector<std::byte>> StoreAssetSink::readPackageFile(std::string_view 
     return platform::readFileLimited(*source, maxBytes).transform_error([&](Error error) {
         return std::move(error).withContext(std::format("asset '{}'", relativePath));
     });
+}
+
+Result<std::vector<std::string>> StoreAssetSink::listPackageFolder(std::string_view relativePath)
+{
+    auto folder = resolve(relativePath);
+    if (!folder)
+    {
+        return std::unexpected(std::move(folder.error()));
+    }
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(*folder, ec), end; !ec && it != end; it.increment(ec))
+    {
+        // symlink_status: links are listed as links, not as what they point to.
+        std::error_code entryError;
+        if (it->symlink_status(entryError).type() != std::filesystem::file_type::regular)
+        {
+            continue;
+        }
+        const std::u8string name = it->path().filename().u8string();
+        std::string utf8(name.begin(), name.end());
+        if (!domain::validatePackagePath(utf8) || utf8.find('/') != std::string::npos)
+        {
+            continue; // names a package could not have produced are skipped
+        }
+        names.push_back(std::move(utf8));
+        if (names.size() > limits::kPackageMaxEntries)
+        {
+            return fail(ErrorCode::LimitExceeded,
+                        std::format("folder '{}' has too many files", relativePath));
+        }
+    }
+    if (ec)
+    {
+        return fail(ErrorCode::Io, std::format("cannot list '{}': {}", relativePath, ec.message()),
+                    ec.value());
+    }
+    std::ranges::sort(names);
+    return names;
+}
+
+Result<std::filesystem::path> StoreAssetSink::fromBytes(std::span<const std::byte> bytes,
+                                                        std::string_view extension)
+{
+    return m_store.importBytes(bytes, extension);
 }
 
 Result<std::filesystem::path> StoreAssetSink::fromSystem(const std::filesystem::path& file,
