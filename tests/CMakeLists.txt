@@ -8,6 +8,8 @@ add_executable(rmw_unit_tests
     unit/DatabaseTests.cpp
     unit/DomainValueTests.cpp
     unit/ErrorTests.cpp
+    unit/FileSystemTests.cpp
+    unit/JsonTests.cpp
     unit/LogTests.cpp
     unit/MonitorSelectorTests.cpp
     unit/PathRulesTests.cpp
@@ -21,6 +23,7 @@ target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/s
 target_link_libraries(rmw_unit_tests PRIVATE
     rmw::base
     rmw::domain
+    rmw::json
     rmw::platform
     rmw::storage
     GTest::gtest
