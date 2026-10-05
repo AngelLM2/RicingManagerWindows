@@ -15,6 +15,7 @@ rmw_add_library(domain
         src/Rice.cpp
         src/RiceParser.cpp
         src/SemVer.cpp
+        src/Settings.cpp
         src/TomlReader.cpp
     PUBLIC_DEPS
         rmw::base

@@ -89,7 +89,8 @@ public:
     [[nodiscard]] Result<std::optional<std::string>> meta(std::string_view key);
     [[nodiscard]] Result<void> setMeta(std::string_view key, std::optional<std::string_view> value);
 
-    // Whether any stored document mentions this content-store hash (garbage collection).
+    // Whether any stored document (meta values included: the core keeps plans there, such as
+    // the slideshow pages it turns) mentions this content-store hash (garbage collection).
     [[nodiscard]] Result<bool> referencesAsset(std::string_view sha256);
 
     [[nodiscard]] storage::Database& database() noexcept { return m_db; }

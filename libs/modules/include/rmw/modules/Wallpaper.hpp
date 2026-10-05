@@ -4,6 +4,8 @@
 #include "rmw/ports/Display.hpp"
 #include "rmw/ports/Registry.hpp"
 
+#include <span>
+
 // Static wallpaper per monitor (docs/03 §6, ADR-0004). Fields:
 //   "monitor:<identityKey>"  {"file": path} — "" means no image; captures may add "ext" (type of
 //                            an extension-less file to copy) and "keep" (a Windows file)
@@ -71,5 +73,17 @@ private:
 };
 
 inline constexpr std::string_view kMonitorFieldPrefix = "monitor:";
+
+// A slideshow Windows cannot play (another folder, or something else, on other monitors): the
+// core's scheduler turns its pages (docs/04 M2). {"monitor:<key>": {"items": [stored paths],
+// "intervalMs": n, "shuffle": bool}}; empty when Windows' own slideshow (or none) does the job.
+[[nodiscard]] Result<engine::Json> wallpaperRotation(const domain::WallpaperConfig& config,
+                                                     std::span<const ports::MonitorInfo> monitors,
+                                                     engine::IAssetSink& assets);
+
+// The page such a slideshow shows next: the following one, or with `shuffle` any other one
+// (`random` picks it). `current` == count when what is shown now is not one of the pages.
+[[nodiscard]] std::size_t nextPage(std::size_t count, std::size_t current, bool shuffle,
+                                   std::uint64_t random) noexcept;
 
 } // namespace rmw::modules

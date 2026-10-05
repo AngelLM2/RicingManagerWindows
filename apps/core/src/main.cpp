@@ -1,7 +1,9 @@
 // rmw-core.exe — the single writer (docs/03 §2). Modes:
-//   rmw-core [--data-dir <path>] [--in-process] [--idle-exit <seconds>]   serve clients
-//   rmw-core --startup                                                     undo an interrupted operation,
-//   exit rmw-core --apply-helper --pipe <name>                                  child that talks to Explorer
+//   rmw-core [--data-dir <path>] [--in-process] [--idle-exit <seconds>]   serve clients; stays
+//                                                                          resident if needed
+//   rmw-core --startup        at logon: undo an interrupted operation, stay only if needed
+//   rmw-core --safe-mode      nothing automatic (also: Shift held at logon, or 3 crashed starts)
+//   rmw-core --apply-helper --pipe <name>                                  child that talks to Explorer
 //   rmw-core --version
 
 #include "ApplyHelper.hpp"
@@ -14,6 +16,8 @@
 #include "rmw/platform/Pipe.hpp"
 #include "rmw/platform/Process.hpp"
 #include "rmw/platform/ProcessHardening.hpp"
+
+#include <windows.h>
 
 #include <charconv>
 #include <cstdlib>
@@ -35,6 +39,8 @@ struct Arguments
     bool startup = false;
     bool applyHelper = false;
     bool inProcess = false;
+    bool safeMode = false;
+    bool testExitUnclean = false;
     std::wstring pipe;
     std::filesystem::path dataDirectory;
     std::optional<int> idleExit;
@@ -83,6 +89,14 @@ Result<Arguments> parseArguments(std::span<wchar_t*> args)
         else if (arg == L"--in-process")
         {
             parsed.inProcess = true;
+        }
+        else if (arg == L"--safe-mode")
+        {
+            parsed.safeMode = true;
+        }
+        else if (arg == L"--test-exit-unclean")
+        {
+            parsed.testExitUnclean = true; // system tests only: die like a crash after starting
         }
         else if (arg == L"--test-delay-ms" || arg == L"--test-pause-after")
         {
@@ -233,6 +247,11 @@ int run(std::span<wchar_t*> args)
     {
         options.idleExit = std::chrono::seconds(*parsed->idleExit);
     }
+    options.startup = parsed->startup;
+    // Holding Shift while Windows signs in starts in safe mode (docs/06 §6). Only at logon: a
+    // client starting the core while the user types must not trigger it.
+    options.safeModeRequested =
+        parsed->safeMode || (parsed->startup && (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0);
     options.testOperationDelay = std::chrono::milliseconds(parsed->testDelayMs);
     options.testPauseAfterModule = parsed->testPauseModule;
     options.testPause = std::chrono::milliseconds(parsed->testPauseMs);
@@ -242,9 +261,17 @@ int run(std::span<wchar_t*> args)
         log::error("core: {}", initialized.error().toString());
         return 1;
     }
-    if (parsed->startup)
+    if (parsed->testExitUnclean)
     {
-        return 0; // initialize() already undid an interrupted operation; nothing is resident yet (M2)
+        log::warn("TEST HOOK: exiting like a crash");
+        std::_Exit(70);
+    }
+    if (parsed->startup && !server.wantsResidency())
+    {
+        // initialize() already undid any interrupted operation; nothing needs us (docs/03 §2.2).
+        log::info("startup: nothing needs the core; exiting");
+        server.markHealthy();
+        return 0;
     }
 
     auto name = platform::corePipeName();
@@ -257,9 +284,14 @@ int run(std::span<wchar_t*> args)
     if (!pipe)
     {
         log::error("core pipe: {}", pipe.error().toString());
-        return pipe.error().code() == ErrorCode::AlreadyExists ? 0 : 1;
+        if (pipe.error().code() == ErrorCode::AlreadyExists)
+        {
+            server.markHealthy();
+            return 0;
+        }
+        return 1;
     }
-    return server.serve(*pipe);
+    return server.run(*pipe);
 }
 
 } // namespace

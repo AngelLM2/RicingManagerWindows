@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace rmw::platform
 {
@@ -20,6 +21,14 @@ struct ChildOptions
     bool breakawayFromJob = false;
     // Put the child in a job of its own that kills it when the handle closes (workers).
     bool ownJob = true;
+    // The job reports JOB_OBJECT_MSG_NOTIFICATION_LIMIT once committed memory passes this (0 =
+    // none): the hard ceiling only makes allocations fail, it never ends the process (docs/03 §2.4).
+    std::uint64_t memoryNotifyBytes = 0;
+    // Job messages (memory, exit) go to this I/O completion port with this key (ownJob only).
+    void* completionPort = nullptr;
+    std::uintptr_t completionKey = 0;
+    // The only handles the child inherits (each must be inheritable). Empty = none.
+    std::vector<void*> inheritHandles;
 };
 
 // A child process (RAII). With ownJob, destroying the object ends the child: workers never
