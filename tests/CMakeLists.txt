@@ -13,6 +13,7 @@ add_executable(rmw_unit_tests
     unit/LogTests.cpp
     unit/MonitorSelectorTests.cpp
     unit/PathRulesTests.cpp
+    unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
     unit/StatementTests.cpp
@@ -23,6 +24,7 @@ target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/s
 target_link_libraries(rmw_unit_tests PRIVATE
     rmw::base
     rmw::domain
+    rmw::engine
     rmw::json
     rmw::platform
     rmw::storage

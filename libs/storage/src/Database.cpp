@@ -164,6 +164,16 @@ bool Database::isOpen() const noexcept
     return m_db != nullptr;
 }
 
+std::int64_t Database::lastInsertRowId() const noexcept
+{
+    return m_db != nullptr ? sqlite3_last_insert_rowid(m_db) : 0;
+}
+
+std::int64_t Database::changes() const noexcept
+{
+    return m_db != nullptr ? sqlite3_changes64(m_db) : 0;
+}
+
 sqlite3* Database::handle() const noexcept
 {
     return m_db;

@@ -38,6 +38,8 @@ private:
 
 [[nodiscard]] Result<Sha256Digest> sha256(std::span<const std::byte> bytes);
 [[nodiscard]] std::string toHex(std::span<const std::uint8_t> bytes); // lower-case
+// `byteCount` bytes from the system CSPRNG, as hex (temporary names, pipe names).
+[[nodiscard]] Result<std::string> randomHex(std::size_t byteCount);
 
 struct HashedCopy
 {
