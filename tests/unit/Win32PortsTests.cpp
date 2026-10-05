@@ -189,6 +189,12 @@ TEST(ManagedTheme, AddsMissingKeysAndSections)
     EXPECT_NE(
         bare.find(L"[VisualStyles]\r\nSystemMode=Light\r\nAppMode=Light\r\nColorizationColor=0XC40078D4"),
         std::wstring::npos);
+
+    // The other turn's file has its own name (the two must never be the same theme to Windows).
+    const std::wstring second = buildManagedTheme(L"[Theme]\nDisplayName=Ricing Manager\n", ThemeLook{},
+                                                  rmw::platform::kManagedThemeNameB);
+    EXPECT_NE(second.find(L"DisplayName=Ricing Manager (2)"), std::wstring::npos);
+    EXPECT_EQ(second.find(L"DisplayName=Ricing Manager\r\n"), std::wstring::npos);
 }
 
 } // namespace
