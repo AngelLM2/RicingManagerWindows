@@ -171,6 +171,38 @@ TEST(BarSurface, GeneratedBarsCompileAndDraw)
     }
 }
 
+TEST(BarSurface, TheStartZoneNeverRunsIntoTheCenter)
+{
+    // Found on a real desktop: many windows pushed the list under the centered clock.
+    rmw::domain::BarConfig config;
+    config.left = {{"start", {}}, {"windows", {}}};
+    config.center = {{"clock", {}}};
+    config.right = {{"clock", {}}};
+    const auto generated =
+        rmw::bar::generateBarSource(config, rmw::barapp::builtinKinds(), rmw::barapp::builtinSources());
+    auto instance = compile(generated.source);
+    auto windows = std::make_shared<slint::VectorModel<Value>>();
+    for (int i = 0; i < 12; ++i)
+    {
+        windows->push_back(
+            Value(slint::interpreter::Struct{{"id", Value(static_cast<double>(i))},
+                                             {"title", Value(slint::SharedString("A long window title"))},
+                                             {"icon", Value(slint::Image())},
+                                             {"active", Value(false)}}));
+    }
+    instance->set_property("w1-windows", Value(std::shared_ptr<slint::Model<Value>>(windows)));
+    instance->set_property("w1-labels", Value(true));
+    instance->set_property("w2-text", Value(slint::SharedString("12:34")));
+    instance->set_property("w3-text", Value(slint::SharedString("05/10/2026")));
+    HeadlessPlatform::last->resize(1200, 44);
+    Surface surface;
+    HeadlessPlatform::last->draw(surface, false, matteOf(instance));
+    const auto startEnd = instance->get_property("layout-start-end")->to_number().value();
+    const auto centerStart = instance->get_property("layout-center-start")->to_number().value();
+    EXPECT_LE(startEnd, centerStart) << "the window list runs under the clock";
+    EXPECT_GT(startEnd, 300.0); // and it still uses the room it has
+}
+
 TEST(BarClock, FormatsSafely)
 {
     EXPECT_TRUE(std::regex_match(rmw::barapp::formatClock("%H:%M"), std::regex(R"(\d\d:\d\d)")));
