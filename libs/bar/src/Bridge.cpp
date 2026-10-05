@@ -17,6 +17,7 @@ constexpr std::size_t kMaxInstances = 256;
 constexpr std::size_t kMaxKeyBytes = 64;
 constexpr std::size_t kMaxNameBytes = 64;
 constexpr std::size_t kMaxArguments = 8;
+constexpr std::size_t kMaxWatched = 8;
 
 Result<std::string> text(const Json& object, std::string_view key, std::size_t maxBytes)
 {
@@ -67,13 +68,27 @@ std::string encode(const Message& message)
                                        {"callback", m.callback},
                                        {"args", json::fromValue(domain::Value{m.arguments})}});
             }
-            else
+            else if constexpr (std::is_same_v<T, Action>)
             {
                 return json::dump(
                     Json{{"t", "action"}, {"name", m.name}, {"args", json::fromValue(m.arguments)}});
             }
+            else if constexpr (std::is_same_v<T, Watch>)
+            {
+                return json::dump(Json{{"t", "watch"}, {"providers", m.providers}});
+            }
+            else
+            {
+                return json::dump(
+                    Json{{"t", "provide"}, {"name", m.name}, {"value", json::fromValue(m.value)}});
+            }
         },
         message);
+}
+
+bool isBarProvider(std::string_view name) noexcept
+{
+    return name == "tray";
 }
 
 Result<Message> decode(std::string_view input)
@@ -148,6 +163,34 @@ Result<Message> decode(std::string_view input)
             return fail(ErrorCode::InvalidData, "bridge: action: invalid");
         }
         return Action{std::move(*name), std::move(*arguments)};
+    }
+    if (kind == "watch")
+    {
+        const Json list = json::memberOr(root, "providers", Json());
+        if (!list.is_array() || list.size() > kMaxWatched)
+        {
+            return fail(ErrorCode::InvalidData, "bridge: watch: expected a list of providers");
+        }
+        Watch watch;
+        for (const auto& item : list)
+        {
+            if (!item.is_string() || !isBarProvider(item.get<std::string>()))
+            {
+                return fail(ErrorCode::InvalidData, "bridge: watch: not a provider of the bar");
+            }
+            watch.providers.push_back(item.get<std::string>());
+        }
+        return watch;
+    }
+    if (kind == "provide")
+    {
+        auto name = text(root, "name", kMaxNameBytes);
+        auto provided = value(root, "value");
+        if (!name || !provided || !isBarProvider(*name))
+        {
+            return fail(ErrorCode::InvalidData, "bridge: provide: invalid");
+        }
+        return Provide{std::move(*name), std::move(*provided)};
     }
     return fail(ErrorCode::InvalidData, std::format("bridge: unknown message '{}'", kind));
 }

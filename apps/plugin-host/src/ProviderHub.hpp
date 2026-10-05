@@ -49,6 +49,9 @@ public:
     // Main thread: a window came, went, changed its title or took the foreground.
     void windowsChanged();
 
+    // A value of a provider the bar has (rmw::bar::bridge::isBarProvider: "tray").
+    void fromBar(std::string_view name, domain::Value value);
+
     class WindowThread;
 
 private:

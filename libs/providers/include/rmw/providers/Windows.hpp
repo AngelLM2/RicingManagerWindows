@@ -26,6 +26,22 @@ void minimizeWindow(void* window);
 // Asks it to close (WM_CLOSE: the app may ask to save first).
 void closeWindow(void* window);
 
+// An icon's pixels: straight (not premultiplied) RGBA, row by row, top first.
+struct IconPixels
+{
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> rgba;
+
+    [[nodiscard]] bool empty() const noexcept { return rgba.empty(); }
+    friend bool operator==(const IconPixels&, const IconPixels&) = default;
+};
+
+// Draws an HICON at `size` x `size` pixels; 0 takes the icon's own size (at most 64). Icons without
+// an alpha channel take it from their mask. Any thread: an HICON is usable from any process of the
+// session, and the copy stays valid after its owner destroys it. Empty when it cannot be drawn.
+[[nodiscard]] IconPixels iconPixels(void* icon, int size = 0);
+
 // WinEvent hooks out of context (nothing of ours goes into other processes) for what changes a
 // taskbar: foreground, minimize, show/hide/destroy, title, cloak. `changed` runs on the thread that
 // created the hooks, from its message loop. One set per process.

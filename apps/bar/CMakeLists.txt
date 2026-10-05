@@ -17,6 +17,9 @@ add_library(rmw_bar_ui STATIC
     src/SlintPlatform.cpp
     src/Surface.cpp
     src/SystemWidgets.cpp
+    src/TrayForwarder.cpp
+    src/TrayHost.cpp
+    src/TrayWidget.cpp
     src/Widgets.cpp
     src/WindowList.cpp
 )
@@ -29,6 +32,7 @@ target_link_libraries(rmw_bar_ui PUBLIC
     rmw::plugins
     rmw::providers
     Slint::Slint
+    comctl32
     dwmapi
     gdi32
     iphlpapi
@@ -36,6 +40,7 @@ target_link_libraries(rmw_bar_ui PUBLIC
     ole32
     shcore
     shell32
+    advapi32
     user32
 )
 rmw_configure_target(rmw_bar_ui)
