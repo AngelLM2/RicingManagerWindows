@@ -102,6 +102,13 @@ public:
 
     [[nodiscard]] virtual std::string_view id() const noexcept = 0;
     [[nodiscard]] virtual Result<CaptureResult> capture() = 0;
+    // A module whose fields are not fixed (tweaks: any allowed registry value) captures the fields
+    // it is asked for; the others capture everything they have and ignore the list.
+    [[nodiscard]] virtual Result<CaptureResult> captureFields(std::span<const std::string> fields)
+    {
+        (void)fields;
+        return capture();
+    }
     // Sets exactly the fields in `desired`; fields it does not mention are left alone.
     // Must be idempotent: applying the same fields twice changes nothing the second time.
     [[nodiscard]] virtual Result<void> apply(const Json& desired) = 0;
@@ -112,7 +119,9 @@ class IModuleRunner
 {
 public:
     virtual ~IModuleRunner() = default;
-    [[nodiscard]] virtual Result<CaptureResult> capture(std::string_view moduleId) = 0;
+    // `fields`: what the operation is about (captureFields); modules with fixed fields ignore it.
+    [[nodiscard]] virtual Result<CaptureResult> capture(std::string_view moduleId,
+                                                        std::span<const std::string> fields) = 0;
     [[nodiscard]] virtual Result<void> apply(std::string_view moduleId, const Json& desired) = 0;
 };
 

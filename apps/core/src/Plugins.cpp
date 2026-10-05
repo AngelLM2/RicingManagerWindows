@@ -596,6 +596,49 @@ Result<bar::Plan> PluginManager::barPlan(const domain::Rice& rice)
     return plan;
 }
 
+std::vector<domain::Tweak> PluginManager::tweaksFor(const domain::Rice& rice, std::vector<std::string>& notes)
+{
+    const std::scoped_lock lock(m_mutex);
+    std::vector<domain::Tweak> tweaks;
+    const auto entries = listLocked();
+    for (const auto& requirement : rice.pluginRequirements)
+    {
+        const auto entry = std::ranges::find(entries, requirement.id, &PluginEntry::id);
+        if (entry == entries.end() || !entry->manifest)
+        {
+            continue; // not a tweak, or not installed: the bar and the host say so for their kinds
+        }
+        if (!entry->manifest->hasKind(domain::PluginKind::Tweak))
+        {
+            continue;
+        }
+        if (!requirement.version.matches(entry->manifest->version))
+        {
+            notes.push_back(std::format("tweak plugin {} is version {}, the rice asks for {}: left out",
+                                        entry->id, entry->manifest->version.toString(),
+                                        requirement.version.toString()));
+            continue;
+        }
+        if (!entry->disabled.empty())
+        {
+            notes.push_back(std::format("tweak plugin {} is off ({})", entry->id, entry->disabled));
+            continue;
+        }
+        bool restart = false;
+        for (const auto& tweak : entry->manifest->tweaks)
+        {
+            tweaks.push_back(tweak);
+            restart = restart || tweak.needsExplorerRestart;
+        }
+        if (restart)
+        {
+            notes.push_back(std::format("{}: restart Explorer (or sign out and in) to see all of it",
+                                        entry->manifest->name));
+        }
+    }
+    return tweaks;
+}
+
 plugins::HostPlan PluginManager::hostPlan(const std::optional<bar::Plan>& bars)
 {
     const std::scoped_lock lock(m_mutex);

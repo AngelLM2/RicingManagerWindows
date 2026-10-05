@@ -281,6 +281,25 @@ struct BarConfig
 
 // ---- plugins ----------------------------------------------------------------------------------
 
+// A value a tweak plugin sets (P1, docs/12 §3): checked against the allow-list (Tweaks.hpp).
+enum class RegistryType
+{
+    Dword,
+    String,
+};
+
+struct Tweak
+{
+    std::string key;   // under HKEY_CURRENT_USER, normalized: "Software\Microsoft\...\Advanced"
+    std::string value; // value name ("" = the key's default value)
+    RegistryType type = RegistryType::Dword;
+    std::variant<std::uint64_t, std::string> data;
+    // Explorer reads it only when it starts: the user is told to restart it (we never do).
+    bool needsExplorerRestart = false;
+
+    friend bool operator==(const Tweak&, const Tweak&) = default;
+};
+
 struct PluginRequirement
 {
     std::string id;
@@ -307,6 +326,9 @@ struct Rice
     std::vector<BarConfig> bars;
     std::vector<PluginRequirement> pluginRequirements;
     std::vector<PluginSettings> pluginSettings;
+    // Not in rice.toml: the values of the tweak plugins this rice requires, added by the core
+    // (the "tweaks" module applies them).
+    std::vector<Tweak> tweaks;
 
     const PaletteEntry* findPalette(std::string_view name) const noexcept;
 };

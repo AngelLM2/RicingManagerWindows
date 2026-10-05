@@ -24,7 +24,8 @@ public:
     explicit HelperModuleRunner(std::filesystem::path coreExecutable,
                                 std::chrono::milliseconds timeout = kHelperTimeout);
 
-    [[nodiscard]] Result<engine::CaptureResult> capture(std::string_view moduleId) override;
+    [[nodiscard]] Result<engine::CaptureResult> capture(std::string_view moduleId,
+                                                        std::span<const std::string> fields) override;
     [[nodiscard]] Result<void> apply(std::string_view moduleId, const engine::Json& desired) override;
 
     // Ends the helper now (idle core, shutdown).

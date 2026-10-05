@@ -159,9 +159,15 @@ Result<Json> HelperModuleRunner::call(std::string_view method, const Json& param
     return std::move(response->result);
 }
 
-Result<engine::CaptureResult> HelperModuleRunner::capture(std::string_view moduleId)
+Result<engine::CaptureResult> HelperModuleRunner::capture(std::string_view moduleId,
+                                                          std::span<const std::string> fields)
 {
-    auto result = call("module.capture", Json{{"module", moduleId}});
+    Json names = Json::array();
+    for (const auto& field : fields)
+    {
+        names.push_back(field);
+    }
+    auto result = call("module.capture", Json{{"module", moduleId}, {"fields", std::move(names)}});
     if (!result)
     {
         return std::unexpected(std::move(result.error()));
@@ -224,8 +230,17 @@ int runApplyHelper(const std::wstring& pipeName)
         }
         else if (request->method == "module.capture")
         {
-            result = systems.runner.capture(module).transform(
-                [](const engine::CaptureResult& c) { return captureToJson(c); });
+            std::vector<std::string> fields;
+            for (const auto& field : json::memberOr(request->params, "fields", Json::array()))
+            {
+                if (field.is_string() && fields.size() < 4096)
+                {
+                    fields.push_back(field.get<std::string>());
+                }
+            }
+            result = systems.runner.capture(module, fields).transform([](const engine::CaptureResult& c) {
+                return captureToJson(c);
+            });
         }
         else if (request->method == "module.apply")
         {

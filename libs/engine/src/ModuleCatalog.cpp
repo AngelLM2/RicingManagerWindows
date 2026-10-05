@@ -81,14 +81,15 @@ Result<IModuleSystem*> LocalModuleRunner::find(std::string_view moduleId) const
     return *it;
 }
 
-Result<CaptureResult> LocalModuleRunner::capture(std::string_view moduleId)
+Result<CaptureResult> LocalModuleRunner::capture(std::string_view moduleId,
+                                                 std::span<const std::string> fields)
 {
     auto system = find(moduleId);
     if (!system)
     {
         return std::unexpected(std::move(system.error()));
     }
-    return (*system)->capture();
+    return (*system)->captureFields(fields);
 }
 
 Result<void> LocalModuleRunner::apply(std::string_view moduleId, const Json& desired)

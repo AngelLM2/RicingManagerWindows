@@ -150,26 +150,7 @@ struct PluginWidget
 
 // ---- tweak (P1) ------------------------------------------------------------------------------------
 
-enum class RegistryType
-{
-    Dword,
-    Qword,
-    String,
-};
-
 std::string_view toString(RegistryType type) noexcept;
-
-struct Tweak
-{
-    std::string key;   // under HKEY_CURRENT_USER, normalized: "Software\Microsoft\...\Advanced"
-    std::string value; // value name ("" = the key's default value)
-    RegistryType type = RegistryType::Dword;
-    std::variant<std::uint64_t, std::string> data;
-    // Explorer reads it only when it starts: the user is told to restart it (we never do).
-    bool needsExplorerRestart = false;
-
-    friend bool operator==(const Tweak&, const Tweak&) = default;
-};
 
 // ---- action -------------------------------------------------------------------------------------
 
