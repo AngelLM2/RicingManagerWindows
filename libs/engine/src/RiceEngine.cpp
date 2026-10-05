@@ -248,6 +248,18 @@ Result<OperationReport> RiceEngine::apply(const domain::Rice& rice, const std::f
         return propagate(base);
     }
 
+    auto steps = stepsFromRice(rice, packageRoot);
+    if (!steps)
+    {
+        return propagate(steps);
+    }
+    return run("apply", std::format("Applied \"{}\"", rice.meta.name), std::move(*steps),
+               AppliedUpdate::Merge, {});
+}
+
+Result<std::vector<RiceEngine::Step>> RiceEngine::stepsFromRice(const domain::Rice& rice,
+                                                                const std::filesystem::path& packageRoot)
+{
     StoreAssetSink assets(m_store, packageRoot);
     std::vector<Step> steps;
     for (const auto* module : m_catalog.ordered())
@@ -271,8 +283,131 @@ Result<OperationReport> RiceEngine::apply(const domain::Rice& rice, const std::f
     {
         return fail(ErrorCode::InvalidArgument, "this rice does not change anything");
     }
-    return run("apply", std::format("Applied \"{}\"", rice.meta.name), std::move(steps), AppliedUpdate::Merge,
-               {});
+    return steps;
+}
+
+Result<OperationReport> RiceEngine::applyAutomatic(const domain::Rice& rice,
+                                                   const std::filesystem::path& packageRoot,
+                                                   const std::string& label)
+{
+    if (auto clean = undoOpenJournalIfAny(); !clean)
+    {
+        return propagate(clean);
+    }
+    // Even an automatic change may be the first one: the original must be known before it.
+    if (auto base = ensureBaseSnapshot(); !base)
+    {
+        return propagate(base);
+    }
+    auto steps = stepsFromRice(rice, packageRoot);
+    if (!steps)
+    {
+        return propagate(steps);
+    }
+    return run("automatic", label, std::move(*steps), AppliedUpdate::Merge, {}, true);
+}
+
+Result<OperationReport> RiceEngine::applyFields(std::string_view moduleId, const Json& fields,
+                                                const std::string& label)
+{
+    const IModuleLogic* module = m_catalog.find(moduleId);
+    if (module == nullptr)
+    {
+        return fail(ErrorCode::NotFound, std::format("unknown module '{}'", moduleId));
+    }
+    if (!fields.is_object() || fields.empty())
+    {
+        return fail(ErrorCode::InvalidArgument, "no fields to apply");
+    }
+    if (auto clean = undoOpenJournalIfAny(); !clean)
+    {
+        return propagate(clean);
+    }
+    if (auto base = ensureBaseSnapshot(); !base)
+    {
+        return propagate(base);
+    }
+    std::vector<Step> steps;
+    steps.push_back({module, fields, std::nullopt});
+    return run("automatic", label, std::move(steps), AppliedUpdate::Merge, {}, true);
+}
+
+Result<std::vector<std::string>> RiceEngine::driftedFields(std::string_view moduleId)
+{
+    const IModuleLogic* module = m_catalog.find(moduleId);
+    if (module == nullptr)
+    {
+        return fail(ErrorCode::NotFound, std::format("unknown module '{}'", moduleId));
+    }
+    auto applied = m_state.applied(moduleId);
+    if (!applied)
+    {
+        return propagate(applied);
+    }
+    std::vector<std::string> drifted;
+    if (applied->empty())
+    {
+        return drifted;
+    }
+    auto current = captureInternalized(*module);
+    if (!current)
+    {
+        return propagate(current);
+    }
+    for (const auto& [field, ours] : applied->items())
+    {
+        const auto now = current->state.find(field);
+        if (now != current->state.end() && !module->fieldEquivalent(field, *now, ours))
+        {
+            drifted.push_back(field);
+        }
+    }
+    return drifted;
+}
+
+Result<void> RiceEngine::detach(std::string_view moduleId, const std::vector<std::string>& fields)
+{
+    auto applied = m_state.applied(moduleId);
+    if (!applied)
+    {
+        return propagate(applied);
+    }
+    for (const auto& field : fields)
+    {
+        applied->erase(field);
+    }
+    return m_state.setApplied(moduleId, *applied);
+}
+
+Result<OperationReport> RiceEngine::reapplyManaged(std::span<const std::string> modules)
+{
+    if (auto clean = undoOpenJournalIfAny(); !clean)
+    {
+        return propagate(clean);
+    }
+    std::vector<Step> steps;
+    for (const auto* module : m_catalog.ordered())
+    {
+        if (!modules.empty() && std::ranges::find(modules, module->id()) == modules.end())
+        {
+            continue;
+        }
+        auto applied = m_state.applied(module->id());
+        if (!applied)
+        {
+            return propagate(applied);
+        }
+        if (!applied->empty())
+        {
+            steps.push_back({module, std::move(*applied), std::nullopt});
+        }
+    }
+    if (steps.empty())
+    {
+        return OperationReport{};
+    }
+    return run("reapply", "Reapplied after a system change", std::move(steps), AppliedUpdate::Merge, {},
+               true);
 }
 
 Result<OperationReport> RiceEngine::restoreOriginal(const RestoreOptions& options)
@@ -373,7 +508,8 @@ Result<OperationReport> RiceEngine::restoreTo(const Json& targetModules, const s
 }
 
 Result<OperationReport> RiceEngine::run(std::string_view operation, const std::string& label,
-                                        std::vector<Step> steps, AppliedUpdate update, OperationReport report)
+                                        std::vector<Step> steps, AppliedUpdate update, OperationReport report,
+                                        bool automatic)
 {
     // 2. current state of every module involved
     Json beforeModules = Json::object();
@@ -396,6 +532,29 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         }
         beforeModules[id] = snapshotEntry(*step.current);
         desiredAll[id] = step.desired;
+    }
+    if (automatic)
+    {
+        // Nothing to do where Windows already shows what we want.
+        std::erase_if(steps, [&](const Step& step) {
+            const Json& now = step.current->state;
+            for (const auto& [field, value] : step.desired.items())
+            {
+                const auto found = now.find(field);
+                if (found == now.end() || !step.module->fieldEquivalent(field, *found, value))
+                {
+                    return false;
+                }
+            }
+            const std::string id(step.module->id());
+            beforeModules.erase(id);
+            desiredAll.erase(id);
+            return true;
+        });
+        if (steps.empty())
+        {
+            return report;
+        }
     }
 
     // 3. durable "in progress" marker
@@ -505,20 +664,33 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
             return propagate(saved);
         }
     }
-    auto historyId = m_state.addHistory(snapshotId, label, kHistoryLimit);
-    if (!historyId)
+    std::int64_t historyId = 0;
+    if (!automatic)
     {
-        return propagate(historyId);
+        auto added = m_state.addHistory(snapshotId, label, kHistoryLimit);
+        if (!added)
+        {
+            return propagate(added);
+        }
+        historyId = *added;
     }
     if (auto closed = m_state.closeJournal(); !closed)
     {
         return propagate(closed);
     }
+    if (automatic)
+    {
+        // Nothing will go back to this snapshot: drop it with the journal.
+        if (auto dropped = m_state.deleteSnapshot(snapshotId); !dropped)
+        {
+            return propagate(dropped);
+        }
+    }
     if (auto committed = transaction->commit(); !committed)
     {
         return propagate(committed);
     }
-    report.historyId = *historyId;
+    report.historyId = historyId;
     collectGarbage(report);
     return report;
 }

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,27 @@ public:
 
     [[nodiscard]] Result<bool> needsRestore();
 
+    // Like apply(), but no history entry: automatic changes (schedule, rules) are not something
+    // the user would go back to (docs/03 §5). Modules Windows already shows as desired are left
+    // alone, so a schedule check after resume does not re-apply the theme.
+    [[nodiscard]] Result<OperationReport> applyAutomatic(const domain::Rice& rice,
+                                                         const std::filesystem::path& packageRoot,
+                                                         const std::string& label);
+
+    // A few fields of one module chosen by the core itself (a slideshow turning a page): an
+    // automatic change like applyAutomatic().
+    [[nodiscard]] Result<OperationReport> applyFields(std::string_view moduleId, const Json& fields,
+                                                      const std::string& label);
+
+    // Fields of a module that Windows no longer shows as we set them: someone changed them by
+    // other means (docs/03 §5.2). Read-only.
+    [[nodiscard]] Result<std::vector<std::string>> driftedFields(std::string_view moduleId);
+    // The user wins: stop managing these fields (they are not restored or reapplied anymore).
+    [[nodiscard]] Result<void> detach(std::string_view moduleId, const std::vector<std::string>& fields);
+    // Explorer restarted or a monitor came back: set again only what is still ours and differs.
+    // No history. `modules` limits it (empty = every module).
+    [[nodiscard]] Result<OperationReport> reapplyManaged(std::span<const std::string> modules = {});
+
     // Test hook (system tests only): called after each module's apply succeeds, before the next.
     void setAfterModuleHook(std::function<void(std::string_view module)> hook)
     {
@@ -94,9 +116,12 @@ private:
         Remove, // the fields are back to the original: no longer ours
     };
 
+    // `automatic`: no history entry, and modules already as desired are skipped.
     [[nodiscard]] Result<OperationReport> run(std::string_view operation, const std::string& label,
                                               std::vector<Step> steps, AppliedUpdate update,
-                                              OperationReport report);
+                                              OperationReport report, bool automatic = false);
+    [[nodiscard]] Result<std::vector<Step>> stepsFromRice(const domain::Rice& rice,
+                                                          const std::filesystem::path& packageRoot);
     [[nodiscard]] Result<OperationReport> restoreTo(const Json& targetModules, const std::string& label,
                                                     const RestoreOptions& options, AppliedUpdate update);
     [[nodiscard]] Result<void> undo(const Json& beforeModules, const Json& desired,

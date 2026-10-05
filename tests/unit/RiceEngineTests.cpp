@@ -324,6 +324,101 @@ TEST_F(RiceEngineTest, PackageLinksCannotEscapeTheRiceFolder)
     EXPECT_EQ(report.error().code(), rmw::ErrorCode::AccessDenied) << report.error().toString();
 }
 
+TEST_F(RiceEngineTest, AutomaticChangesLeaveNoHistory)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    const auto report = m_engine->applyAutomatic(m_rice, package(), "Schedule: dark");
+    ASSERT_TRUE(report.has_value()) << report.error().toString();
+    EXPECT_EQ(report->historyId, 0);
+    EXPECT_EQ(m_appearance.fields()["dark"], true);
+    EXPECT_TRUE(m_state->history().value().empty());
+    EXPECT_EQ(m_state->applied("appearance").value(), (Json{{"dark", true}}));
+    // The original is still known, so a restore works after automatic changes only.
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+}
+
+TEST_F(RiceEngineTest, DriftIsDetectedAndDetachedFieldsAreLeftAlone)
+{
+    m_appearance.desired = wants({{"dark", true}, {"accent", "#ff0000"}});
+    m_wallpaper.desired = wants({{"monitor:A", "rice-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    EXPECT_TRUE(m_engine->driftedFields("appearance").value().empty());
+
+    m_wallpaper.fields()["monitor:A"] = "chosen-in-settings.jpg"; // the user, through Windows Settings
+    const auto drifted = m_engine->driftedFields("wallpaper");
+    ASSERT_TRUE(drifted.has_value());
+    EXPECT_EQ(*drifted, (std::vector<std::string>{"monitor:A"}));
+    ASSERT_TRUE(m_engine->detach("wallpaper", *drifted));
+    EXPECT_TRUE(m_state->applied("wallpaper").value().empty());
+
+    // Explorer restarts: only what is still ours comes back; the user's wallpaper stays.
+    m_appearance.fields()["dark"] = false; // Windows lost it in the restart
+    const auto reapplied = m_engine->reapplyManaged();
+    ASSERT_TRUE(reapplied.has_value()) << reapplied.error().toString();
+    EXPECT_EQ(reapplied->historyId, 0);
+    EXPECT_EQ(m_appearance.fields()["dark"], true);
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "chosen-in-settings.jpg");
+    EXPECT_EQ(m_state->history().value().size(), 1u);
+
+    EXPECT_FALSE(m_engine->driftedFields("nope").has_value());
+}
+
+TEST_F(RiceEngineTest, AutomaticWorkLeavesWhatIsAlreadySoAlone)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "rice-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->applyAutomatic(m_rice, package(), "Schedule: dark").has_value());
+    const int appearanceApplies = m_appearance.applyCount;
+    const int wallpaperApplies = m_wallpaper.applyCount;
+
+    // After resume the schedule checks again: Windows is already dark, nothing is touched.
+    const auto again = m_engine->applyAutomatic(m_rice, package(), "Schedule: dark");
+    ASSERT_TRUE(again.has_value()) << again.error().toString();
+    EXPECT_TRUE(again->modules.empty());
+    EXPECT_EQ(m_appearance.applyCount, appearanceApplies);
+    EXPECT_EQ(m_wallpaper.applyCount, wallpaperApplies);
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+
+    // A monitor came back with another wallpaper: only the wallpaper module is reapplied.
+    m_wallpaper.fields()["monitor:A"] = "windows-default.jpg";
+    m_appearance.fields()["dark"] = false;
+    const std::vector<std::string> onlyWallpaper{"wallpaper"};
+    const auto reapplied = m_engine->reapplyManaged(onlyWallpaper);
+    ASSERT_TRUE(reapplied.has_value()) << reapplied.error().toString();
+    EXPECT_EQ(reapplied->modules, onlyWallpaper);
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], m_state->applied("wallpaper").value()["monitor:A"]);
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+    EXPECT_EQ(m_appearance.applyCount, appearanceApplies);
+}
+
+TEST_F(RiceEngineTest, FieldsChosenByTheCoreAreAnAutomaticChange)
+{
+    m_wallpaper.desired = wants({{"monitor:A", "rice-a.jpg"}, {"monitor:B", "rice-b.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    const auto historyBefore = m_state->history().value().size();
+
+    // The slideshow on monitor A turns a page; B and the history stay as they were.
+    const auto turned = m_engine->applyFields("wallpaper", Json{{"monitor:A", "page-2.jpg"}}, "Slideshow");
+    ASSERT_TRUE(turned.has_value()) << turned.error().toString();
+    EXPECT_EQ(turned->historyId, 0);
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "page-2.jpg");
+    EXPECT_EQ(m_wallpaper.fields()["monitor:B"], "rice-b.jpg");
+    EXPECT_EQ(m_state->applied("wallpaper").value()["monitor:A"], "page-2.jpg");
+    EXPECT_EQ(m_state->history().value().size(), historyBefore);
+
+    // Restoring the original still knows what monitor A had before the rice.
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_NE(m_wallpaper.fields()["monitor:A"], "page-2.jpg");
+
+    EXPECT_FALSE(m_engine->applyFields("nope", Json{{"x", 1}}, "x").has_value());
+    EXPECT_FALSE(m_engine->applyFields("wallpaper", Json::object(), "x").has_value());
+}
+
 TEST(ModuleCatalog, OrdersByDependencyAndRejectsBadGraphs)
 {
     FakeWorld world;

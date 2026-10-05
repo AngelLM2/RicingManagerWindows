@@ -106,6 +106,7 @@ $wsbPath = Join-Path (Split-Path $outDir -Parent) "rmw-$Preset.wsb"
 [System.IO.File]::WriteAllText($wsbPath, $wsb, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "Starting Windows Sandbox ($Suite tests, preset $Preset)..."
+$startedAt = Get-Date
 Start-Process -FilePath $sandboxExe -ArgumentList "`"$wsbPath`""
 
 $donePath = Join-Path $outDir 'done.json'
@@ -116,7 +117,14 @@ while (-not (Test-Path $donePath)) {
 }
 
 $result = Get-Content $donePath -Raw | ConvertFrom-Json
-if (-not $KeepOpen) { [void](Wait-SandboxClosed 120) }
+if (-not $KeepOpen -and -not (Wait-SandboxClosed 120)) {
+    # The guest did not shut down (seen after a test restarted its Explorer): close the session we
+    # opened — only processes started after us, never a sandbox the user opened.
+    Write-Warning 'The sandbox did not shut down by itself; closing the session this script opened.'
+    Get-Process -Name 'WindowsSandbox*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.StartTime -ge $startedAt } | Stop-Process -ErrorAction SilentlyContinue
+    [void](Wait-SandboxClosed 60)
+}
 Get-Content (Join-Path $outDir "$Suite.log") -ErrorAction SilentlyContinue | Select-Object -Last 40
 Write-Host "Sandbox suite '$Suite' finished with exit code $($result.exitCode)."
 exit [int]$result.exitCode

@@ -21,7 +21,9 @@ add_executable(rmw_unit_tests
     unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
+    unit/SettingsTests.cpp
     unit/StatementTests.cpp
+    unit/SupervisorTests.cpp
     unit/UtfTests.cpp
     unit/WallpaperModuleTests.cpp
     unit/Win32PortsTests.cpp
@@ -42,6 +44,12 @@ target_link_libraries(rmw_unit_tests PRIVATE
     unofficial::sqlite3::sqlite3
 )
 rmw_configure_target(rmw_unit_tests)
+
+# A worker that leaks, hangs, crashes or exits on purpose, for the supervisor tests.
+add_executable(rmw_test_worker support/TestWorker.cpp)
+target_link_libraries(rmw_test_worker PRIVATE rmw::platform)
+rmw_configure_target(rmw_test_worker)
+add_dependencies(rmw_unit_tests rmw_test_worker)
 
 # NO_PRETTY_VALUES: parameterized tests keep their generated names instead of raw parameter bytes.
 gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)

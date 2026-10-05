@@ -1,18 +1,26 @@
 #include "CoreServer.hpp"
 
+#include "JsonReports.hpp"
+#include "Resident.hpp"
+#include "WorkQueue.hpp"
+
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/modules/Export.hpp"
+#include "rmw/modules/Wallpaper.hpp"
+#include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/Customizers.hpp"
 #include "rmw/platform/FileSystem.hpp"
 
 #include <windows.h>
 
 #include <array>
+#include <charconv>
 #include <format>
+#include <future>
 
 namespace rmw::core
 {
@@ -25,48 +33,88 @@ using namespace std::chrono_literals;
 constexpr auto kHelloTimeout = 5s;
 constexpr auto kPoll = 1s;
 constexpr auto kSendTimeout = 10s;
-constexpr std::array<std::string_view, 11> kMethods = {
-    "status.get",    "rice.validate", "rice.apply",  "restore.original", "snapshot.list", "snapshot.restore",
-    "monitors.list", "action.run",    "action.list", "module.inspect",   "rice.export",
+// Windows keeps broadcasting our own change for a moment after an operation (docs/03 §5.2).
+constexpr auto kOwnChangesGrace = 4s;
+constexpr auto kWindowAnswer = 10s;
+constexpr std::array<std::string_view, 14> kMethods = {
+    "status.get",       "rice.validate",   "rice.apply",    "restore.original", "snapshot.list",
+    "snapshot.restore", "monitors.list",   "action.run",    "action.list",      "module.inspect",
+    "rice.export",      "settings.reload", "autostart.get", "autostart.set",
 };
-constexpr std::array<std::string_view, 3> kActions = {"rice.apply", "restore.original", "appearance.toggle"};
+constexpr std::string_view kScheduleMeta = "appearance_schedule";
+constexpr std::string_view kRotationMeta = "wallpaper_rotation";
+// Outside state.db on purpose: a damaged database must not hide a crash loop.
+constexpr std::wstring_view kStartupAttemptsFile = L"startup-attempts";
 
 std::chrono::steady_clock::rep nowTicks() noexcept
 {
     return std::chrono::steady_clock::now().time_since_epoch().count();
 }
 
+int readStartupAttempts(const std::filesystem::path& file)
+{
+    auto bytes = platform::readFileLimited(file, 32);
+    if (!bytes)
+    {
+        return 0;
+    }
+    const auto* text = reinterpret_cast<const char*>(bytes->data());
+    int value = 0;
+    const auto [ptr, ec] = std::from_chars(text, text + bytes->size(), value);
+    return ec == std::errc{} && value >= 0 && value < 1000 ? value : 0;
+}
+
+void writeStartupAttempts(const std::filesystem::path& file, int attempts)
+{
+    const std::string text = std::to_string(attempts);
+    const auto* bytes = reinterpret_cast<const std::byte*>(text.data());
+    if (auto written = platform::writeFileAtomic(file, std::span(bytes, text.size())); !written)
+    {
+        log::warn("cannot record the start: {}", written.error().toString());
+    }
+}
+
+std::string timeText(domain::TimeOfDay time)
+{
+    return std::format("{:02}:{:02}", time.hour, time.minute);
+}
+
+// meta "appearance_schedule" = "HH:MM-HH:MM" (light at, dark at).
+std::string scheduleText(const domain::AppearanceSchedule& schedule)
+{
+    return timeText(schedule.lightAt) + "-" + timeText(schedule.darkAt);
+}
+
+std::optional<domain::AppearanceSchedule> parseScheduleText(std::string_view text)
+{
+    const auto dash = text.find('-');
+    if (dash == std::string_view::npos)
+    {
+        return std::nullopt;
+    }
+    auto light = domain::TimeOfDay::parse(text.substr(0, dash));
+    auto dark = domain::TimeOfDay::parse(text.substr(dash + 1));
+    if (!light || !dark)
+    {
+        return std::nullopt;
+    }
+    return domain::AppearanceSchedule{*light, *dark};
+}
+
+bool sameSchedule(const std::optional<domain::AppearanceSchedule>& a,
+                  const std::optional<domain::AppearanceSchedule>& b) noexcept
+{
+    if (a.has_value() != b.has_value())
+    {
+        return false;
+    }
+    return !a || (a->lightAt == b->lightAt && a->darkAt == b->darkAt);
+}
+
 std::string utf8Path(const std::filesystem::path& path)
 {
     const auto text = path.u8string();
     return {text.begin(), text.end()};
-}
-
-Json diagnosticsJson(const domain::Diagnostics& diagnostics)
-{
-    Json items = Json::array();
-    for (const auto& d : diagnostics.all())
-    {
-        items.push_back({{"severity", d.severity == domain::Severity::Error ? "error" : "warning"},
-                         {"key", d.key},
-                         {"line", d.line},
-                         {"column", d.column},
-                         {"message", d.message}});
-    }
-    return items;
-}
-
-Json reportJson(const engine::OperationReport& report)
-{
-    Json skipped = Json::array();
-    for (const auto& s : report.skipped)
-    {
-        skipped.push_back({{"module", s.module}, {"field", s.field}, {"reason", s.reason}});
-    }
-    return Json{{"historyId", report.historyId},
-                {"modules", report.modules},
-                {"skipped", std::move(skipped)},
-                {"warnings", report.warnings}};
 }
 
 struct LoadedRice
@@ -108,6 +156,29 @@ Result<LoadedRice> loadRice(const Json& params)
 
 } // namespace
 
+// Marks an engine operation: change events until a moment after it are our own.
+struct CoreServer::OperationMark
+{
+    explicit OperationMark(CoreServer& core) noexcept
+        : m_core(&core)
+    {
+        m_core->m_operationRunning = true;
+    }
+    ~OperationMark()
+    {
+        m_core->m_lastOperationEnd = nowTicks();
+        m_core->m_lastActivity = nowTicks();
+        m_core->m_operationRunning = false;
+    }
+    OperationMark(const OperationMark&) = delete;
+    OperationMark& operator=(const OperationMark&) = delete;
+    OperationMark(OperationMark&&) = delete;
+    OperationMark& operator=(OperationMark&&) = delete;
+
+private:
+    CoreServer* m_core;
+};
+
 CoreServer::CoreServer(CoreOptions options)
     : m_options(std::move(options))
     , m_lastActivity(nowTicks())
@@ -133,6 +204,26 @@ Result<void> CoreServer::initialize()
         return fail(ErrorCode::Io, std::format("cannot create the data folder: {}", ec.message()),
                     ec.value());
     }
+
+    // docs/06 §6: count this start before anything that could crash; a healthy minute or a clean
+    // exit sets it back to zero.
+    const auto attemptsFile = m_options.dataDirectory / kStartupAttemptsFile;
+    const int attempts = readStartupAttempts(attemptsFile);
+    if (m_options.safeModeRequested)
+    {
+        m_safeMode = SafeModeReason::Requested;
+    }
+    else if (attempts >= kSafeModeAfterCrashes)
+    {
+        m_safeMode = SafeModeReason::Crashes;
+    }
+    writeStartupAttempts(attemptsFile, attempts + 1);
+    if (m_safeMode != SafeModeReason::None)
+    {
+        log::warn("safe mode ({}): nothing runs automatically",
+                  m_safeMode == SafeModeReason::Requested ? "requested" : "the last starts crashed");
+    }
+
     auto state = engine::StateDb::open(m_options.dataDirectory / L"state.db");
     if (!state)
     {
@@ -177,6 +268,25 @@ Result<void> CoreServer::initialize()
         });
     }
 
+    if (auto saved = m_state->meta(kScheduleMeta); saved && *saved)
+    {
+        m_schedule = parseScheduleText(**saved);
+    }
+    if (auto saved = m_state->meta(kRotationMeta); saved && *saved)
+    {
+        auto plan = json::parse(**saved);
+        if (plan && plan->is_object())
+        {
+            m_rotation = std::move(*plan);
+        }
+    }
+
+    if (m_safeMode != SafeModeReason::None)
+    {
+        // The undo itself may be what crashes: leave it for an explicit restore.
+        log::warn("safe mode: an interrupted operation, if any, is not undone automatically");
+        return {};
+    }
     // A crash in the middle of an operation is always undone first (docs/03 §5).
     if (auto recovered = m_engine->recover(); !recovered)
     {
@@ -189,15 +299,62 @@ Result<void> CoreServer::initialize()
     return {};
 }
 
-Result<bool> CoreServer::recoverOnly()
+bool CoreServer::wantsResidency() const
 {
-    return m_engine->recover();
+    if (m_safeMode != SafeModeReason::None || schedule() || !rotation().empty())
+    {
+        return true;
+    }
+    return loadSettings(m_options.dataDirectory).settings.needsResidency();
 }
 
-int CoreServer::serve(platform::PipeServer& server)
+void CoreServer::markHealthy() const noexcept
+{
+    std::error_code ec;
+    std::filesystem::remove(m_options.dataDirectory / kStartupAttemptsFile, ec);
+}
+
+int CoreServer::run(platform::PipeServer& server)
 {
     log::info("core serving {}", utf16To8Lossy(server.name()));
-    while (!m_stop)
+    auto window = platform::MessageWindow::create([this](const platform::SystemEvent& event) {
+        if (m_resident != nullptr)
+        {
+            m_resident->onEvent(event);
+        }
+    });
+    if (!window)
+    {
+        log::error("core window: {}", window.error().toString());
+        return 1;
+    }
+    m_window = window->get();
+    WorkQueue work;
+    Resident resident(*this, *m_window, work);
+    m_resident = &resident;
+    resident.start();
+
+    int code = 0;
+    {
+        const std::jthread accept([this, &server](const std::stop_token& stop) { acceptLoop(server, stop); });
+        code = m_window->run();
+        m_stop = true;
+    } // joins the accept thread, which joins every client thread
+    work.stop();
+    m_resident = nullptr;
+    m_window = nullptr;
+    if (m_helper)
+    {
+        m_helper->stop();
+    }
+    markHealthy();
+    log::info("core stopped");
+    return code;
+}
+
+void CoreServer::acceptLoop(platform::PipeServer& server, const std::stop_token& stop)
+{
+    while (!m_stop && !stop.stop_requested())
     {
         auto connection = server.accept(kPoll);
         // Finished client threads are joined as we go.
@@ -217,20 +374,113 @@ int CoreServer::serve(platform::PipeServer& server)
         {
             log::warn("accept failed: {}", connection.error().toString());
         }
-        const auto idleFor = std::chrono::steady_clock::duration(nowTicks() - m_lastActivity.load());
-        if (m_clients == 0 && idleFor > m_options.idleExit)
-        {
-            log::info("idle for {} s: exiting", m_options.idleExit.count());
-            break;
-        }
     }
     m_stop = true;
-    m_workers.clear(); // joins
-    if (m_helper)
+    m_workers.clear(); // joins: client loops see m_stop within a poll
+}
+
+bool CoreServer::idleExpired() noexcept
+{
+    if (m_clients > 0 || m_operationRunning)
     {
-        m_helper->stop();
+        return false;
     }
-    return 0;
+    const auto idleFor = std::chrono::steady_clock::duration(nowTicks() - m_lastActivity.load());
+    return idleFor > m_options.idleExit;
+}
+
+bool CoreServer::ownChangesSettling() const noexcept
+{
+    if (m_operationRunning)
+    {
+        return true;
+    }
+    const auto since = std::chrono::steady_clock::duration(nowTicks() - m_lastOperationEnd.load());
+    return since < kOwnChangesGrace;
+}
+
+std::optional<domain::AppearanceSchedule> CoreServer::schedule() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_schedule;
+}
+
+void CoreServer::setSchedule(std::optional<domain::AppearanceSchedule> schedule)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (sameSchedule(m_schedule, schedule))
+        {
+            return;
+        }
+        m_schedule = schedule;
+    }
+    const std::string text = schedule ? scheduleText(*schedule) : std::string();
+    if (auto saved =
+            m_state->setMeta(kScheduleMeta, schedule ? std::optional<std::string_view>(text) : std::nullopt);
+        !saved)
+    {
+        log::warn("cannot save the appearance schedule: {}", saved.error().toString());
+    }
+    log::info("appearance schedule: {}", schedule ? text : "off");
+    notifyResident();
+}
+
+Json CoreServer::rotation() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_rotation;
+}
+
+void CoreServer::setRotation(const Json& plan)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_rotation == plan)
+        {
+            return;
+        }
+        m_rotation = plan;
+    }
+    // The pages live in the store: the plan in meta keeps them from garbage collection.
+    if (auto saved = m_state->setMeta(
+            kRotationMeta, plan.empty() ? std::nullopt : std::optional<std::string>(json::dump(plan)));
+        !saved)
+    {
+        log::warn("cannot save the slideshow plan: {}", saved.error().toString());
+    }
+    log::info("slideshows turned by the core: {}", plan.size());
+    notifyResident();
+}
+
+void CoreServer::notifyResident()
+{
+    if (m_window != nullptr && m_resident != nullptr)
+    {
+        Resident* resident = m_resident;
+        m_window->post([resident] { resident->refresh(); });
+    }
+}
+
+Result<Json> CoreServer::onWindow(const std::function<Json()>& task)
+{
+    auto promise = std::make_shared<std::promise<Json>>();
+    auto answer = promise->get_future();
+    m_window->post([promise, task] {
+        try
+        {
+            promise->set_value(task());
+        }
+        catch (...)
+        {
+            promise->set_value(Json::object());
+        }
+    });
+    if (answer.wait_for(kWindowAnswer) != std::future_status::ready)
+    {
+        return fail(ErrorCode::Timeout, "the core did not answer in time");
+    }
+    return answer.get();
 }
 
 void CoreServer::handleClient(platform::PipeConnection connection)
@@ -259,6 +509,7 @@ void CoreServer::handleClient(platform::PipeConnection connection)
     }
     Json helloReply = ipc::helloParams(kVersion);
     helloReply["pid"] = GetCurrentProcessId();
+    helloReply["dataDirectory"] = utf8Path(m_options.dataDirectory);
     if (!connection.send(ipc::resultText(hello->id, helloReply), kSendTimeout))
     {
         done();
@@ -290,6 +541,7 @@ void CoreServer::handleClient(platform::PipeConnection connection)
         if (request->method == "shutdown")
         {
             m_stop = true;
+            m_window->quit(0);
             reply = ipc::resultText(request->id, Json::object());
         }
         else if (std::ranges::find(kMethods, request->method) == kMethods.end())
@@ -322,18 +574,161 @@ void CoreServer::handleClient(platform::PipeConnection connection)
     done();
 }
 
-Result<Json> CoreServer::exclusive(const std::function<Result<Json>()>& operation)
+Result<Json> CoreServer::exclusive(const std::function<Result<Json>()>& operation, bool changesWindows)
 {
     const std::unique_lock lock(m_operation, std::try_to_lock);
     if (!lock.owns_lock())
     {
         return fail(ErrorCode::Busy, "another operation is running; try again when it finishes");
     }
+    std::optional<OperationMark> mark;
+    if (changesWindows)
+    {
+        mark.emplace(*this);
+    }
     if (m_options.testOperationDelay.count() > 0)
     {
         std::this_thread::sleep_for(m_options.testOperationDelay);
     }
     return operation();
+}
+
+Result<Json> CoreServer::perform(const domain::ActionCall& action, Origin origin)
+{
+    Json params = Json::object();
+    if (!action.ricePath.empty())
+    {
+        params["path"] = action.ricePath;
+    }
+    const std::scoped_lock lock(m_operation); // automatic work waits its turn
+    const OperationMark mark(*this);
+    return runAction(action.name, params, origin);
+}
+
+Result<std::vector<std::string>> CoreServer::detachDrifted(const std::string& module)
+{
+    const std::scoped_lock lock(m_operation);
+    if (ownChangesSettling())
+    {
+        return std::vector<std::string>{}; // what changed was probably us
+    }
+    auto drifted = m_engine->driftedFields(module);
+    if (!drifted || drifted->empty())
+    {
+        return drifted;
+    }
+    if (auto detached = m_engine->detach(module, *drifted); !detached)
+    {
+        return std::unexpected(std::move(detached.error()));
+    }
+    std::string names;
+    for (const auto& field : *drifted)
+    {
+        names += (names.empty() ? "" : ", ") + field;
+    }
+    log::info("{}: changed outside ({}); no longer managed", module, names);
+    return drifted;
+}
+
+Result<void> CoreServer::reapply(const std::vector<std::string>& modules)
+{
+    const std::scoped_lock lock(m_operation);
+    const OperationMark mark(*this);
+    auto report = m_engine->reapplyManaged(modules);
+    if (!report)
+    {
+        return std::unexpected(std::move(report.error()));
+    }
+    for (const auto& module : report->modules)
+    {
+        log::info("reapplied {}", module);
+    }
+    return {};
+}
+
+Result<bool> CoreServer::syncSchedule()
+{
+    const auto current = schedule();
+    if (!current)
+    {
+        return false;
+    }
+    const std::scoped_lock lock(m_operation);
+    const OperationMark mark(*this);
+    domain::Rice rice;
+    rice.meta.name = "Scheduled appearance";
+    rice.appearance = domain::AppearanceConfig{};
+    rice.appearance->mode = domain::ThemeMode::Schedule;
+    rice.appearance->schedule = *current;
+    auto report = m_engine->applyAutomatic(rice, {}, rice.meta.name);
+    if (!report)
+    {
+        return std::unexpected(std::move(report.error()));
+    }
+    if (!report->modules.empty())
+    {
+        log::info("scheduled appearance applied");
+    }
+    return !report->modules.empty();
+}
+
+Result<void> CoreServer::turnPage(const std::string& field)
+{
+    const std::scoped_lock lock(m_operation);
+    Json plan = rotation();
+    const auto entry = plan.find(field);
+    if (entry == plan.end())
+    {
+        return {};
+    }
+    auto applied = m_state->applied("wallpaper");
+    if (!applied)
+    {
+        return std::unexpected(std::move(applied.error()));
+    }
+    const auto shown = applied->find(field);
+    if (shown == applied->end())
+    {
+        // The user chose another wallpaper there (drift): this slideshow stops for good.
+        log::info("{}: changed outside; its slideshow stops", field);
+        plan.erase(field);
+        setRotation(plan);
+        return {};
+    }
+    const Json items = json::memberOr(*entry, "items", Json::array());
+    if (!items.is_array() || items.size() < 2 ||
+        !std::ranges::all_of(items, [](const Json& item) { return item.is_string(); }))
+    {
+        return fail(ErrorCode::InvalidData, std::format("{}: the slideshow plan is damaged", field));
+    }
+    const std::string current = json::stringOr(*shown, "file", "");
+    const auto at = std::ranges::find(items, Json(current));
+    const auto index = static_cast<std::size_t>(at - items.begin()); // == size when not found
+    const std::size_t next =
+        modules::nextPage(items.size(), index, json::boolOr(*entry, "shuffle", false), m_random());
+    const OperationMark mark(*this);
+    auto report = m_engine->applyFields("wallpaper", Json{{field, Json{{"file", items[next]}}}}, "Slideshow");
+    if (!report)
+    {
+        return std::unexpected(std::move(report.error()));
+    }
+    return {};
+}
+
+Result<std::vector<std::string>> CoreServer::monitorKeys()
+{
+    const std::scoped_lock lock(m_operation);
+    auto list = m_logic->topology.monitors();
+    if (!list)
+    {
+        return std::unexpected(std::move(list.error()));
+    }
+    std::vector<std::string> keys;
+    for (const auto& monitor : *list)
+    {
+        keys.push_back(monitor.identityKey);
+    }
+    return keys;
 }
 
 Result<Json> CoreServer::dispatch(const ipc::Request& request)
@@ -349,7 +744,7 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     }
     if (method == "rice.apply")
     {
-        return exclusive([&] { return applyRice(request.params); });
+        return exclusive([&] { return applyRice(request.params, Origin::User); });
     }
     if (method == "restore.original")
     {
@@ -383,13 +778,25 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     }
     if (method == "module.inspect")
     {
-        return exclusive([&] { return inspect(request.params); });
+        return exclusive([&] { return inspect(request.params); }, false);
     }
     if (method == "rice.export")
     {
-        return exclusive([&] { return exportRice(request.params); });
+        return exclusive([&] { return exportRice(request.params); }, false);
     }
-    return runAction(request.params);
+    if (method == "settings.reload")
+    {
+        Resident* resident = m_resident;
+        return onWindow([resident] { return resident->reloadSettings(); });
+    }
+    if (method == "autostart.get" || method == "autostart.set")
+    {
+        return autostart(request.params, method == "autostart.set");
+    }
+    // action.run
+    const std::string name = json::stringOr(request.params, "name", "");
+    const Json actionParams = json::memberOr(request.params, "params", Json::object());
+    return exclusive([&] { return runAction(name, actionParams, Origin::User); });
 }
 
 Result<Json> CoreServer::status()
@@ -409,6 +816,17 @@ Result<Json> CoreServer::status()
                                   {"label", (*history)[i].label},
                                   {"appliedAt", (*history)[i].appliedAt}});
     }
+    Json safeMode = nullptr;
+    if (m_safeMode != SafeModeReason::None)
+    {
+        safeMode = m_safeMode == SafeModeReason::Requested ? "requested" : "crashes";
+    }
+    Json schedule = nullptr;
+    const std::size_t slideshows = rotation().size();
+    if (const auto current = this->schedule())
+    {
+        schedule = {{"lightAt", timeText(current->lightAt)}, {"darkAt", timeText(current->darkAt)}};
+    }
     const std::unique_lock probe(m_operation, std::try_to_lock);
     return Json{{"version", kVersion},
                 {"dataDirectory", utf8Path(m_options.dataDirectory)},
@@ -416,6 +834,10 @@ Result<Json> CoreServer::status()
                 {"managedModules", *applied},
                 {"needsRestore", *needsRestore},
                 {"busy", !probe.owns_lock()},
+                {"safeMode", std::move(safeMode)},
+                {"schedule", std::move(schedule)},
+                {"slideshows", slideshows},
+                {"resident", m_resident != nullptr ? m_resident->status() : Json(nullptr)},
                 {"otherTools", platform::detectOtherCustomizers()},
                 {"history", std::move(lastOperations)}};
 }
@@ -432,7 +854,24 @@ Result<Json> CoreServer::validateRice(const Json& params)
                 {"diagnostics", diagnosticsJson(loaded->diagnostics)}};
 }
 
-Result<Json> CoreServer::applyRice(const Json& params)
+Result<Json> CoreServer::runAction(std::string_view name, const Json& params, Origin origin)
+{
+    if (name == "rice.apply")
+    {
+        return applyRice(params, origin);
+    }
+    if (name == "restore.original")
+    {
+        return restore(params, true);
+    }
+    if (name == "appearance.toggle" || name == "appearance.dark" || name == "appearance.light")
+    {
+        return setAppearance(name, origin);
+    }
+    return fail(ErrorCode::NotFound, std::format("unknown action '{}'", name));
+}
+
+Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
 {
     auto loaded = loadRice(params);
     if (!loaded)
@@ -443,16 +882,47 @@ Result<Json> CoreServer::applyRice(const Json& params)
     {
         return std::unexpected(std::move(loaded->rice.error()));
     }
+    const domain::Rice& rice = *loaded->rice;
     // The first apply captures "my original Windows": say if it was already customized.
     const auto base = m_state->baseSnapshot();
     const bool firstApply = base && !base->has_value();
     const std::vector<std::string> others =
         firstApply ? platform::detectOtherCustomizers() : std::vector<std::string>{};
 
-    auto report = m_engine->apply(*loaded->rice, loaded->folder);
+    // Slideshows Windows cannot play are turned by the core. The plan is saved first: the
+    // apply's garbage collection must already see the pages it keeps in the store.
+    const Json previousRotation = rotation();
+    if (rice.wallpaper)
+    {
+        auto monitors = m_logic->topology.monitors();
+        if (!monitors)
+        {
+            return std::unexpected(std::move(monitors.error()));
+        }
+        engine::StoreAssetSink pages(*m_store, loaded->folder);
+        auto plan = modules::wallpaperRotation(*rice.wallpaper, *monitors, pages);
+        if (!plan)
+        {
+            return std::unexpected(std::move(plan.error()));
+        }
+        setRotation(*plan);
+    }
+
+    auto report =
+        origin == Origin::User
+            ? m_engine->apply(rice, loaded->folder)
+            : m_engine->applyAutomatic(rice, loaded->folder, std::format("Automatic: {}", rice.meta.name));
     if (!report)
     {
+        setRotation(previousRotation);
         return std::unexpected(std::move(report.error()));
+    }
+    if (rice.appearance)
+    {
+        // A scheduled rice keeps the core around to switch light/dark on time.
+        setSchedule(rice.appearance->mode == domain::ThemeMode::Schedule
+                        ? std::optional(rice.appearance->schedule.value_or(domain::AppearanceSchedule{}))
+                        : std::nullopt);
     }
     if (!others.empty())
     {
@@ -467,8 +937,36 @@ Result<Json> CoreServer::applyRice(const Json& params)
                                                others.size() == 1 ? "it" : "they"));
     }
     Json result = reportJson(*report);
-    result["name"] = loaded->rice->meta.name;
+    result["name"] = rice.meta.name;
     return result;
+}
+
+Result<Json> CoreServer::setAppearance(std::string_view action, Origin origin)
+{
+    domain::ThemeMode mode = action == "appearance.dark" ? domain::ThemeMode::Dark : domain::ThemeMode::Light;
+    if (action == "appearance.toggle")
+    {
+        // Flip whatever Windows shows now.
+        auto now = runner().capture("appearance");
+        if (!now)
+        {
+            return std::unexpected(std::move(now.error()));
+        }
+        mode = json::boolOr(now->state, "systemLight", true) ? domain::ThemeMode::Dark
+                                                             : domain::ThemeMode::Light;
+    }
+    // A schedule stays: this choice lasts until its next switch.
+    domain::Rice rice;
+    rice.meta.name = mode == domain::ThemeMode::Dark ? "Dark mode" : "Light mode";
+    rice.appearance = domain::AppearanceConfig{};
+    rice.appearance->mode = mode;
+    auto report = origin == Origin::User ? m_engine->apply(rice, {})
+                                         : m_engine->applyAutomatic(rice, {}, rice.meta.name);
+    if (!report)
+    {
+        return std::unexpected(std::move(report.error()));
+    }
+    return reportJson(*report);
 }
 
 Result<Json> CoreServer::restore(const Json& params, bool original)
@@ -480,6 +978,8 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     {
         return std::unexpected(std::move(report.error()));
     }
+    setSchedule(std::nullopt); // going back ends any schedule and slideshow
+    setRotation(Json::object());
     return reportJson(*report);
 }
 
@@ -525,9 +1025,20 @@ Result<Json> CoreServer::inspect(const Json& params)
     {
         return std::unexpected(std::move(captured.error()));
     }
+    auto applied = m_state->applied(module);
+    if (!applied)
+    {
+        return std::unexpected(std::move(applied.error()));
+    }
+    Json managed = Json::array();
+    for (const auto& [field, value] : applied->items())
+    {
+        managed.push_back(field);
+    }
     return Json{{"state", captured->state},
                 {"fidelity", captured->fidelity == engine::Fidelity::Exact ? "exact" : "lossy"},
-                {"reason", captured->lossyReason}};
+                {"reason", captured->lossyReason},
+                {"managed", std::move(managed)}};
 }
 
 Result<Json> CoreServer::exportRice(const Json& params)
@@ -628,41 +1139,32 @@ Result<Json> CoreServer::exportRice(const Json& params)
                 {"notes", std::move(notes)}};
 }
 
-Result<Json> CoreServer::runAction(const Json& params)
+Result<Json> CoreServer::autostart(const Json& params, bool change)
 {
-    const std::string name = json::stringOr(params, "name", "");
-    const Json actionParams = json::memberOr(params, "params", Json::object());
-    if (name == "rice.apply")
+    auto self = platform::currentExecutable();
+    if (!self)
     {
-        return exclusive([&] { return applyRice(actionParams); });
+        return std::unexpected(std::move(self.error()));
     }
-    if (name == "restore.original")
+    if (change)
     {
-        return exclusive([&] { return restore(actionParams, true); });
+        const bool enabled = json::boolOr(params, "enabled", false);
+        if (auto set = platform::setAutostart(enabled, *self); !set)
+        {
+            return std::unexpected(std::move(set.error()));
+        }
+        log::info("start with Windows: {}", enabled ? "on" : "off");
     }
-    if (name == "appearance.toggle")
+    auto state = platform::autostartState(*self);
+    if (!state)
     {
-        return exclusive([&]() -> Result<Json> {
-            // Flip whatever Windows shows now; the engine records it like any apply.
-            auto now = runner().capture("appearance");
-            if (!now)
-            {
-                return std::unexpected(std::move(now.error()));
-            }
-            const bool light = json::boolOr(now->state, "systemLight", true);
-            domain::Rice rice;
-            rice.meta.name = light ? "Dark mode" : "Light mode";
-            rice.appearance = domain::AppearanceConfig{};
-            rice.appearance->mode = light ? domain::ThemeMode::Dark : domain::ThemeMode::Light;
-            auto report = m_engine->apply(rice, {});
-            if (!report)
-            {
-                return std::unexpected(std::move(report.error()));
-            }
-            return reportJson(*report);
-        });
+        return std::unexpected(std::move(state.error()));
     }
-    return fail(ErrorCode::NotFound, std::format("unknown action '{}'", name));
+    return Json{{"enabled", state->registered && state->current},
+                {"registered", state->registered},
+                {"current", state->current},
+                {"disabledByUser", state->disabledByUser},
+                {"command", utf16To8Lossy(state->command)}};
 }
 
 } // namespace rmw::core
