@@ -11,10 +11,12 @@
 ## Como compilar e testar
 
 ```powershell
-.\scripts\build.ps1 -Preset debug -Test      # build + 47 testes
+.\scripts\build.ps1 -Preset debug -Test      # build + 222 testes de unidade
 .\scripts\build.ps1 -Preset release -Test    # LTO, PDB, Spectre
 .\scripts\build.ps1 -Preset asan -Test       # AddressSanitizer (dependências também instrumentadas)
-.\scripts\sandbox.ps1 -Preset debug          # testes dentro do Windows Sandbox
+.\scripts\sandbox.ps1 -Preset debug          # testes de unidade dentro do Windows Sandbox
+.\scripts\sandbox.ps1 -Preset debug -Suite system   # aceites M1 + M2 no Windows Sandbox (54 verificações)
+.\scripts\tidy.ps1                             # clang-tidy completo (-Path aceita UMA pasta por vez)
 .\scripts\fetch-deps.ps1 -Name slint         # SDK do Slint fixado (hash verificado, nunca executa instalador)
 .\scripts\build.ps1 -Preset release -CMakeArgs '-DRMW_BUILD_SPIKES=ON'   # spikes
 ```
@@ -29,7 +31,8 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | **Fase 0 — fundação (F0.1–F0.9)** | ✅ build moderno, libs, CLI, 47 testes (debug/release/ASan/Sandbox), CI pronto, comunidade, ADR-0001 |
 | **Spikes** | ✅ 8 de 9 concluídos (ADR-0002 a ADR-0009); **S0 (CI) aguarda push** |
 | **M1 — Motor** | ✅ `v0.1.0-alpha` (tag local): core + `--apply-helper` + CLI; 4 módulos; 203 testes de unidade (debug/ASan/Sandbox) + suíte de sistema na Sandbox com os 4 critérios de aceite |
-| M2 — Residente | 🔜 próximo |
+| **M2 — Residente** | ✅ `v0.2.0-alpha` (tag local): core residente (janela + eventos do sistema), `settings.toml` com atalhos e regras, aparência agendada, slideshow por monitor, drift ao vivo, bandeja só quando residente, `--startup`/autostart, supervisor de workers, modo seguro; 222 testes de unidade (debug/release/ASan/Sandbox) + 54 verificações de sistema na Sandbox |
+| M3 — Barra | 🔜 próximo |
 
 ### Resultado dos spikes
 
@@ -67,9 +70,17 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | 2026-10-05 | M1 — IPC, core, CLI | `feat/domain-rice` | pipe com DACL e checagem do servidor, JSON-RPC, `rmw-core` (instância única, ocioso → sai, recupera ao iniciar), `--apply-helper` em Job com timeout de 15 s, CLI completa (`apply/validate/status/history/restore/export/monitors/inspect/action`) |
 | 2026-10-05 | M1 — teste de sistema (Sandbox) | `feat/domain-rice` | ✅ aplica os 4 módulos e restaura tudo; `busy`; matar o core no meio → desfeito no próximo início; export válido. **Achados:** `SPI_SETCURSORS` com `SPIF_UPDATEINIFILE\|SPIF_SENDCHANGE` retorna FALSE mesmo funcionando (agora sem flags; doc 09 corrigido); cursores do Windows gravados com caminho absoluto eram copiados para o Store |
 
+| 2026-10-05 | M2 — `settings.toml` | `feat/resident` | atalhos (`KeyChord`), regras (horário, bateria/tomada, monitor conectado), `keep_in_tray`; motor ganha drift/desanexar/reaplicar e operações automáticas sem histórico |
+| 2026-10-05 | M2 — core residente | `feat/resident` | janela oculta na thread principal (eventos do doc 03 §9, pasta `config\` vigiada sem polling), pipe numa thread, fila de trabalho; agendador; drift com debounce; bandeja pt-BR/en; `rmw settings reload`, `rmw autostart`; modo seguro (contador fora do `state.db`). **Achados:** `CreateWindowEx` falhava porque o `WM_NCCREATE` chegava antes de guardarmos o HWND; a CLI conectava num core de outra pasta de dados (o pipe é por usuário) — agora avisa; um comando inválido não sobe mais o core |
+| 2026-10-05 | M2 — supervisor | `feat/resident` | Job com limite de notificação a 80% via IOCP, heartbeat por contador compartilhado, backoff 1/2/4 s, 3 falhas em 5 min desativam; `rmw_test_worker` vaza/trava/cai de propósito e os testes usam processos e Jobs reais |
+| 2026-10-05 | M2 — slideshow por monitor + testes de sistema | `feat/resident` | slideshow que o Windows não consegue tocar (pastas diferentes por monitor) é trocado pelo core; ✅ Sandbox: atalho, modo escuro no horário, drift do wallpaper, autostart, `--startup`, modo seguro após 3 crashes. **Achados:** consultas de leitura (`inspect`) renovavam a janela de "mudança nossa" e escondiam o drift; o log só gravava Warn+ na hora (agora Info+); o `tidy.ps1 -Path a,b` não checava nada (a lista chega como uma string só) — a execução completa achou e corrigimos o que faltava; o README tinha `\t` virado TAB |
+
 ## Pendências conhecidas
 
 - **S0 (CI)** só pode rodar com push — aguardando autorização ("OK com push").
 - Testes reais na sua máquina (fim do M3, M5, M6) — vou pedir permissão na hora.
 - Meta de 90 MB do renderizador de vídeo (M6).
-- Wallpaper: ajuste diferente por monitor precisa de pré-renderização (WIC no `--apply-helper`); por enquanto vale o ajuste da primeira regra (o parser avisa). Slideshow diferente por monitor depende do agendador (M2).
+- Wallpaper: ajuste diferente por monitor precisa de pré-renderização (WIC no `--apply-helper`); por enquanto vale o ajuste da primeira regra (o parser avisa).
+- Slideshow por monitor feito pelo core: coberto por testes de unidade; o teste de ponta a ponta precisa de 2 monitores (a Sandbox tem 1) — conferir no teste real do fim do M3.
+- Regras de bateria/tomada e de monitor conectado: lógica pronta, sem teste de sistema (a Sandbox não simula bateria nem monitor novo).
+- Regras de horário perdidas durante o sono não rodam depois (só a aparência agendada é corrigida ao acordar).

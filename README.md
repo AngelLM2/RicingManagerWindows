@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: alpha (v0.1.0, milestone M1 "Motor").** The engine works from the command line: apply a rice, undo it, go back to the original Windows. No graphical interface yet (see [docs/04-mvp.md](docs/04-mvp.md)).
+**Status: alpha (v0.2.0, milestone M2 "Residente").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows. No graphical interface yet (see [docs/04-mvp.md](docs/04-mvp.md)).
 
 ---
 
@@ -18,7 +18,7 @@ Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: w
 
 Planejamento completo: [docs/README.md](docs/README.md).
 
-### Usar (linha de comando, v0.1)
+### Usar (linha de comando, v0.2)
 
 Um rice é uma pasta com um `rice.toml` e seus arquivos:
 
@@ -29,11 +29,21 @@ schema = 1
 name = "Tokyo Night"
 
 [appearance]
-mode = "dark"
+mode = "schedule"            # ou "dark" / "light"
 accent = "#7aa2f7"
+
+[appearance.schedule]
+light_at = "07:00"
+dark_at = "19:00"
 
 [taskbar]
 search = "icon"
+
+[[wallpaper.monitor]]
+match = "primary"
+kind = "slideshow"           # uma pasta; troca a cada `interval` segundos
+source = "assets/slides"
+interval = 900
 
 [[wallpaper.monitor]]
 match = "all"
@@ -41,16 +51,46 @@ source = "assets/mountains.jpg"
 ```
 
 ```powershell
-rmw validate .	okyo-night     # confere o rice (erros com linha e coluna)
-rmw apply .	okyo-night        # aplica; tudo o que muda fica guardado
+rmw validate .\tokyo-night     # confere o rice (erros com linha e coluna)
+rmw apply .\tokyo-night        # aplica; tudo o que muda fica guardado
 rmw history                    # o que foi feito
 rmw restore --snapshot 3       # volta a antes da operação 3
 rmw restore --original         # volta ao Windows de antes do primeiro apply
 rmw export .\meu-visual        # salva o visual atual como um rice
 rmw monitors                   # monitores e suas chaves (para match = "edid:...")
+rmw status                     # o que está gerenciado, agendamento, atalhos, modo seguro
 ```
 
-O formato completo está no [doc 03 §6](docs/03-arquitetura.md). Ajustes que você mudar por conta própria depois de aplicar não são desfeitos por engano (use `--force` para restaurar mesmo assim).
+Ajustes que você mudar por conta própria depois de aplicar deixam de seguir o rice (o seu ajuste fica) e não são desfeitos por engano (use `--force` para restaurar mesmo assim). O formato completo está no [doc 03 §6](docs/03-arquitetura.md).
+
+**Atalhos e regras** ficam em `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (lido de novo assim que você salva):
+
+```toml
+[core]
+keep_in_tray = true
+
+[[hotkey]]
+keys = "Win+Alt+D"
+action = "appearance.toggle"
+
+[[hotkey]]
+keys = "Ctrl+Win+Alt+N"
+action = "rice.apply"
+rice = 'C:\Rices\night'
+
+[[rule]]
+when = "battery"             # "time" (com at = "HH:MM"), "battery", "ac", "monitor-connected"
+action = "appearance.dark"
+```
+
+Ações: `rice.apply`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`. Com atalhos, regras ou agendamento, o app fica residente (ícone na bandeja); sem nada disso, ele aplica e sai.
+
+```powershell
+rmw autostart on               # iniciar com o Windows (desligado até você pedir)
+rmw settings reload            # relê o settings.toml
+```
+
+Se o app parar inesperadamente 3 vezes seguidas ao iniciar (ou com `Shift` pressionado no logon), ele abre no **modo seguro**: nada é aplicado automaticamente e "Restaurar Windows original" fica à mão.
 
 ### Compilar
 
@@ -77,21 +117,31 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 
 The planning documents (in Portuguese) are in [docs/](docs/README.md).
 
-### Use (command line, v0.1)
+### Use (command line, v0.2)
 
 A rice is a folder with a `rice.toml` (example above) and its files.
 
 ```powershell
-rmw validate .	okyo-night     # check a rice (errors with line and column)
-rmw apply .	okyo-night        # apply it; everything it changes is recorded
+rmw validate .\tokyo-night     # check a rice (errors with line and column)
+rmw apply .\tokyo-night        # apply it; everything it changes is recorded
 rmw history                    # what was done
 rmw restore --snapshot 3       # back to before operation 3
 rmw restore --original         # back to the Windows you had before the first apply
 rmw export .\my-look           # save the current look as a rice
 rmw monitors                   # monitors and their keys (for match = "edid:...")
+rmw status                     # what is managed, schedule, hotkeys, safe mode
 ```
 
-Settings you change yourself after applying are not undone by mistake (`--force` restores them anyway).
+Settings you change yourself after applying stop following the rice (your change stays) and are not undone by mistake (`--force` restores them anyway).
+
+**Hotkeys and rules** live in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (example above; re-read as soon as you save it). Actions: `rice.apply`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`. With hotkeys, rules or a schedule the app stays resident (tray icon); otherwise it applies and exits.
+
+```powershell
+rmw autostart on               # start with Windows (off until you ask)
+rmw settings reload            # re-read settings.toml
+```
+
+If the app stops unexpectedly 3 starts in a row (or `Shift` is held at sign-in), it opens in **safe mode**: nothing is applied automatically and "Restore original Windows" is at hand.
 
 ### Build
 
