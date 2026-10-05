@@ -23,9 +23,9 @@ constexpr DWORD kChunkBytes = 64 * 1024;
 
 Error ntError(NTSTATUS status, std::string_view context)
 {
-    return Error(ErrorCode::System,
-                 std::format("{} failed (NTSTATUS 0x{:08X})", context, static_cast<std::uint32_t>(status)),
-                 status);
+    return {ErrorCode::System,
+            std::format("{} failed (NTSTATUS 0x{:08X})", context, static_cast<std::uint32_t>(status)),
+            status};
 }
 
 bool succeeded(NTSTATUS status) noexcept
@@ -51,8 +51,9 @@ Result<std::filesystem::path> finalPathOfHandle(HANDLE handle)
     std::wstring buffer(MAX_PATH, L'\0');
     for (int attempt = 0; attempt < 2; ++attempt)
     {
-        const DWORD length = GetFinalPathNameByHandleW(
-            handle, buffer.data(), static_cast<DWORD>(buffer.size()), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        const DWORD length =
+            GetFinalPathNameByHandleW(handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+                                      FILE_NAME_NORMALIZED /* | VOLUME_NAME_DOS, also 0 */);
         if (length == 0)
         {
             return std::unexpected(lastError("GetFinalPathNameByHandle"));
@@ -65,18 +66,6 @@ Result<std::filesystem::path> finalPathOfHandle(HANDLE handle)
         buffer.resize(length); // too small: `length` includes the terminator
     }
     return fail(ErrorCode::System, "GetFinalPathNameByHandle kept growing");
-}
-
-Result<std::string> randomSuffix()
-{
-    std::array<std::uint8_t, 8> bytes{};
-    const NTSTATUS status = BCryptGenRandom(nullptr, bytes.data(), static_cast<ULONG>(bytes.size()),
-                                            BCRYPT_USE_SYSTEM_PREFERRED_RNG);
-    if (!succeeded(status))
-    {
-        return std::unexpected(ntError(status, "BCryptGenRandom"));
-    }
-    return toHex(bytes);
 }
 
 Result<void> writeAll(HANDLE file, std::span<const std::byte> bytes)
@@ -203,6 +192,18 @@ std::string toHex(std::span<const std::uint8_t> bytes)
     return text;
 }
 
+Result<std::string> randomHex(std::size_t byteCount)
+{
+    std::vector<std::uint8_t> bytes(byteCount);
+    const NTSTATUS status = BCryptGenRandom(nullptr, bytes.data(), static_cast<ULONG>(bytes.size()),
+                                            BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (!succeeded(status))
+    {
+        return std::unexpected(ntError(status, "BCryptGenRandom"));
+    }
+    return toHex(bytes);
+}
+
 // ---- files ----------------------------------------------------------------------------------
 
 Result<HashedCopy> copyHashed(const std::filesystem::path& source, const std::filesystem::path& target,
@@ -230,7 +231,7 @@ Result<HashedCopy> copyHashed(const std::filesystem::path& source, const std::fi
     {
         return std::unexpected(lastError("read source size"));
     }
-    if (static_cast<std::uint64_t>(size.QuadPart) > maxBytes)
+    if (std::cmp_greater(size.QuadPart, maxBytes))
     {
         return fail(ErrorCode::LimitExceeded,
                     std::format("file is too large ({} bytes, limit {})", size.QuadPart, maxBytes));
@@ -330,7 +331,7 @@ Result<void> replaceFile(const std::filesystem::path& from, const std::filesyste
 
 Result<void> writeFileAtomic(const std::filesystem::path& path, std::span<const std::byte> bytes)
 {
-    auto suffix = randomSuffix();
+    auto suffix = randomHex(8);
     if (!suffix)
     {
         return std::unexpected(std::move(suffix.error()));

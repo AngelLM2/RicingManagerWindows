@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 struct sqlite3_stmt;
@@ -35,6 +36,24 @@ public:
     [[nodiscard]] Result<void> bindBlob(int index, std::span<const std::byte> bytes);
     [[nodiscard]] Result<void> bindNull(int index);
 
+    // Binds ?1, ?2, ... in order (integers, bool, floating point, text, nullptr for NULL);
+    // stops at the first failure.
+    template <class... Args>
+    [[nodiscard]] Result<void> bindAll(const Args&... args)
+    {
+        if constexpr (sizeof...(Args) == 0)
+        {
+            return {};
+        }
+        else
+        {
+            int index = 0;
+            Result<void> result;
+            ((result = result ? bindValue(++index, args) : std::move(result)), ...);
+            return result;
+        }
+    }
+
     // Advances: true when a row is available, false when the statement is done.
     [[nodiscard]] Result<bool> step();
     // Steps until done (INSERT/UPDATE/DELETE/DDL).
@@ -51,6 +70,32 @@ public:
     [[nodiscard]] std::vector<std::byte> columnBlob(int column) const;
 
 private:
+    template <class T>
+    [[nodiscard]] Result<void> bindValue(int index, const T& value)
+    {
+        if constexpr (std::is_same_v<T, std::nullptr_t>)
+        {
+            return bindNull(index);
+        }
+        else if constexpr (std::is_same_v<T, bool>)
+        {
+            return bind(index, std::int64_t{value ? 1 : 0});
+        }
+        else if constexpr (std::is_integral_v<T>)
+        {
+            return bind(index, static_cast<std::int64_t>(value));
+        }
+        else if constexpr (std::is_floating_point_v<T>)
+        {
+            return bind(index, static_cast<double>(value));
+        }
+        else
+        {
+            static_assert(std::is_convertible_v<const T&, std::string_view>, "unsupported bind type");
+            return bind(index, std::string_view(value));
+        }
+    }
+
     Statement(sqlite3* db, sqlite3_stmt* statement) noexcept;
     [[nodiscard]] Error lastError(std::string_view context, int code) const;
     [[nodiscard]] Result<void> checkBind(int code, int index) const;

@@ -33,6 +33,8 @@ Result<Statement> Statement::prepare(Database& database, std::string_view sql)
 
     sqlite3_stmt* statement = nullptr;
     const char* tail = nullptr;
+    // The length is passed explicitly: `sql` need not be NUL-terminated.
+    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
     const int rc = sqlite3_prepare_v3(database.handle(), sql.data(), *length, SQLITE_PREPARE_PERSISTENT,
                                       &statement, &tail);
     if (rc != SQLITE_OK)

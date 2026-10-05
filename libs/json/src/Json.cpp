@@ -152,8 +152,8 @@ Result<const Json*> Reader::member(std::string_view key) const
 
 Error Reader::typeError(std::string_view key, std::string_view expected, const Json& found) const
 {
-    return Error(ErrorCode::InvalidData, std::format("expected {} at '{}', found {}", expected,
-                                                     childPath(m_path, key), typeName(found)));
+    return {ErrorCode::InvalidData,
+            std::format("expected {} at '{}', found {}", expected, childPath(m_path, key), typeName(found))};
 }
 
 Result<std::string> Reader::string(std::string_view key) const
