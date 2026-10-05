@@ -6,8 +6,12 @@ add_executable(rmw_unit_tests
     unit/CheckedCastTests.cpp
     unit/ConsoleTests.cpp
     unit/DatabaseTests.cpp
+    unit/DomainValueTests.cpp
     unit/ErrorTests.cpp
     unit/LogTests.cpp
+    unit/MonitorSelectorTests.cpp
+    unit/PathRulesTests.cpp
+    unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
     unit/UtfTests.cpp
     unit/WinErrorTests.cpp
@@ -15,6 +19,7 @@ add_executable(rmw_unit_tests
 target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
 target_link_libraries(rmw_unit_tests PRIVATE
     rmw::base
+    rmw::domain
     rmw::platform
     rmw::storage
     GTest::gtest
@@ -23,4 +28,5 @@ target_link_libraries(rmw_unit_tests PRIVATE
 )
 rmw_configure_target(rmw_unit_tests)
 
-gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST)
+# NO_PRETTY_VALUES: parameterized tests keep their generated names instead of raw parameter bytes.
+gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)

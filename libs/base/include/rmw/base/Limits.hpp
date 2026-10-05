@@ -24,6 +24,16 @@ inline constexpr std::uint32_t kImageMaxSide = 16'384;
 inline constexpr std::uint64_t kImageMaxPixels = 64ull * 1000 * 1000;
 inline constexpr std::uint32_t kAnimatedImageMaxSide = 4'096;
 
+// rice.toml / plugin.toml contents
+inline constexpr std::size_t kShortTextMaxBytes = 128;  // names, authors, licenses, ids
+inline constexpr std::size_t kLongTextMaxBytes = 2'048; // descriptions
+inline constexpr std::size_t kRiceMaxMonitorRules = 16;
+inline constexpr std::size_t kRiceMaxBars = 16;
+inline constexpr std::size_t kBarMaxItemsPerZone = 32;
+inline constexpr std::size_t kPaletteMaxColors = 64;
+inline constexpr std::size_t kRiceMaxPluginRequirements = 64;
+inline constexpr std::size_t kConfigValueMaxElements = 1'000; // per plugin/widget config tree
+
 // Structured data
 inline constexpr std::size_t kTomlMaxDepth = 32;
 inline constexpr std::size_t kJsonMaxDepth = 32;
