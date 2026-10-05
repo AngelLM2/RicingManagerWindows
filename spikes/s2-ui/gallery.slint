@@ -1,0 +1,135 @@
+// Spike S2 — settings/gallery UI prototype (Fluent style is Slint's default on Windows).
+import { ListView } from "std-widgets.slint";
+
+export struct Tile {
+    image: image,
+    label: string,
+}
+
+export struct TileRow {
+    tiles: [Tile],
+}
+
+component NavItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 36px;
+    border-radius: 6px;
+    background: root.selected ? #ffffff18 : touch.has-hover ? #ffffff0c : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    Rectangle {
+        x: 0;
+        width: 3px;
+        height: 16px;
+        border-radius: 2px;
+        background: root.selected ? #7aa2f7 : transparent;
+    }
+
+    Text {
+        x: 14px;
+        text: root.text;
+        vertical-alignment: center;
+        color: #e8e8e8;
+        font-size: 14px;
+    }
+}
+
+component Thumb inherits Rectangle {
+    in property <Tile> tile;
+
+    width: 208px;
+    height: 148px;
+    border-radius: 8px;
+    clip: true;
+    background: touch.has-hover ? #333333 : #2a2a2a;
+    accessible-role: button;
+    accessible-label: root.tile.label;
+
+    touch := TouchArea { }
+
+    Image {
+        y: 0;
+        width: parent.width;
+        height: 117px;
+        source: root.tile.image;
+        image-fit: cover;
+    }
+
+    Text {
+        x: 10px;
+        y: 123px;
+        text: root.tile.label;
+        color: #d4d4d4;
+        font-size: 12px;
+    }
+}
+
+export component Gallery inherits Window {
+    title: "rmw spike s2 - gallery";
+    preferred-width: 1200px;
+    preferred-height: 760px;
+    background: #1c1c1c;
+
+    in property <[TileRow]> rows;
+    in-out property <length> scroll-y <=> list.viewport-y;
+    in-out property <int> selected: 1;
+
+    HorizontalLayout {
+        Rectangle {
+            width: 220px;
+            background: #202020;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 4px;
+                alignment: start;
+
+                Text {
+                    text: "Ricing Manager";
+                    font-size: 18px;
+                    color: white;
+                    height: 44px;
+                    vertical-alignment: center;
+                }
+
+                for label[index] in ["Início", "Wallpapers", "Aparência", "Cursores", "Barra", "Plugins", "Rices", "Configurações"]: NavItem {
+                    text: label;
+                    selected: index == root.selected;
+                    clicked => { root.selected = index; }
+                }
+            }
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            Text {
+                text: "Wallpapers";
+                font-size: 26px;
+                color: white;
+            }
+
+            list := ListView {
+                for row in root.rows: HorizontalLayout {
+                    spacing: 12px;
+                    padding-bottom: 12px;
+                    alignment: start;
+
+                    for tile in row.tiles: Thumb {
+                        tile: tile;
+                    }
+                }
+            }
+        }
+    }
+}

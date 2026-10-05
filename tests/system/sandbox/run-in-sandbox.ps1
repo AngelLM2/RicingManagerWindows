@@ -33,10 +33,13 @@ try {
             $exitCode = 0
         }
         'spike' {
+            # Copy the spike's whole folder: some spikes ship DLLs next to the exe (Slint, VC runtime).
             $work = 'C:\rmw\work'
-            $exe = Join-Path $work (Split-Path $Spike -Leaf)
+            $source = Join-Path 'C:\rmw\build' $Spike
             New-Item -ItemType Directory -Force $work | Out-Null
-            Copy-Item (Join-Path 'C:\rmw\build' $Spike) $exe -Force
+            Get-ChildItem (Split-Path $source) -File | Where-Object { $_.Extension -in '.exe', '.dll' } |
+                Copy-Item -Destination $work -Force
+            $exe = Join-Path $work (Split-Path $Spike -Leaf)
             [string[]] $argList = if ($SpikeArgs) { $SpikeArgs.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) } else { @() }
             & $exe @argList *> $log
             $exitCode = $LASTEXITCODE
