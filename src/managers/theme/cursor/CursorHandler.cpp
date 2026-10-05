@@ -14,3 +14,15 @@ CursorHandler::~CursorHandler()
         DestroyCursor(m_handle);
     }
 }
+
+HCURSOR CursorHandler::get() const
+{
+    return m_handle;
+}
+
+HCURSOR CursorHandler::release()
+{
+    HCURSOR handle = m_handle;
+    m_handle = nullptr;
+    return handle;
+}
