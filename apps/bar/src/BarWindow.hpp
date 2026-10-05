@@ -16,7 +16,7 @@ namespace rmw::barapp
 // laying out and drawing into it through its software renderer.
 //
 // Presentation: a layered window with per-pixel alpha (solid, transparent, rounded corners); or,
-// for acrylic and mica, a normal window over a DWM backdrop, painted with premultiplied alpha.
+// for acrylic and mica, a normal window over DWM's acrylic, painted with premultiplied alpha.
 class BarWindow final : public slint::platform::WindowAdapter
 {
 public:
