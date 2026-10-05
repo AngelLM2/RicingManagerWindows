@@ -77,6 +77,7 @@ private:
     void armSchedule();
     void syncPages();
     void syncBar();
+    void syncVideo();
     void emergency();
     void armPages();
     void onPagesTimer();
@@ -112,6 +113,7 @@ private:
     };
     std::map<std::string, Pages> m_pages;                 // slideshows the core turns, per monitor field
     std::optional<std::string> m_barStartedFor;           // the plan rmw-bar was started with
+    std::optional<std::string> m_videoStartedFor;         // the plan rmw-wallpaper was started with
     std::optional<std::filesystem::path> m_watchedSource; // the rice folder whose saves update the bars
     bool m_emergencyKey = false;
 

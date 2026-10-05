@@ -18,6 +18,7 @@
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
 #include "rmw/plugins/HostPlan.hpp"
+#include "rmw/video/Plan.hpp"
 
 #include <windows.h>
 
@@ -53,7 +54,13 @@ constexpr std::string_view kBarPlanMeta = "bar_plan";
 constexpr std::string_view kBarOffMeta = "bar_off";
 constexpr std::string_view kBarSourceMeta = "bar_source";
 constexpr std::string_view kBarWorker = "bar";
-constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20; // the bar's budget is 25 MB
+constexpr std::string_view kVideoPlanMeta = "video_plan"; // also keeps the videos from the store's GC
+constexpr std::string_view kVideoWorker = "wallpaper";
+// Decoding 1080p takes ~55-110 MB (ADR-0006); 4K and two monitors more. A leak ends at this.
+constexpr std::uint64_t kVideoMemoryLimit = std::uint64_t{768} << 20;
+constexpr std::uint64_t kVideoMaxBytes = std::uint64_t{4} << 30;        // what one video may weigh
+constexpr std::uint64_t kVideoStatusMaxBytes = std::uint64_t{64} << 10; // rmw-wallpaper's status.json
+constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20;      // the bar's budget is 25 MB
 constexpr std::string_view kPluginWorker = "plugins";
 // 16 MB per plugin VM (docs/12 §6), a dozen plugins and the host itself.
 constexpr std::uint64_t kPluginHostMemoryLimit = std::uint64_t{256} << 20;
@@ -286,7 +293,7 @@ Result<void> CoreServer::initialize()
         {
             return std::unexpected(std::move(self.error()));
         }
-        m_helper = std::make_unique<HelperModuleRunner>(*self);
+        m_helper = std::make_unique<HelperModuleRunner>(*self, m_options.dataDirectory);
         runner = m_helper.get();
     }
     m_engine = std::make_unique<engine::RiceEngine>(*m_state, *m_store, m_logic->catalog, *runner);
@@ -309,6 +316,10 @@ Result<void> CoreServer::initialize()
     if (auto saved = m_state->meta(kBarPlanMeta); saved && *saved)
     {
         m_barPlan = **saved;
+    }
+    if (auto saved = m_state->meta(kVideoPlanMeta); saved && *saved)
+    {
+        m_videoPlan = **saved;
     }
     if (auto saved = m_state->meta(kBarOffMeta); saved && *saved)
     {
@@ -359,7 +370,7 @@ Result<void> CoreServer::initialize()
 
 bool CoreServer::wantsResidency() const
 {
-    if (m_safeMode != SafeModeReason::None || schedule() || !rotation().empty() || barPlan())
+    if (m_safeMode != SafeModeReason::None || schedule() || !rotation().empty() || barPlan() || videoPlan())
     {
         return true;
     }
@@ -698,6 +709,162 @@ void CoreServer::stopBar()
     {
         m_supervisor->stop(kBarWorker);
     }
+}
+
+std::optional<std::string> CoreServer::videoPlan() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_videoPlan;
+}
+
+void CoreServer::setVideoPlan(const std::optional<std::string>& plan)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_videoPlan == plan)
+        {
+            return;
+        }
+        m_videoPlan = plan;
+    }
+    if (auto saved =
+            m_state->setMeta(kVideoPlanMeta, plan ? std::optional<std::string_view>(*plan) : std::nullopt);
+        !saved)
+    {
+        log::warn("cannot save the video plan: {}", saved.error().toString());
+    }
+    // rmw-wallpaper follows the file: rewritten, it plays the new plan; gone, it leaves.
+    const auto file = m_options.dataDirectory / L"wallpaper" / L"video.json";
+    std::error_code ec;
+    if (plan)
+    {
+        std::filesystem::create_directories(file.parent_path(), ec);
+        const auto* bytes = reinterpret_cast<const std::byte*>(plan->data());
+        if (auto written = platform::writeFileAtomic(file, std::span(bytes, plan->size())); !written)
+        {
+            log::error("cannot write the video plan: {}", written.error().toString());
+        }
+    }
+    else
+    {
+        std::filesystem::remove(file, ec);
+    }
+    log::info("video plan: {}", plan ? "set" : "none");
+    notifyResident();
+}
+
+Result<std::optional<std::string>> CoreServer::videoPlanFor(const domain::Rice& rice,
+                                                            const std::filesystem::path& folder)
+{
+    if (!rice.wallpaper || rice.wallpaper->layout != domain::WallpaperLayout::PerMonitor)
+    {
+        return std::optional<std::string>();
+    }
+    video::Plan plan;
+    plan.policy = video::policyOf(rice.wallpaper->policy);
+    for (const auto& rule : rice.wallpaper->monitors)
+    {
+        video::Entry entry;
+        entry.monitor = rule.match;
+        entry.fit = rule.fit;
+        if (rule.kind == domain::WallpaperKind::Video)
+        {
+            // Into the store: the rice's folder may move or go; the plan in meta keeps the copy.
+            auto stored =
+                m_store->import(folder / std::filesystem::path(utf8To16Lossy(rule.source)), kVideoMaxBytes);
+            if (!stored)
+            {
+                return std::unexpected(
+                    std::move(stored.error()).withContext(std::format("video '{}'", rule.source)));
+            }
+            entry.file = std::move(*stored);
+        }
+        plan.entries.push_back(std::move(entry));
+    }
+    if (!plan.hasVideo())
+    {
+        return std::optional<std::string>();
+    }
+    return std::optional<std::string>(video::toJson(plan));
+}
+
+Result<void> CoreServer::startVideo()
+{
+    if (!m_supervisor)
+    {
+        return fail(ErrorCode::Unsupported, "no worker supervisor");
+    }
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return std::unexpected(std::move(self.error()));
+    }
+    platform::WorkerSpec spec;
+    spec.name = std::string(kVideoWorker);
+    spec.executable = self->parent_path() / L"rmw-wallpaper.exe";
+    spec.arguments =
+        std::format(L"--plan \"{}\"", (m_options.dataDirectory / L"wallpaper" / L"video.json").native());
+    spec.memoryLimitBytes = kVideoMemoryLimit;
+    // docs/04 M6: a hung window thread is found in < 2 s (1.5 s of silence, plus the checks). The
+    // thread beats every 250 ms and between the monitors while it builds the decoders.
+    spec.hangAfter = std::chrono::milliseconds(1500);
+    spec.startGrace = std::chrono::milliseconds(10'000);
+    spec.endsWithCore = true; // Windows' wallpaper (the fallback image) is underneath anyway
+    log::info("starting the video wallpaper");
+    return m_supervisor->start(std::move(spec));
+}
+
+void CoreServer::stopVideo()
+{
+    if (m_supervisor)
+    {
+        m_supervisor->stop(kVideoWorker);
+    }
+}
+
+Json CoreServer::videoStatus() const
+{
+    Json status{{"configured", videoPlan().has_value()}, {"running", false}};
+    if (!m_supervisor)
+    {
+        return status;
+    }
+    for (const auto& worker : m_supervisor->status())
+    {
+        if (worker.name != kVideoWorker)
+        {
+            continue;
+        }
+        status["running"] = worker.running;
+        status["pid"] = worker.pid;
+        status["restarts"] = worker.restarts;
+        status["disabled"] = worker.disabled;
+        status["lastFailure"] = static_cast<int>(worker.lastFailure);
+        if (!worker.running)
+        {
+            continue;
+        }
+        // What rmw-wallpaper says it plays on each monitor (and why not).
+        auto bytes = platform::readFileLimited(m_options.dataDirectory / L"wallpaper" / L"status.json",
+                                               kVideoStatusMaxBytes);
+        if (!bytes)
+        {
+            continue;
+        }
+        auto played =
+            json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
+        if (played && played->is_object())
+        {
+            for (const char* key : {"adapter", "error", "monitors"})
+            {
+                if (played->contains(key))
+                {
+                    status[key] = (*played)[key];
+                }
+            }
+        }
+    }
+    return status;
 }
 
 Json CoreServer::barStatus() const
@@ -1178,6 +1345,7 @@ Result<Json> CoreServer::status()
                 {"schedule", std::move(schedule)},
                 {"slideshows", slideshows},
                 {"bar", barStatus()},
+                {"video", videoStatus()},
                 {"resident", m_resident != nullptr ? m_resident->status() : Json(nullptr)},
                 {"otherTools", platform::detectOtherCustomizers()},
                 {"history", std::move(lastOperations)}};
@@ -1323,6 +1491,19 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
             report->warnings.push_back(std::format("bar: {}", plan.error().message()));
         }
     }
+    if (rice.wallpaper)
+    {
+        // Video wallpapers: rmw-wallpaper plays them over the fallback images the engine set
+        // (copied into the store after the operation, whose clean-up would not know them yet).
+        if (auto plan = videoPlanFor(rice, loaded->folder))
+        {
+            setVideoPlan(*plan);
+        }
+        else
+        {
+            report->warnings.push_back(std::format("video: {}", plan.error().message()));
+        }
+    }
     if (rice.appearance)
     {
         // A scheduled rice keeps the core around to switch light/dark on time.
@@ -1388,6 +1569,7 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     setRotation(Json::object());
     setBarPlan(std::nullopt);
     setBarSource(std::nullopt);
+    setVideoPlan(std::nullopt);
     m_plugins->setRicePlugins({});
     [[maybe_unused]] auto current = m_state->setMeta(kRiceCurrentMeta, std::nullopt);
     notifyResident();

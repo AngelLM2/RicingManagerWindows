@@ -73,6 +73,11 @@ private:
 // RMW_DISABLE_MITIGATIONS=1 to skip them while diagnosing a machine; never applied under ASan.
 [[nodiscard]] Result<void> applyStrictMitigations() noexcept;
 
+// For a process that plays video (rmw-wallpaper): GPU drivers and decoders load DLLs that are not
+// Microsoft's and may generate code, so not ACG nor Microsoft-only signatures; still no extension
+// points and no remote/low-label images, System32 first. Same switches as the strict set.
+[[nodiscard]] Result<void> applyMediaMitigations() noexcept;
+
 // Named mutex "Local\RicingManagerWindows-<SID>": true when this process now owns it.
 class SingleInstance
 {
