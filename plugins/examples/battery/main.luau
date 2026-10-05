@@ -1,9 +1,9 @@
 --!strict
 -- Battery: a small gauge and the percentage; nothing at all on a PC without a battery.
 
-local widgets = {}
+local widgets: { [string]: RmwWidget } = {}
 
-local function draw(w, battery)
+local function draw(w: RmwWidget, battery: RmwBattery?)
     if not battery or not battery.present then
         w:set({ shown = false })
         return
@@ -26,7 +26,7 @@ rmw.widget(function(w)
     end)
 end)
 
-rmw.on("battery", function(battery)
+rmw.on("battery", function(battery: RmwBattery)
     for _, w in widgets do
         draw(w, battery)
     end

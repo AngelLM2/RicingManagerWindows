@@ -1,18 +1,18 @@
 --!strict
 -- Now playing: the bar's own media widget, rebuilt on the plugin API (docs/12 §7).
 
-local widgets = {}
+local widgets: { [string]: RmwWidget } = {}
 
-local function describe(media): string
+local function describe(media: RmwMedia?): string
     if not media or not media.session or media.title == "" then
         return ""
     end
     return media.title
 end
 
-local function show(w, media)
-    local text = describe(media)
-    if text ~= "" and w.config.show_artist and media.artist ~= "" then
+local function show(w: RmwWidget, media: RmwMedia?)
+    local text: string = describe(media)
+    if media and text ~= "" and w.config.show_artist and media.artist ~= "" then
         text ..= " — " .. media.artist
     end
     w:set({
@@ -40,7 +40,7 @@ rmw.widget(function(w)
     end)
 end)
 
-rmw.on("media", function(media)
+rmw.on("media", function(media: RmwMedia)
     for _, w in widgets do
         show(w, media)
     end

@@ -22,6 +22,8 @@ namespace rmw::cli
 namespace
 {
 
+#include "PluginTemplate.inc"
+
 std::string text(const std::filesystem::path& path)
 {
     return utf16To8Lossy(path.native());
@@ -41,87 +43,6 @@ bool isReparsePoint(const std::filesystem::path& path)
 }
 
 // ---- templates ------------------------------------------------------------------------------------
-
-constexpr std::string_view kWidgetToml = R"(schema = 1
-
-[plugin]
-id          = "{id}"
-name        = "{name}"
-version     = "0.1.0"
-api         = "^1.0"
-authors     = ["you"]
-license     = "MIT"
-description = "A widget for the Ricing Manager bar."
-kind        = ["bar.widget"]
-
-[permissions]
-providers = ["system.cpu"]
-
-[entry]
-script = "main.luau"
-
-[widget]
-ui        = "widget.slint"
-component = "MyWidget"
-
-[widget.properties]
-text = "string"
-
-[widget.callbacks]
-clicked = []
-
-[config]
-prefix = { type = "string", default = "CPU ", label = "Text before the number" }
-)";
-
-constexpr std::string_view kWidgetLuau = R"(--!strict
--- Runs in rmw-plugin-host, sandboxed: see docs/plugins and rmw.d.luau. Save the file and the
--- widget reloads (rmw plugin dev .).
-
-local widgets = {}
-
-rmw.widget(function(w)
-    widgets[w.id] = w
-    w:set("text", w.config.prefix .. "…")
-    w:on("clicked", function()
-        rmw.log("clicked on " .. w.id)
-    end)
-    w:onclose(function()
-        widgets[w.id] = nil
-    end)
-end)
-
-rmw.on("system.cpu", function(cpu)
-    for _, w in widgets do
-        w:set("text", string.format("%s%d%%", w.config.prefix, math.floor(cpu.usage + 0.5)))
-    end
-end)
-)";
-
-constexpr std::string_view kWidgetSlint =
-    R"(// The widget's look. The bar gives every widget `foreground` and `vertical`; the rest is yours
-// ([widget.properties] and [widget.callbacks] in plugin.toml).
-export component MyWidget inherits Rectangle {
-    in property <color> foreground;
-    in property <bool> vertical;
-    in property <string> text: "…";
-    callback clicked();
-    min-width: label.preferred-width + 16px;
-    min-height: 32px;
-    border-radius: 6px;
-    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
-    label := Text {
-        text: root.text;
-        color: root.foreground;
-        font-size: 12px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-    touch := TouchArea {
-        clicked => { root.clicked(); }
-    }
-}
-)";
 
 constexpr std::string_view kActionToml = R"(schema = 1
 
@@ -232,8 +153,12 @@ right      = ["volume", "battery"]
 std::string fill(std::string_view text, std::string_view id, std::string_view name)
 {
     std::string out(text);
-    for (const auto& [key, value] :
-         {std::pair{std::string_view("{id}"), id}, std::pair{std::string_view("{name}"), name}})
+    const std::string quotedName = std::format("\"{}\"", name);
+    // "{id}" and "{name}" in the templates here; the id and name in plugins/template's manifest.
+    for (const auto& [key, value] : {std::pair<std::string_view, std::string_view>{"{id}", id},
+                                     {"{name}", name},
+                                     {"io.github.you.my-widget", id},
+                                     {"\"My widget\"", quotedName}})
     {
         for (std::size_t at = out.find(key); at != std::string::npos; at = out.find(key, at + value.size()))
         {
@@ -452,9 +377,9 @@ Result<void> newPlugin(std::string_view kind, const std::filesystem::path& folde
     std::vector<std::pair<std::string, std::string>> files;
     if (kind == "widget")
     {
-        files = {{"plugin.toml", fill(kWidgetToml, pluginId, name)},
-                 {"main.luau", std::string(kWidgetLuau)},
-                 {"widget.slint", std::string(kWidgetSlint)}};
+        files = {{"plugin.toml", fill(kTemplateToml, pluginId, name)},
+                 {"main.luau", std::string(kTemplateLuau)},
+                 {"widget.slint", std::string(kTemplateSlint)}};
     }
     else if (kind == "action")
     {
@@ -475,6 +400,13 @@ Result<void> newPlugin(std::string_view kind, const std::filesystem::path& folde
     else
     {
         return fail(ErrorCode::InvalidArgument, "the templates are widget, action, rule, tweak and skin");
+    }
+    if (kind == "widget" || kind == "action" || kind == "rule")
+    {
+        files.emplace_back("rmw.d.luau", std::string(kRmwTypes));
+        files.emplace_back(".luaurc", std::string(kLuauRc));
+        files.emplace_back(".vscode/settings.json", std::string(kVsCodeSettings));
+        files.emplace_back(".vscode/extensions.json", std::string(kVsCodeExtensions));
     }
     for (const auto& [file, content] : files)
     {
@@ -499,7 +431,8 @@ Result<std::uint64_t> packPlugin(const std::filesystem::path& folder, const std:
          it.increment(ec))
     {
         const std::string name = text(it->path().filename());
-        if (name.starts_with('.') || it->path().extension() == L".rmwp")
+        // Editor files (.vscode, .luaurc, rmw.d.luau) and packages stay out.
+        if (name.starts_with('.') || name.ends_with(".d.luau") || it->path().extension() == L".rmwp")
         {
             if (it->is_directory(ec))
             {

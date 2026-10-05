@@ -1,5 +1,6 @@
 find_package(GTest CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(unofficial-luau CONFIG REQUIRED)
 include(GoogleTest)
 
 add_executable(rmw_unit_tests
@@ -22,6 +23,7 @@ add_executable(rmw_unit_tests
     unit/PluginManifestTests.cpp
     unit/PluginPlumbingTests.cpp
     unit/PluginRuntimeTests.cpp
+    unit/PluginTypesTests.cpp
     unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
@@ -51,7 +53,11 @@ target_link_libraries(rmw_unit_tests PRIVATE
     GTest::gtest
     GTest::gtest_main
     unofficial::sqlite3::sqlite3
+    # Luau's analyzer: type-checks the shipped plugin scripts against rmw.d.luau (tests only).
+    unofficial::luau::Luau.Analysis
 )
+# The shipped plugins and their type definitions are read from the source tree.
+target_compile_definitions(rmw_unit_tests PRIVATE RMW_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 rmw_configure_target(rmw_unit_tests)
 
 # A worker that leaks, hangs, crashes or exits on purpose, for the supervisor tests.
