@@ -74,6 +74,7 @@ Cada nome precisa estar em `[permissions] providers`. O host só lê o que algum
 | `virtual-desktops` | `RmwDesktops` | `{ count: number, current: number }` (`current` começa em 1) | 1 s |
 | `media` ⚠ | `RmwMedia` | `{ session: boolean, playing: boolean, title, artist, album, app }` | quando muda |
 | `windows.list` ⚠ | `{ RmwWindow }` | lista de `{ id: number, title, app, active: boolean, minimized: boolean }`, do topo para o fundo | quando muda (e 1 s) |
+| `tray` ⚠ | `{ RmwTrayIcon }` | os ícones da bandeja do sistema: lista de `{ id: number, tip, app, promoted: boolean }` (`promoted`: o Windows o mostra na barra; os outros ficam no excesso); a imagem de um ícone é `"tray:<id>"` | quando muda (vem da barra) |
 
 ⚠ = sensível: destacado na instalação.
 
@@ -92,13 +93,14 @@ Cada nome precisa estar em `[permissions] actions`.
 | `window.focus` | `{ id = <id> }` | traz para a frente |
 | `window.minimize` | `{ id = <id> }` | minimiza |
 | `window.close` ⚠ | `{ id = <id> }` | pede para a janela fechar (como o X: o app pode perguntar) |
+| `tray.click` | `{ id = <id>, button = "left" \| "right" \| "double" \| "middle" }` | clica num ícone da bandeja (o app recebe como se fosse na barra; `right` abre o menu dele) |
 | `rice.apply` | `{ rice = "<pasta>" }` | aplica um rice **que vem com o plugin** (uma pasta com `rice.toml` dentro da pasta do plugin) |
 | `rice.undo` | — | volta ao rice anterior (a última troca) |
 | `wallpaper.next` | — | próxima imagem do slideshow |
 | `bar.toggle`, `bar.on`, `bar.off` | — | mostra/esconde a barra |
 | `appearance.toggle`, `appearance.dark`, `appearance.light` | — | modo escuro/claro |
 
-Ações de janela usam o `id` de `windows.list` (e precisam da barra rodando). Ações pedidas durante um clique no widget ou uma ação chamada pelo usuário contam como **do usuário**; as que vêm de timers e provedores contam como **automáticas** (as mesmas regras de prioridade das regras do `settings.toml`).
+Ações de janela usam o `id` de `windows.list`, e `tray.click` o de `tray` (as duas precisam da barra rodando). Ações pedidas durante um clique no widget ou uma ação chamada pelo usuário contam como **do usuário**; as que vêm de timers e provedores contam como **automáticas** (as mesmas regras de prioridade das regras do `settings.toml`).
 
 ### Ações próprias (`kind = "action"`)
 

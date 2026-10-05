@@ -96,8 +96,8 @@ Declaradas no manifesto, **mostradas na instalação** e verificadas pelo host e
 | Permissão | Exemplo | Sensível? |
 |---|---|---|
 | `providers`: `time`, `system.cpu`, `system.memory`, `network.stats`, `battery`, `audio.volume`, `virtual-desktops`, `monitors` | barra de status | não |
-| `providers`: `media` (título/artista/app), `windows.list` (títulos das janelas abertas; também os ícones `window:<id>`) | lista de janelas, tocando agora | **sim — privacidade** (destacado na instalação) |
-| `actions`: `media.control`, `window.activate/focus/minimize`, `rice.apply` (só rices da pasta do plugin), `rice.undo`, `wallpaper.next`, `bar.toggle/on/off`, `appearance.toggle/dark/light` | botões da barra, modo foco | não |
+| `providers`: `media` (título/artista/app), `windows.list` (títulos das janelas abertas; também os ícones `window:<id>`), `tray` (ícones e dicas da bandeja; imagens `tray:<id>`) | lista de janelas, tocando agora, bandeja alternativa | **sim — privacidade** (destacado na instalação) |
+| `actions`: `media.control`, `window.activate/focus/minimize`, `tray.click`, `rice.apply` (só rices da pasta do plugin), `rice.undo`, `wallpaper.next`, `bar.toggle/on/off`, `appearance.toggle/dark/light` | botões da barra, modo foco | não |
 | `actions`: `window.close` | fechar janelas | **sim** |
 | `network`: lista de domínios públicos (sem IPs nem nomes locais) | clima | **sim** — requisição feita pelo host, com limite de tamanho e frequência |
 | `storage` | lembrar preferências | não (cota de 1 MB) |
@@ -133,7 +133,7 @@ Plugin que falha 3× em 5 min é parado (`rmw plugin status` diz por quê; `rmw 
 | `rmw plugin pack <pasta>` | gera o `.rmwp` |
 | `rmw plugin install/approve/enable/disable/remove/list/status` | gerenciar os instalados |
 
-Mais: [repositório-modelo](../plugins/template), [documentação em `docs/plugins/`](plugins/README.md), 7 plugins de exemplo ([`plugins/examples`](../plugins/examples)) e o guia de publicação (licença, créditos, permissões mínimas).
+Mais: [repositório-modelo](../plugins/template), [documentação em `docs/plugins/`](plugins/README.md), 8 plugins de exemplo ([`plugins/examples`](../plugins/examples)) e o guia de publicação (licença, créditos, permissões mínimas).
 
 ## 9. Distribuição
 
