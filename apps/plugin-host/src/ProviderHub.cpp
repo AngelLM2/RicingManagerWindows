@@ -6,6 +6,8 @@
 #include <atomic>
 #include <cmath>
 #include <ctime>
+#include <future>
+#include <thread>
 
 namespace rmw::pluginhost
 {
@@ -26,8 +28,15 @@ struct Poll
 };
 
 constexpr Poll kPolled[] = {
-    {"time", 1000ms},      {"system.cpu", 1000ms}, {"system.memory", 2000ms},    {"network.stats", 1000ms},
-    {"battery", 10'000ms}, {"monitors", 5000ms},   {"virtual-desktops", 1000ms},
+    {"time", 1000ms},
+    {"system.cpu", 1000ms},
+    {"system.memory", 2000ms},
+    {"network.stats", 1000ms},
+    {"battery", 10'000ms},
+    {"monitors", 5000ms},
+    {"virtual-desktops", 1000ms},
+    // Also event-driven; polled too because window events were seen to arrive seconds late.
+    {"windows.list", 1000ms},
 };
 
 Value number(double value)
@@ -58,6 +67,50 @@ std::int64_t utcOffsetMinutes()
 }
 
 } // namespace
+
+// The window events (WinEvent hooks, out of context) on a thread of their own, in a GetMessage loop:
+// the host's main loop waits with MsgWaitForMultipleObjectsEx, which does not wake for them, so
+// they reached it seconds late. Each event goes to the main thread through the inbox.
+class ProviderHub::WindowThread
+{
+public:
+    explicit WindowThread(Post post)
+    {
+        std::promise<DWORD> started;
+        auto id = started.get_future();
+        m_thread = std::jthread([post = std::move(post), &started] {
+            static thread_local const Post* forward = nullptr;
+            forward = &post;
+            const providers::WindowEventHooks hooks([] {
+                (*forward)([] {
+                    if (auto* hub = g_hub.load())
+                    {
+                        hub->windowsChanged();
+                    }
+                });
+            });
+            MSG message{};
+            PeekMessageW(&message, nullptr, 0, 0, PM_NOREMOVE); // the queue exists from here on
+            started.set_value(GetCurrentThreadId());
+            while (GetMessageW(&message, nullptr, 0, 0) > 0)
+            {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        });
+        m_id = id.get();
+    }
+
+    ~WindowThread() { PostThreadMessageW(m_id, WM_QUIT, 0, 0); }
+    WindowThread(const WindowThread&) = delete;
+    WindowThread& operator=(const WindowThread&) = delete;
+    WindowThread(WindowThread&&) = delete;
+    WindowThread& operator=(WindowThread&&) = delete;
+
+private:
+    DWORD m_id = 0;
+    std::jthread m_thread; // joined after WM_QUIT
+};
 
 ProviderHub::ProviderHub(Post post, Changed changed)
     : m_post(std::move(post))
@@ -291,14 +344,9 @@ void ProviderHub::startWatchers(std::string_view name)
                 });
             });
     }
-    else if (name == "windows.list" && !m_windowHooks)
+    else if (name == "windows.list" && !m_windowThread)
     {
-        m_windowHooks = std::make_unique<providers::WindowEventHooks>([] {
-            if (auto* hub = g_hub.load())
-            {
-                hub->windowsChanged();
-            }
-        });
+        m_windowThread = std::make_unique<WindowThread>(m_post);
     }
 }
 
@@ -313,7 +361,7 @@ void ProviderHub::stopWatchers()
     }
     if (!watched("windows.list"))
     {
-        m_windowHooks.reset();
+        m_windowThread.reset();
     }
     // The media watcher stays once started: media.control needs it too.
 }

@@ -41,9 +41,8 @@ struct WorkerSpec
     bool endsWithCore = true;
     // More handles the worker inherits (inheritable; their values go in `arguments`).
     std::vector<void*> inheritHandles;
-    // Job limits for workers that run code we did not write (ChildOptions).
+    // For workers that run code we did not write: no child processes (ChildOptions).
     bool noChildProcesses = false;
-    bool restrictUi = false;
 };
 
 enum class WorkerEventKind

@@ -14,7 +14,7 @@ kind        = ["bar.widget"]
 # Window titles are private: the install prompt highlights windows.list.
 [permissions]
 providers = ["windows.list"]
-actions   = ["window.focus", "window.minimize"]
+actions   = ["window.activate"]
 
 [entry]
 script = "main.luau"

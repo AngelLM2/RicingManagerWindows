@@ -34,7 +34,8 @@ constexpr std::uint64_t kPlanMaxBytes = 1u << 20;
 constexpr int kMaxRequests = 8;
 constexpr std::size_t kMaxDevWatches = 32;
 
-constexpr std::string_view kWindowActions[] = {"window.focus", "window.minimize", "window.close"};
+constexpr std::string_view kWindowActions[] = {"window.activate", "window.focus", "window.minimize",
+                                               "window.close"};
 constexpr std::string_view kMediaCommands[] = {"toggle", "play", "pause", "next", "previous"};
 
 Result<std::string> readText(const std::filesystem::path& file, std::uint64_t maxBytes)

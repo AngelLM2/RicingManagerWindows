@@ -46,8 +46,10 @@ public:
     // media.control
     void media(std::string_view command);
 
-    // Main thread, from the WinEvent hooks (through the message loop).
+    // Main thread: a window came, went, changed its title or took the foreground.
     void windowsChanged();
+
+    class WindowThread;
 
 private:
     struct Polled
@@ -71,7 +73,7 @@ private:
     providers::NetworkSampler m_network;
     std::unique_ptr<providers::VolumeWatcher> m_volume;
     std::unique_ptr<providers::MediaWatcher> m_media;
-    std::unique_ptr<providers::WindowEventHooks> m_windowHooks;
+    std::unique_ptr<WindowThread> m_windowThread;
     std::optional<Clock::time_point> m_windowsDue;
 };
 

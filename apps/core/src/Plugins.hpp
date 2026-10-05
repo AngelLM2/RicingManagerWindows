@@ -85,8 +85,8 @@ public:
     // them). `notes` gets what the user should know: a plugin missing, Explorer to restart.
     [[nodiscard]] std::vector<domain::Tweak> tweaksFor(const domain::Rice& rice,
                                                        std::vector<std::string>& notes);
-    // The script plugins to run now: switched on, required by the rice, or on a bar — installed,
-    // approved and not stopped.
+    // The script plugins to run now: switched on, being written, required by the rice, or on a
+    // bar — installed, approved and not stopped.
     [[nodiscard]] plugins::HostPlan hostPlan(const std::optional<bar::Plan>& bars);
 
 private:

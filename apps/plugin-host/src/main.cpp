@@ -1,5 +1,5 @@
 // rmw-plugin-host.exe — runs the community's Luau plugins (docs/12 §3, P2). A worker the core
-// supervises, in a job with a memory ceiling, no child processes and no clipboard:
+// supervises, in a job with a memory ceiling and no child processes:
 //   rmw-plugin-host --data <dir> [--bridge <pipe>] [--control <pipe>] [--blame <handle>]
 //                   --heartbeat <handle>
 // The bar and the core never run plugin code; this process does, and only through the sandbox of

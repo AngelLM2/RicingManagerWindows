@@ -92,18 +92,6 @@ Result<ChildProcess> ChildProcess::spawn(const std::filesystem::path& executable
             }
         }
 #endif
-        if (options.restrictUi)
-        {
-            JOBOBJECT_BASIC_UI_RESTRICTIONS ui{};
-            ui.UIRestrictionsClass = JOB_OBJECT_UILIMIT_DESKTOP | JOB_OBJECT_UILIMIT_DISPLAYSETTINGS |
-                                     JOB_OBJECT_UILIMIT_EXITWINDOWS | JOB_OBJECT_UILIMIT_GLOBALATOMS |
-                                     JOB_OBJECT_UILIMIT_READCLIPBOARD | JOB_OBJECT_UILIMIT_WRITECLIPBOARD |
-                                     JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS;
-            if (SetInformationJobObject(job.get(), JobObjectBasicUIRestrictions, &ui, sizeof(ui)) == FALSE)
-            {
-                return std::unexpected(lastError("SetInformationJobObject(UI restrictions)"));
-            }
-        }
         if (options.completionPort != nullptr)
         {
             // Before the process joins, so no message is missed.

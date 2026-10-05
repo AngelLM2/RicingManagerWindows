@@ -2,7 +2,8 @@
 -- An alternative window list: chips with the app's icon and a short title. Icons are named, not
 -- sent: "window:<id>" asks the bar for that window's icon.
 
-local windows = {}
+local order: { number } = {} -- window ids, oldest first; a window keeps its place while it lives
+local byId = {}
 local widgets = {}
 
 local function short(title: string, max: number): string
@@ -13,18 +14,42 @@ local function short(title: string, max: number): string
     return title
 end
 
+-- The provider lists the top of the z-order first. Bringing a window forward changes that order,
+-- so the chips follow their own: known windows stay where they are, new ones go at the end.
+local function update(list)
+    byId = {}
+    for _, window in list do
+        byId[window.id] = window
+    end
+    local kept = {}
+    local known = {}
+    for _, id in order do
+        if byId[id] then
+            table.insert(kept, id)
+            known[id] = true
+        end
+    end
+    for i = #list, 1, -1 do -- the bottom of the z-order: the oldest of the new ones
+        local id = list[i].id
+        if not known[id] then
+            table.insert(kept, id)
+            known[id] = true
+        end
+    end
+    order = kept
+end
+
 local function draw(w)
     local entries = {}
-    -- The provider lists the top of the z-order first; a taskbar shows the oldest first.
-    for i = #windows, 1, -1 do
-        local window = windows[i]
+    for _, id in order do
         if #entries >= w.config.max then
             break
         end
+        local window = byId[id]
         table.insert(entries, {
-            id = window.id,
+            id = id,
             title = short(window.title, w.config.title_max),
-            icon = "window:" .. tostring(window.id),
+            icon = "window:" .. tostring(id),
             active = window.active,
         })
     end
@@ -35,13 +60,9 @@ rmw.widget(function(w)
     widgets[w.id] = w
     draw(w)
     w:on("pick", function(id: number)
-        for _, window in windows do
-            if window.id == id then
-                -- Like a taskbar button: the window in front goes down, any other comes up.
-                rmw.action(if window.active then "window.minimize" else "window.focus", { id = id })
-                return
-            end
-        end
+        -- Like a taskbar button: the window in front goes down, any other comes up (the bar knows
+        -- which one is in front at the moment of the click).
+        rmw.action("window.activate", { id = id })
     end)
     w:onclose(function()
         widgets[w.id] = nil
@@ -49,10 +70,10 @@ rmw.widget(function(w)
 end)
 
 rmw.on("windows.list", function(list)
-    windows = list
+    update(list)
     for _, w in widgets do
         draw(w)
     end
 end)
 
-windows = rmw.provider("windows.list") or {}
+update(rmw.provider("windows.list") or {})

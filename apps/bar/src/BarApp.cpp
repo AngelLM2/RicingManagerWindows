@@ -446,9 +446,10 @@ bool BarApp::rebuild()
                                 return Value();
                             });
                     }
-                    if (const auto cached = m_pluginValues.find(plugin.key); cached != m_pluginValues.end())
+                    if (const auto cached = m_pluginValues.find(plugin.key);
+                        cached != m_pluginValues.end() && cached->second.plugin == widget->id)
                     {
-                        applyProperties(plugin, cached->second);
+                        applyProperties(plugin, cached->second.values);
                     }
                     m_pluginSlots.push_back(std::move(plugin));
                     continue;
@@ -467,10 +468,11 @@ bool BarApp::rebuild()
         }
     }
     m_native.hide(std::move(hideOn));
-    // Values of widgets that are gone (or now belong to another plugin) go with them.
+    // Values of widgets that are gone (or whose place another plugin took) go with them.
     std::erase_if(m_pluginValues, [this](const auto& entry) {
-        return std::ranges::none_of(m_pluginSlots,
-                                    [&](const PluginSlot& slot) { return slot.key == entry.first; });
+        return std::ranges::none_of(m_pluginSlots, [&](const PluginSlot& slot) {
+            return slot.key == entry.first && slot.widget->id == entry.second.plugin;
+        });
     });
     if (!m_pluginSlots.empty() && m_windowSubscription == 0)
     {
@@ -479,9 +481,9 @@ bool BarApp::rebuild()
             for (const auto& slot : m_pluginSlots)
             {
                 const auto cached = m_pluginValues.find(slot.key);
-                if (cached != m_pluginValues.end() && hasWindowImage(domain::Value{cached->second}))
+                if (cached != m_pluginValues.end() && hasWindowImage(domain::Value{cached->second.values}))
                 {
-                    applyProperties(slot, cached->second);
+                    applyProperties(slot, cached->second.values);
                 }
             }
         });
@@ -514,7 +516,13 @@ void BarApp::onPluginMessage(bar::bridge::Message message)
         {
             return; // a widget the bar no longer shows
         }
-        auto& cached = m_pluginValues[slot->key];
+        auto& entry = m_pluginValues[slot->key];
+        if (entry.plugin != slot->widget->id)
+        {
+            log::info("bar: first values for {} ({})", slot->key, slot->widget->id);
+            entry = {slot->widget->id, {}};
+        }
+        auto& cached = entry.values;
         for (const auto& member : *set->properties.table())
         {
             const auto found = std::ranges::find(cached, member.key, &domain::ValueMember::key);
@@ -591,7 +599,11 @@ void BarApp::windowAction(const bar::bridge::Action& action)
         log::warn("bar: {}: not a window of the taskbar", action.name);
         return;
     }
-    if (action.name == "window.focus")
+    if (action.name == "window.activate")
+    {
+        providers::activateWindow(window); // the foreground now, not what the plugin last heard
+    }
+    else if (action.name == "window.focus")
     {
         providers::focusWindow(window);
     }

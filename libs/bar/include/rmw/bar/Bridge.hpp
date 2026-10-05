@@ -52,7 +52,8 @@ struct Event
 };
 
 // host -> bar: something only the bar can do (it got the click, so Windows lets it bring a window
-// forward): "window.focus", "window.minimize", "window.close" with { id = <window> }.
+// forward): "window.activate", "window.focus", "window.minimize", "window.close" with
+// { id = <window> }.
 struct Action
 {
     std::string name;
