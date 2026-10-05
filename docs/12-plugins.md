@@ -45,7 +45,9 @@ Na prática, cada feature nasce com:
 
 ## 4. Pacote e manifesto
 
-Pacote `.rmwp` (zip) lido pelo **mesmo leitor seguro** dos `.rice` (doc 06 §4). Manifesto `plugin.toml`:
+> Implementado no M4 (ADR-0011). A referência completa, para quem escreve plugins, está em [`docs/plugins/`](plugins/README.md).
+
+Pacote `.rmwp` (zip) lido pelo **mesmo leitor seguro** dos `.rice` (doc 06 §4; instalar de `.rmwp` chega no M8 — até lá, de uma pasta). Manifesto `plugin.toml`:
 
 ```toml
 schema = 1
@@ -67,7 +69,17 @@ network   = []                   # domínios permitidos (vazio = sem rede)
 
 [entry]
 script = "main.luau"
-ui     = "widget.ui"             # formato definido no spike S7
+
+[widget]                         # S7: um componente .slint, validado e compilado pela barra
+ui        = "widget.slint"
+component = "NowPlaying"
+
+[widget.properties]              # o que o script envia (w:set), com tipo conferido pela barra
+title   = "string"
+playing = "bool"
+
+[widget.callbacks]               # o que a barra devolve ao script (w:on)
+toggle = []
 
 [config]                         # esquema → formulário automático na UI
 show_artist = { type = "bool", default = true,  label = "Mostrar artista" }
@@ -75,19 +87,22 @@ max_width   = { type = "int",  default = 240, min = 80, max = 600, label = "Larg
 accent      = { type = "color", default = "palette.accent", label = "Cor de destaque" }
 ```
 
+Outras partes, por tipo: `[skin]` (`bar.skin`: as chaves de uma `[[bar]]`), `[[tweak]]` (`tweak`) e `[[action]]` (`action`: ações chamáveis como `<id>:<nome>`).
+
 ## 5. Permissões
 
 Declaradas no manifesto, **mostradas na instalação** e verificadas pelo host em cada chamada.
 
 | Permissão | Exemplo | Sensível? |
 |---|---|---|
-| `providers`: `time`, `system.cpu`, `system.memory`, `system.gpu`, `network.stats`, `battery`, `audio.volume`, `virtual-desktops`, `monitors` | barra de status | não |
-| `providers`: `media` (título/artista/capa), `windows.list` (títulos das janelas abertas) | lista de janelas, tocando agora | **sim — privacidade** (destacado na instalação) |
-| `actions`: `media.control`, `window.focus/minimize/close`, `rice.apply`, `wallpaper.next`, `bar.toggle`, `launch.app` (só apps instalados/fixados, por ID — nunca linha de comando arbitrária) | botões da barra | `launch.app` e `window.close` destacados |
-| `network`: lista de domínios | clima | **sim** — requisição feita pelo host, com limite de tamanho e frequência |
+| `providers`: `time`, `system.cpu`, `system.memory`, `network.stats`, `battery`, `audio.volume`, `virtual-desktops`, `monitors` | barra de status | não |
+| `providers`: `media` (título/artista/app), `windows.list` (títulos das janelas abertas; também os ícones `window:<id>`) | lista de janelas, tocando agora | **sim — privacidade** (destacado na instalação) |
+| `actions`: `media.control`, `window.activate/focus/minimize`, `rice.apply` (só rices da pasta do plugin), `rice.undo`, `wallpaper.next`, `bar.toggle/on/off`, `appearance.toggle/dark/light` | botões da barra, modo foco | não |
+| `actions`: `window.close` | fechar janelas | **sim** |
+| `network`: lista de domínios públicos (sem IPs nem nomes locais) | clima | **sim** — requisição feita pelo host, com limite de tamanho e frequência |
 | `storage` | lembrar preferências | não (cota de 1 MB) |
 
-Atualização que **aumenta** permissões exige nova aprovação.
+Atualização que **aumenta** permissões exige nova aprovação; sem aprovação, o plugin fica instalado e o script não roda. Adiados: `system.gpu` (precisa de um provedor de sensores, Fase 3) e `launch.app` (só apps instalados, por ID — com a interface, M7).
 
 ## 6. Orçamentos por plugin (impostos pelo host)
 
@@ -99,7 +114,7 @@ Atualização que **aumenta** permissões exige nova aprovação.
 | Armazenamento | 1 MB |
 | Rede | só domínios declarados; resposta ≤ 1 MB; ≤ 1 req/10 s por padrão |
 
-Plugin que crasha/estoura 3× em 5 min é desativado, com notificação.
+Plugin que falha 3× em 5 min é parado (`rmw plugin status` diz por quê; `rmw plugin enable` religa); um plugin que estava rodando quando o host caiu duas vezes em 5 min também. A notificação na tela chega com a bandeja (M5).
 
 ## 7. API de plugins
 
@@ -112,12 +127,13 @@ Plugin que crasha/estoura 3× em 5 min é desativado, com notificação.
 
 | Comando | O que faz |
 |---|---|
-| `rmw plugin new <modelo>` | cria um plugin a partir de um modelo (widget, tweak, action, rule, skin) |
-| `rmw plugin dev <pasta>` | carrega a pasta com **recarga automática** ao salvar + console de log |
+| `rmw plugin new <modelo> <pasta>` | cria um plugin a partir de um modelo (widget, tweak, action, rule, skin), com os tipos da API (`rmw.d.luau`) e a configuração do luau-lsp |
+| `rmw plugin dev <pasta>` | carrega a pasta com **recarga automática** ao salvar (< 1 s) + log do host e da barra |
 | `rmw plugin validate <pasta>` | roda o mesmo validador da instalação |
 | `rmw plugin pack <pasta>` | gera o `.rmwp` |
+| `rmw plugin install/approve/enable/disable/remove/list/status` | gerenciar os instalados |
 
-Mais: repositório-modelo, documentação em `docs/plugins/`, 5+ plugins de exemplo, e um guia de publicação (licença, créditos, permissões mínimas).
+Mais: [repositório-modelo](../plugins/template), [documentação em `docs/plugins/`](plugins/README.md), 7 plugins de exemplo ([`plugins/examples`](../plugins/examples)) e o guia de publicação (licença, créditos, permissões mínimas).
 
 ## 9. Distribuição
 
@@ -125,7 +141,9 @@ Mais: repositório-modelo, documentação em `docs/plugins/`, 5+ plugins de exem
 - Instalação manual de `.rmwp` desde o MVP; **galeria** (só índice, pacotes nos repositórios dos autores) na Fase 3, com a mesma política de conteúdo dos rices (doc 11 §3) + permissões exibidas.
 - Verificação de integridade por hash; assinatura de plugins pelo autor (opcional, Fase 3).
 
-## 10. Decisões técnicas pendentes (spike S7)
+## 10. Decisões técnicas (spike S7 e M4)
+
+Decididas: UI dos widgets = **(A) `.slint`** compilado pela barra depois de um validador nosso (ADR-0008, ADR-0011 §5–6); **um host compartilhado**, uma VM por plugin, culpa por plugin quando o host cai (ADR-0011 §2); lote por lugar a cada ≥ 250 ms, cliques na hora (ADR-0011 §7). As perguntas originais:
 
 | Pergunta | Opções | Critério |
 |---|---|---|

@@ -60,3 +60,4 @@ Componentes do VS (Spectre libs + Clang 20.1.8): **instalados e verificados**. *
 | [11 — Pacote inicial](11-pacote-inicial.md) | 6 rices oficiais, licenças, pacote da comunidade Miku |
 | [12 — Plugins](12-plugins.md) | pontos de extensão, níveis de confiança, manifesto, permissões, orçamentos, ferramentas |
 | [13 — Plano de execução](13-plano-de-execucao.md) | o que o "OK" autoriza, ordem exata, onde eu paro e pergunto |
+| [Guia de plugins](plugins/README.md) | para quem escreve plugins (M4): manifesto, API Luau, widgets, tweaks, segurança |
