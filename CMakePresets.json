@@ -50,6 +50,20 @@
       }
     },
     {
+      "name": "fuzz",
+      "displayName": "libFuzzer",
+      "description": "The parsers' fuzz targets (fuzz/) under AddressSanitizer; run them with scripts/fuzz.ps1",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-asan",
+        "RMW_ASAN": "ON",
+        "RMW_FUZZ": "ON",
+        "RMW_HARDENING": "OFF",
+        "RMW_BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "tidy",
       "displayName": "clang-tidy",
       "description": "Debug configuration whose compile_commands.json feeds scripts/tidy.ps1",
@@ -63,7 +77,8 @@
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "asan", "configurePreset": "asan" }
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "fuzz", "configurePreset": "fuzz" }
   ],
   "testPresets": [
     {

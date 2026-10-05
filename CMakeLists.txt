@@ -33,11 +33,21 @@ option(RMW_REQUIRE_SPECTRE "Fail the configure step if the Spectre-mitigated CRT
 option(RMW_ASAN "Build with AddressSanitizer" OFF)
 option(RMW_BUILD_TESTS "Build the test suite" ON)
 option(RMW_BUILD_SPIKES "Build the throwaway Fase 0 spikes (spikes/)" OFF)
+option(RMW_FUZZ "Build only the libFuzzer targets (fuzz/), with coverage; needs RMW_ASAN" OFF)
+
+if(RMW_FUZZ AND NOT RMW_ASAN)
+    message(FATAL_ERROR "RMW_FUZZ needs RMW_ASAN (use the fuzz preset).")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(RmwTargets)
 
 add_subdirectory(libs)
+if(RMW_FUZZ)
+    # The parsers and their fuzz targets; the apps and tests are not built with coverage.
+    add_subdirectory(fuzz)
+    return()
+endif()
 add_subdirectory(apps)
 
 if(RMW_BUILD_TESTS)
