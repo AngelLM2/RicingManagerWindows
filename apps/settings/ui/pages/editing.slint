@@ -1,0 +1,87 @@
+import { Button, Palette } from "std-widgets.slint";
+import { Api, Page } from "../api.slint";
+import { Card, Hint, Problem, Metrics } from "../common.slint";
+
+// Above the editor pages: which rice they change, and applying it. Changes are saved to the rice's
+// folder as they are made; applying makes Windows show them (the bar follows by itself when the rice
+// is the applied one).
+export component EditingBanner inherits VerticalLayout {
+    spacing: 8px;
+
+    if !Api.editing: Card {
+        title: @tr("Pick a rice to change");
+        subtitle: @tr("These pages change a rice. Start from the one you use, or from a new one.");
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            Button {
+                text: @tr("Edit the applied rice");
+                enabled: Api.active-folder != "";
+                clicked => {
+                    Api.edit-active-rice();
+                }
+            }
+
+            Button {
+                text: @tr("New rice");
+                clicked => {
+                    Api.new-rice();
+                }
+            }
+
+            Button {
+                text: @tr("Rices");
+                clicked => {
+                    Api.page = Page.rices;
+                }
+            }
+        }
+    }
+
+    if Api.editing: Rectangle {
+        background: Palette.accent-background.transparentize(85%);
+        border-radius: Metrics.radius;
+
+        HorizontalLayout {
+            padding: 12px;
+            spacing: 12px;
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+
+                Text {
+                    text: @tr("Editing “{}”", Api.edit-name);
+                    font-weight: 600;
+                    color: Palette.foreground;
+                }
+
+                Hint {
+                    text: Api.edit-active ? @tr("This is the applied rice: the bar changes as you edit; apply to see the rest.")
+                        : @tr("Saved in its folder as you edit. Apply it to see it.");
+                }
+            }
+
+            Button {
+                text: @tr("Apply");
+                primary: true;
+                enabled: !Api.busy;
+                clicked => {
+                    Api.apply-edited();
+                }
+            }
+        }
+    }
+
+    if Api.editing && Api.edit-hand-written: Problem {
+        error: false;
+        text: @tr("This rice.toml was written by hand: saving from here keeps every setting but not its comments. Duplicate it in Rices to keep the original as it is.");
+    }
+
+    for warning in Api.edit-warnings: Problem {
+        error: false;
+        text: warning;
+    }
+}

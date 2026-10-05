@@ -1,0 +1,392 @@
+Applied: {}	Aplicado: {}
+Restored: {}	Restaurado: {}
+Undone: {}	Desfeito: {}
+Saved in {}	Salvo em {}
+Your current look is now the rice “{}”	Seu visual atual agora é o rice “{}”
+Created “{}”	Criado: “{}”
+Copied into the rice: {}	Copiado para o rice: {}
+Installed {}	Instalado: {}
+Approved {}	Aprovado: {}
+Removed {}	Removido: {}
+Support bundle ready in {}	Pacote de suporte pronto em {}
+Connecting to Ricing Manager…	Conectando ao Ricing Manager…
+Ricing Manager's core is not running: {}	O núcleo do Ricing Manager não está rodando: {}
+That did not work: {}	Não deu certo: {}
+Undo	Desfazer
+Close the message	Fechar a mensagem
+Ricing Manager	Ricing Manager
+Home	Início
+Rices	Rices
+Appearance	Aparência
+Wallpapers	Wallpapers
+Cursors	Cursores
+Taskbar	Barra de tarefas
+Plugins	Plugins
+Hotkeys and rules	Atalhos e regras
+Diagnostics	Diagnóstico
+Settings	Configurações
+Restore the original Windows?	Restaurar o Windows original?
+Undo the last rice?	Desfazer o último rice?
+Go back to before this change?	Voltar para antes desta mudança?
+Uninstall this plugin?	Desinstalar este plugin?
+Remove this bar from the rice?	Remover esta barra do rice?
+Are you sure?	Tem certeza?
+Wallpaper, colors, cursors, taskbar and bars go back to how they were before the first rice. Your rices stay in their folders.	Wallpaper, cores, cursores, barra de tarefas e barras voltam a ser como eram antes do primeiro rice. Seus rices continuam nas pastas deles.
+The rice applied before this one comes back.	Volta o rice aplicado antes deste.
+Everything that changed since then goes back.	Tudo o que mudou desde então volta atrás.
+Its files and its data are deleted: {}	Os arquivos e os dados dele são apagados: {}
+Windows' taskbar comes back if no other bar hides it.	A barra de tarefas do Windows volta se nenhuma outra barra a esconder.
+Cancel	Cancelar
+Uninstall	Desinstalar
+Remove	Remover
+Go back	Voltar
+Light/dark mode and accent	Modo claro/escuro e destaque
+Wallpaper	Wallpaper
+Windows' taskbar	Barra de tarefas do Windows
+Ricing Manager's bar	Barra do Ricing Manager
+Tweaks from plugins	Ajustes de plugins
+Bar	Barra
+Video wallpaper	Wallpaper em vídeo
+Light/dark schedule	Horário de claro/escuro
+Safe mode	Modo seguro
+Other customizers	Outros personalizadores
+running	rodando
+starting	iniciando
+off	desligado
+on	ligado
+stopped after failing too often	parado depois de falhar demais
+stopped	parado
+on, not running yet	ligado, ainda não rodando
+waits for your approval	espera sua aprovação
+cannot be read	não pode ser lido
+paused	pausado
+playing	tocando
+paused, memory freed	pausado, memória liberada
+not playing	não está tocando
+Apply a rice	Aplicar um rice
+Undo the last rice	Desfazer o último rice
+Restore the original Windows	Restaurar o Windows original
+Switch light/dark mode	Alternar modo claro/escuro
+Dark mode	Modo escuro
+Light mode	Modo claro
+Show or hide the bar	Mostrar ou esconder a barra
+Show the bar	Mostrar a barra
+Hide the bar	Esconder a barra
+Next wallpaper (slideshow)	Próximo wallpaper (apresentação)
+Start	Iniciar
+Desktops	Áreas de trabalho
+Windows	Janelas
+System tray	Bandeja do sistema
+Clock	Relógio
+Now playing	Tocando agora
+CPU	CPU
+Memory	Memória
+Network	Rede
+Volume	Volume
+Battery	Bateria
+Notifications	Notificações
+read the local time	ler a hora local
+read the CPU usage	ler o uso da CPU
+read the memory usage	ler o uso da memória
+read how much the network sends and receives	ler quanto a rede envia e recebe
+read the battery level and whether the PC is plugged in	ler o nível da bateria e se o PC está na tomada
+read the speaker volume	ler o volume do som
+read the list of monitors	ler a lista de monitores
+read how many virtual desktops there are and which one is shown	ler quantas áreas de trabalho virtuais existem e qual está à mostra
+see what is playing (title, artist, app)	ver o que está tocando (título, artista, app)
+see the titles of your open windows	ver os títulos das suas janelas abertas
+see the icons of the system tray and their tips	ver os ícones da bandeja do sistema e as dicas deles
+play, pause and skip what is playing	tocar, pausar e pular o que está tocando
+bring a window to the front, or minimize it	trazer uma janela para a frente, ou minimizá-la
+bring a window to the front	trazer uma janela para a frente
+minimize a window	minimizar uma janela
+close your windows	fechar suas janelas
+click the icons of the system tray	clicar nos ícones da bandeja do sistema
+apply a rice that comes with the plugin	aplicar um rice que vem com o plugin
+undo the last change of rice	desfazer a última troca de rice
+show the next wallpaper of a slideshow	mostrar o próximo wallpaper de uma apresentação
+show or hide the bar	mostrar ou esconder a barra
+show the bar	mostrar a barra
+hide the bar	esconder a barra
+switch between light and dark mode	alternar entre o modo claro e o escuro
+switch to dark mode	passar para o modo escuro
+switch to light mode	passar para o modo claro
+keep a little data of its own	guardar um pouco de dados próprios
+talk to {} on the internet	falar com {} na internet
+Bar {} — {}, {}	Barra {} — {}, {}
+top	em cima
+bottom	embaixo
+left	à esquerda
+right	à direita
+My rice	Meu rice
+My look	Meu visual
+{} (copy)	{} (cópia)
+Every monitor	Todos os monitores
+Main monitor	Monitor principal
+Leftmost monitor	Monitor mais à esquerda
+Rightmost monitor	Monitor mais à direita
+Top monitor	Monitor de cima
+Bottom monitor	Monitor de baixo
+Light or dark mode, the accent color and transparency.	Modo claro ou escuro, a cor de destaque e a transparência.
+Mode	Modo
+Light or dark	Claro ou escuro
+“On a schedule” switches by itself at the times below.	“Por horário” troca sozinho nos horários abaixo.
+Leave as it is	Deixar como está
+Light	Claro
+Dark	Escuro
+Windows decides	O Windows decide
+On a schedule	Por horário
+Light from	Claro a partir de
+24-hour time, like 07:00.	Hora em 24 horas, como 07:00.
+Dark from	Escuro a partir de
+Accent color	Cor de destaque
+Used by Windows for highlights, and by the bar for palette.accent.	Usada pelo Windows nos destaques, e pela barra em palette.accent.
+From this rice's palette	Da paleta deste rice
+Color code	Código da cor
+#RRGGBB. Empty leaves Windows' accent as it is.	#RRGGBB. Vazio deixa o destaque do Windows como está.
+Accent color code	Código da cor de destaque
+Effects	Efeitos
+Transparency effects	Efeitos de transparência
+On	Ligado
+Off	Desligado
+Accent color on Start and the taskbar	Cor de destaque no Iniciar e na barra de tarefas
+plugin widget	widget de plugin
+Empty: drop a widget here or add one below.	Vazia: solte um widget aqui ou adicione um abaixo.
+Left (or top)	Esquerda (ou em cima)
+Center	Centro
+Right (or bottom)	Direita (ou embaixo)
+◀ Earlier	◀ Antes
+Move the selected widget earlier	Mover o widget selecionado para antes
+Later ▶	Depois ▶
+Move the selected widget later	Mover o widget selecionado para depois
+To the left	Para a esquerda
+To the center	Para o centro
+To the right	Para a direita
+Remove the selected widget	Remover o widget selecionado
+Widget to add	Widget para adicionar
+to the left	à esquerda
+to the center	ao centro
+to the right	à direita
+Zone to add it to	Zona onde adicionar
+Add	Adicionar
+Add the widget	Adicionar o widget
+Windows' own taskbar, and bars of your own on any edge, any size.	A barra de tarefas do Windows, e barras suas em qualquer borda, de qualquer tamanho.
+Used when no bar of this rice hides it.	Usada quando nenhuma barra deste rice a esconde.
+Alignment	Alinhamento
+Shows after Windows restarts Explorer.	Aparece depois que o Windows reinicia o Explorer.
+Left	Esquerda
+Hide automatically	Ocultar automaticamente
+Task view button	Botão Visão de Tarefas
+Search	Pesquisa
+Hidden	Oculta
+Icon	Ícone
+Box	Caixa
+Button	Botão
+Bars of this rice	Barras deste rice
+If something goes wrong, Ctrl+Alt+Win+T turns the bar off and brings Windows' taskbar back.	Se algo der errado, Ctrl+Alt+Win+T desliga a barra e traz de volta a barra de tarefas do Windows.
+Add a bar	Adicionar uma barra
+Remove this bar	Remover esta barra
+No bar: Windows' taskbar stays. Add one to have your own.	Nenhuma barra: fica a barra de tarefas do Windows. Adicione uma para ter a sua.
+Widgets	Widgets
+Drag a widget to another zone, or select it and use the buttons.	Arraste um widget para outra zona, ou selecione-o e use os botões.
+Place and size	Posição e tamanho
+Monitor	Monitor
+Monitor of the bar	Monitor da barra
+Edge	Borda
+Top	Em cima
+Bottom	Embaixo
+Right	Direita
+Space	Espaço
+Reserve: maximized windows stop at the bar. Float: over the desktop.	Reservar: janelas maximizadas param na barra. Flutuar: por cima da área de trabalho.
+Reserve	Reservar
+Float	Flutuar
+Thickness	Espessura
+16 to 512 pixels, at 100% scale.	De 16 a 512 pixels, em escala de 100%.
+Length	Comprimento
+in %	em %
+Length in percent	Comprimento em porcentagem
+Margins	Margens
+Top, right, bottom, left.	Em cima, direita, embaixo, esquerda.
+Top margin	Margem de cima
+Right margin	Margem direita
+Bottom margin	Margem de baixo
+Left margin	Margem esquerda
+Rounded corners	Cantos arredondados
+Corner radius	Raio dos cantos
+Hide the bar automatically	Ocultar a barra automaticamente
+Hide Windows' taskbar	Esconder a barra de tarefas do Windows
+Look	Aparência
+Background	Fundo
+Acrylic and mica blur what is behind the bar.	Acrílico e mica desfocam o que está atrás da barra.
+Solid	Sólido
+Transparent	Transparente
+Acrylic	Acrílico
+Mica	Mica
+Color	Cor
+#RRGGBB or palette.<name> from the rice, then Enter.	#RRGGBB ou palette.<nome> do rice, e depois Enter.
+Background color	Cor do fundo
+Opacity	Opacidade
+Text and icons	Texto e ícones
+#RRGGBB or palette.<name>; empty follows Windows' mode.	#RRGGBB ou palette.<nome>; vazio segue o modo do Windows.
+Text and icon color	Cor do texto e dos ícones
+Starts from the skin {}: what this bar does not set comes from it.	Parte da skin {}: o que esta barra não define vem dela.
+A cursor scheme: a folder of .cur and .ani files, usually with an install.inf.	Um esquema de cursores: uma pasta de arquivos .cur e .ani, em geral com um install.inf.
+Scheme	Esquema
+This rice leaves the cursors as they are.	Este rice deixa os cursores como estão.
+Choose another folder…	Escolher outra pasta…
+Choose a folder…	Escolher uma pasta…
+Leave the cursors as they are	Deixar os cursores como estão
+Size	Tamanho
+Cursor size	Tamanho do cursor
+Windows draws them at this size (pixels).	O Windows os desenha neste tamanho (pixels).
+What runs, what it costs, and what went wrong lately.	O que roda, quanto custa, e o que deu errado ultimamente.
+Processes	Processos
+Memory is private memory (what the process alone uses); CPU is over the last seconds.	Memória é a memória privada (o que só o processo usa); CPU é dos últimos segundos.
+Refresh	Atualizar
+Recent problems	Problemas recentes
+Warnings and errors from the logs, newest first.	Avisos e erros dos logs, os mais novos primeiro.
+Nothing went wrong lately.	Nada deu errado ultimamente.
+Logs and support	Logs e suporte
+Open the logs folder	Abrir a pasta dos logs
+Make a support bundle	Criar um pacote de suporte
+The bundle is a folder with the logs and the current state, your user folder hidden. Nothing is sent anywhere: you choose whom to give it to.	O pacote é uma pasta com os logs e o estado atual, com a sua pasta de usuário escondida. Nada é enviado: você escolhe para quem entregar.
+Pick a rice to change	Escolha um rice para mudar
+These pages change a rice. Start from the one you use, or from a new one.	Estas páginas mudam um rice. Comece pelo que você usa, ou por um novo.
+Edit the applied rice	Editar o rice aplicado
+New rice	Novo rice
+Editing “{}”	Editando “{}”
+This is the applied rice: the bar changes as you edit; apply to see the rest.	Este é o rice aplicado: a barra muda enquanto você edita; aplique para ver o resto.
+Saved in its folder as you edit. Apply it to see it.	Salvo na pasta dele enquanto você edita. Aplique para ver.
+Apply	Aplicar
+This rice.toml was written by hand: saving from here keeps every setting but not its comments. Duplicate it in Rices to keep the original as it is.	Este rice.toml foi escrito à mão: salvar daqui mantém todas as configurações, mas não os comentários. Duplique-o em Rices para manter o original como está.
+What Ricing Manager manages now, and the way back.	O que o Ricing Manager gerencia agora, e o caminho de volta.
+Safe mode: Ricing Manager stopped unexpectedly when starting, so nothing runs by itself. Restoring still works.	Modo seguro: o Ricing Manager parou inesperadamente ao iniciar, então nada roda sozinho. Restaurar continua funcionando.
+No rice applied	Nenhum rice aplicado
+Pick one in Rices, or start your own.	Escolha um em Rices, ou comece o seu.
+Edit this rice	Editar este rice
+Every change is recorded and can be taken back.	Toda mudança fica registrada e pode ser desfeita.
+Back to the rice applied before this one.	Volta ao rice aplicado antes deste.
+Your wallpaper, colors, cursors and taskbar as they were before the first rice.	Seu wallpaper, cores, cursores e barra de tarefas como eram antes do primeiro rice.
+Nothing has been changed yet.	Nada foi mudado ainda.
+Restore	Restaurar
+Running now	Rodando agora
+History	Histórico
+Go back to how things were before any of these.	Volte a como tudo estava antes de qualquer um destes.
+Go back to before this	Voltar para antes disto
+from its folder	da pasta dele
+It can:	Ele pode:
+sensitive	sensível
+ok	ok
+Approve	Aprovar
+Approve what {} asks for	Aprovar o que {} pede
+Turn on	Ligar
+Turn on {}	Ligar {}
+Turn off	Desligar
+Turn off {}	Desligar {}
+Remove from this rice	Tirar deste rice
+Use in this rice	Usar neste rice
+Remove {} from this rice	Tirar {} deste rice
+Use {} in this rice	Usar {} neste rice
+Settings of {}	Configurações de {}
+Uninstall {}	Desinstalar {}
+Widgets, skins, tweaks, actions and rules made by the community. Scripts run apart, with only what you approve.	Widgets, skins, ajustes, ações e regras feitos pela comunidade. Os scripts rodam à parte, só com o que você aprovar.
+Install from a folder…	Instalar de uma pasta…
+No plugins installed. Examples come in the plugins folder of Ricing Manager.	Nenhum plugin instalado. Há exemplos na pasta plugins do Ricing Manager.
+Settings of {} in “{}”	Configurações de {} em “{}”
+Saved in the rice: each rice can set its plugins differently. Press Enter in a text box to save it.	Salvas no rice: cada rice pode configurar seus plugins de um jeito. Aperte Enter numa caixa de texto para salvar.
+Close	Fechar
+applied	aplicado
+by {}	por {}
+Apply {}	Aplicar {}
+Edit	Editar
+Edit {}	Editar {}
+Duplicate	Duplicar
+Duplicate {}	Duplicar {}
+Open folder	Abrir pasta
+Open the folder of {}	Abrir a pasta de {}
+A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share.	Um rice é um visual inteiro: wallpaper, cores, cursores, barras e plugins, numa pasta que você pode compartilhar.
+Save my current look as a rice	Salvar meu visual atual como um rice
+Add a rice folder…	Adicionar uma pasta de rice…
+No rices yet. Save your current look, or add a folder with a rice.toml.	Nenhum rice ainda. Salve seu visual atual, ou adicione uma pasta com um rice.toml.
+Ricing Manager itself.	O próprio Ricing Manager.
+Startup	Inicialização
+Start with Windows	Iniciar com o Windows
+Needed for schedules, hotkeys, rules, the bar and video wallpapers after you sign in.	Necessário para horários, atalhos, regras, a barra e wallpapers em vídeo depois que você entra.
+Keep the icon in the tray	Manter o ícone na bandeja
+Ricing Manager stays running even when nothing needs it.	O Ricing Manager continua rodando mesmo quando nada precisa dele.
+Language	Idioma
+For this window and the tray menu.	Para esta janela e o menu da bandeja.
+Windows' language	Idioma do Windows
+About	Sobre
+Ricing Manager for Windows {}	Ricing Manager for Windows {}
+Free software under the GNU GPL, version 3 or later: you may use, study, share and change it. It comes with no warranty.	Software livre sob a GNU GPL, versão 3 ou posterior: você pode usar, estudar, compartilhar e modificar. Vem sem garantia.
+Built with Slint, toml++, nlohmann/json, SQLite, Luau and WIL. Their licenses are in the licenses folder next to the program.	Feito com Slint, toml++, nlohmann/json, SQLite, Luau e WIL. As licenças deles estão na pasta licenses ao lado do programa.
+Action	Ação
+Choose the rice…	Escolher o rice…
+Rice: {}	Rice: {}
+Choose the rice to apply	Escolher o rice para aplicar
+Keys that run an action anywhere in Windows, and actions that run by themselves.	Teclas que rodam uma ação em qualquer lugar do Windows, e ações que rodam sozinhas.
+settings.toml has a problem, so it is not changed from here until it is fixed: {}	O settings.toml tem um problema, então ele não é mudado daqui até ser corrigido: {}
+Hotkeys	Atalhos
+Like Win+Alt+D or Ctrl+Alt+N. Press Enter in the box to save it.	Como Win+Alt+D ou Ctrl+Alt+N. Aperte Enter na caixa para salvar.
+Keys	Teclas
+Remove the hotkey {}	Remover o atalho {}
+Add a hotkey	Adicionar um atalho
+Rules	Regras
+At a time of day, on battery, when plugged in, or when a monitor is connected.	Num horário do dia, na bateria, na tomada, ou quando um monitor é conectado.
+At a time	Num horário
+On battery	Na bateria
+Plugged in	Na tomada
+Monitor connected	Monitor conectado
+When	Quando
+Time	Horário
+Which monitor	Qual monitor
+Remove this rule	Remover esta regra
+Add a rule	Adicionar uma regra
+{} (main)	{} (principal)
+When several rules fit a monitor, the first one counts; “Every monitor” takes the rest.	Quando várias regras servem para um monitor, vale a primeira; “Todos os monitores” fica com o resto.
+Kind	Tipo
+Image	Imagem
+Slideshow (a folder)	Apresentação (uma pasta)
+Video	Vídeo
+Solid color	Cor sólida
+Kind of wallpaper	Tipo de wallpaper
+Folder	Pasta
+Video file	Arquivo de vídeo
+Image file	Arquivo de imagem
+Nothing chosen yet. It is copied into the rice.	Nada escolhido ainda. Ele é copiado para o rice.
+Choose…	Escolher…
+Choose the wallpaper	Escolher o wallpaper
+Image under the video	Imagem por baixo do vídeo
+Shown while the video is paused or cannot play. Recommended.	Aparece enquanto o vídeo está pausado ou não pode tocar. Recomendado.
+Choose the image under the video	Escolher a imagem por baixo do vídeo
+Fit	Ajuste
+Fill	Preencher
+Stretch	Esticar
+Tile	Lado a lado
+#RRGGBB, then Enter.	#RRGGBB, e depois Enter.
+Wallpaper color	Cor do wallpaper
+Change every (minutes)	Trocar a cada (minutos)
+Minutes between pictures	Minutos entre as imagens
+Shuffle	Ordem aleatória
+Remove this wallpaper rule	Remover esta regra de wallpaper
+An image, a slideshow, a video or a color on each monitor.	Uma imagem, uma apresentação, um vídeo ou uma cor em cada monitor.
+Monitors	Monitores
+Click a monitor to change what it shows.	Clique num monitor para mudar o que ele mostra.
+Add a rule for every monitor	Adicionar uma regra para todos os monitores
+Add a rule for the main monitor	Adicionar uma regra para o monitor principal
+Slideshow	Apresentação
+Rule for {}	Regra para {}
+Videos	Vídeos
+A video pauses when nobody would see it, and frees its memory after 2 minutes paused.	Um vídeo pausa quando ninguém o veria, e libera a memória depois de 2 minutos pausado.
+Pause while a game or video is fullscreen	Pausar enquanto um jogo ou vídeo está em tela cheia
+Pause on battery and energy saver	Pausar na bateria e na economia de energia
+Pause when a window covers the desktop	Pausar quando uma janela cobre a área de trabalho
+Frames per second, at most	Quadros por segundo, no máximo
+Fewer frames, less GPU. 30 is smooth for most videos.	Menos quadros, menos GPU. 30 é suave para a maioria dos vídeos.
+Choose the app to open	Escolha o app para abrir
+Search the apps	Procurar nos apps
+Open an app	Abrir um app
+open apps installed on this PC	abrir apps instalados neste PC
+Choose the app…	Escolher o app…
+App: {}	App: {}

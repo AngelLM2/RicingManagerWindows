@@ -4,6 +4,7 @@ find_package(wil CONFIG REQUIRED)
 
 rmw_add_library(platform
     SOURCES
+        src/Apps.cpp
         src/Autostart.cpp
         src/Channel.cpp
         src/Console.cpp

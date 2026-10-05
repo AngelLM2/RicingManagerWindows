@@ -1,0 +1,387 @@
+// rmw-settings (docs/04 M7, docs/07): the settings and gallery of Ricing Manager.
+import { Button, LineEdit, ListView, Palette } from "std-widgets.slint";
+import { Api, Page, NoticeKind, Notice } from "api.slint";
+import { NavItem, Hint, Metrics } from "common.slint";
+import { Words } from "words.slint";
+import { HomePage } from "pages/home.slint";
+import { RicesPage } from "pages/rices.slint";
+import { AppearancePage } from "pages/appearance.slint";
+import { WallpapersPage } from "pages/wallpapers.slint";
+import { CursorsPage } from "pages/cursors.slint";
+import { BarPage } from "pages/bar.slint";
+import { PluginsPage } from "pages/plugins.slint";
+import { ShortcutsPage } from "pages/shortcuts.slint";
+import { DiagnosticsPage } from "pages/diagnostics.slint";
+import { SettingsPage } from "pages/settings.slint";
+
+export { Api, Words, Page }
+
+component InfoBar inherits Rectangle {
+    in property <Notice> notice;
+    property <bool> bad: root.notice.kind == NoticeKind.failed || root.notice.kind == NoticeKind.not-connected;
+    background: root.bad ? #c4314b33 : Palette.accent-background.transparentize(80%);
+    border-radius: Metrics.radius;
+    accessible-role: AccessibleRole.text;
+    accessible-label: message.text;
+
+    HorizontalLayout {
+        padding: 10px;
+        spacing: 10px;
+
+        message := Text {
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            wrap: word-wrap;
+            color: Palette.foreground;
+            text: root.notice.kind == NoticeKind.applied ? @tr("Applied: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.restored ? @tr("Restored: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.undone ? @tr("Undone: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.saved ? @tr("Saved in {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.exported ? @tr("Your current look is now the rice “{}”", root.notice.detail)
+                : root.notice.kind == NoticeKind.created ? @tr("Created “{}”", root.notice.detail)
+                : root.notice.kind == NoticeKind.imported ? @tr("Copied into the rice: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.installed ? @tr("Installed {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.approved ? @tr("Approved {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.removed ? @tr("Removed {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.bundle ? @tr("Support bundle ready in {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.connecting ? @tr("Connecting to Ricing Manager…")
+                : root.notice.kind == NoticeKind.not-connected ? @tr("Ricing Manager's core is not running: {}", root.notice.detail)
+                : @tr("That did not work: {}", root.notice.detail);
+        }
+
+        if root.notice.can-undo: Button {
+            text: @tr("Undo");
+            clicked => {
+                Api.undo-last();
+            }
+        }
+
+        Rectangle {
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            background: close.has-hover ? Palette.foreground.transparentize(90%) : transparent;
+            accessible-role: AccessibleRole.button;
+            accessible-label: @tr("Close the message");
+            accessible-action-default => {
+                Api.dismiss-notice();
+            }
+
+            Text {
+                text: "\u{E711}";
+                font-family: "Segoe Fluent Icons";
+                font-size: 12px;
+                color: Palette.foreground;
+            }
+
+            close := TouchArea {
+                clicked => {
+                    Api.dismiss-notice();
+                }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: @tr("Ricing Manager");
+    preferred-width: 1180px;
+    preferred-height: 720px;
+    min-width: 820px;
+    min-height: 560px;
+    background: Palette.background;
+    default-font-family: "Segoe UI Variable Text";
+
+    function go(page: Page) {
+        Api.page = page;
+        Api.page-shown(page);
+    }
+
+    HorizontalLayout {
+        Rectangle {
+            width: 236px;
+            background: Palette.alternate-background;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 2px;
+                alignment: start;
+
+                Text {
+                    text: "Ricing Manager";
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Palette.foreground;
+                    height: 48px;
+                    vertical-alignment: center;
+                }
+
+                NavItem {
+                    text: @tr("Home");
+                    glyph: "\u{E80F}";
+                    selected: Api.page == Page.home;
+                    clicked => {
+                        root.go(Page.home);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Rices");
+                    glyph: "\u{E8B9}";
+                    selected: Api.page == Page.rices;
+                    clicked => {
+                        root.go(Page.rices);
+                    }
+                }
+
+                Rectangle {
+                    height: 10px;
+                }
+
+                NavItem {
+                    text: @tr("Appearance");
+                    glyph: "\u{E790}";
+                    selected: Api.page == Page.appearance;
+                    clicked => {
+                        root.go(Page.appearance);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Wallpapers");
+                    glyph: "\u{EB9F}";
+                    selected: Api.page == Page.wallpapers;
+                    clicked => {
+                        root.go(Page.wallpapers);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Cursors");
+                    glyph: "\u{E8B0}";
+                    selected: Api.page == Page.cursors;
+                    clicked => {
+                        root.go(Page.cursors);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Taskbar");
+                    glyph: "\u{E75B}";
+                    selected: Api.page == Page.bar;
+                    clicked => {
+                        root.go(Page.bar);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Plugins");
+                    glyph: "\u{EA86}";
+                    selected: Api.page == Page.plugins;
+                    clicked => {
+                        root.go(Page.plugins);
+                    }
+                }
+
+                Rectangle {
+                    height: 10px;
+                }
+
+                NavItem {
+                    text: @tr("Hotkeys and rules");
+                    glyph: "\u{E765}";
+                    selected: Api.page == Page.shortcuts;
+                    clicked => {
+                        root.go(Page.shortcuts);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Diagnostics");
+                    glyph: "\u{E9D9}";
+                    selected: Api.page == Page.diagnostics;
+                    clicked => {
+                        root.go(Page.diagnostics);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Settings");
+                    glyph: "\u{E713}";
+                    selected: Api.page == Page.settings;
+                    clicked => {
+                        root.go(Page.settings);
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+
+            if Api.notice.kind != NoticeKind.none: HorizontalLayout {
+                padding-left: 28px;
+                padding-right: 28px;
+                padding-top: 12px;
+
+                InfoBar {
+                    notice: Api.notice;
+                }
+            }
+
+            if Api.page == Page.home: HomePage { }
+            if Api.page == Page.rices: RicesPage { }
+            if Api.page == Page.appearance: AppearancePage { }
+            if Api.page == Page.wallpapers: WallpapersPage { }
+            if Api.page == Page.cursors: CursorsPage { }
+            if Api.page == Page.bar: BarPage { }
+            if Api.page == Page.plugins: PluginsPage { }
+            if Api.page == Page.shortcuts: ShortcutsPage { }
+            if Api.page == Page.diagnostics: DiagnosticsPage { }
+            if Api.page == Page.settings: SettingsPage { }
+        }
+    }
+
+    // Which installed app a hotkey or a rule opens.
+    if Api.picking-app: Rectangle {
+        background: #00000080;
+
+        TouchArea { }
+
+        Rectangle {
+            width: min(520px, parent.width - 48px);
+            height: min(560px, parent.height - 48px);
+            background: Palette.background;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Palette.border;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+
+                Text {
+                    text: @tr("Choose the app to open");
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Palette.foreground;
+                }
+
+                LineEdit {
+                    placeholder-text: @tr("Search");
+                    accessible-label: @tr("Search the apps");
+                    edited(text) => {
+                        Api.app-filter-edited(text);
+                    }
+                }
+
+                ListView {
+                    vertical-stretch: 1;
+                    for app in Api.apps-shown: Rectangle {
+                        height: 36px;
+                        border-radius: 4px;
+                        background: row.has-hover ? Palette.foreground.transparentize(92%) : transparent;
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: app.name;
+                        accessible-action-default => {
+                            Api.app-picked(app.id);
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            Text {
+                                text: app.name;
+                                vertical-alignment: center;
+                                color: Palette.foreground;
+                            }
+                        }
+
+                        row := TouchArea {
+                            clicked => {
+                                Api.app-picked(app.id);
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    Button {
+                        text: @tr("Cancel");
+                        clicked => {
+                            Api.app-picked("");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A question before something that cannot be taken back (or is big).
+    if Api.confirm-what != "": Rectangle {
+        background: #00000080;
+
+        TouchArea { }
+
+        Rectangle {
+            width: min(480px, parent.width - 48px);
+            height: dialog.preferred-height;
+            background: Palette.background;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Palette.border;
+
+            dialog := VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+
+                Text {
+                    font-size: 18px;
+                    font-weight: 600;
+                    wrap: word-wrap;
+                    color: Palette.foreground;
+                    text: Api.confirm-what == "restore-original" ? @tr("Restore the original Windows?")
+                        : Api.confirm-what == "undo" ? @tr("Undo the last rice?")
+                        : Api.confirm-what == "snapshot" ? @tr("Go back to before this change?")
+                        : Api.confirm-what == "remove-plugin" ? @tr("Uninstall this plugin?")
+                        : Api.confirm-what == "remove-bar" ? @tr("Remove this bar from the rice?")
+                        : @tr("Are you sure?");
+                }
+
+                Text {
+                    wrap: word-wrap;
+                    color: Palette.foreground;
+                    text: Api.confirm-what == "restore-original" ? @tr("Wallpaper, colors, cursors, taskbar and bars go back to how they were before the first rice. Your rices stay in their folders.")
+                        : Api.confirm-what == "undo" ? @tr("The rice applied before this one comes back.")
+                        : Api.confirm-what == "snapshot" ? @tr("Everything that changed since then goes back.")
+                        : Api.confirm-what == "remove-plugin" ? @tr("Its files and its data are deleted: {}", Api.confirm-arg)
+                        : Api.confirm-what == "remove-bar" ? @tr("Windows' taskbar comes back if no other bar hides it.")
+                        : "";
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+
+                    Button {
+                        text: @tr("Cancel");
+                        clicked => {
+                            Api.confirm-what = "";
+                        }
+                    }
+
+                    Button {
+                        text: Api.confirm-what == "remove-plugin" ? @tr("Uninstall")
+                            : Api.confirm-what == "remove-bar" ? @tr("Remove")
+                            : @tr("Go back");
+                        primary: true;
+                        clicked => {
+                            Api.confirmed(Api.confirm-what, Api.confirm-arg);
+                            Api.confirm-what = "";
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

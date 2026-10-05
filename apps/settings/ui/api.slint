@@ -1,0 +1,358 @@
+// What the pages and the C++ side of rmw-settings share (docs/04 M7). The pages read and write
+// these properties and call these callbacks; SettingsApp.cpp fills them and does the work (the
+// core over IPC, files, dialogs). Texts are English here, translated by @tr (lang/).
+
+export enum Page {
+    home,
+    rices,
+    appearance,
+    wallpapers,
+    cursors,
+    bar,
+    plugins,
+    shortcuts,
+    diagnostics,
+    settings,
+}
+
+// What just happened, for the info bar. `detail` comes from the core or the file system as is.
+export enum NoticeKind {
+    none,
+    applied,
+    restored,
+    undone,
+    saved,
+    exported,
+    created,
+    imported,
+    installed,
+    approved,
+    removed,
+    bundle,
+    failed,
+    connecting,
+    not-connected,
+}
+
+export struct Notice {
+    kind: NoticeKind,
+    detail: string,
+    can-undo: bool,
+}
+
+export struct StatusLine {
+    key: string,    // "bar", "video", "plugins", "schedule", "safe-mode", "tools"
+    state: string,  // "running", "off", "stopped", "starting", "disabled", "on" ...
+    detail: string,
+}
+
+export struct HistoryRow {
+    id: int,
+    label: string,
+    when: string,
+}
+
+export struct RiceRow {
+    name: string,
+    folder: string,
+    author: string,
+    description: string,
+    problem: string,
+    active: bool,
+    preview: image,
+    has-preview: bool,
+}
+
+export struct MonitorBox {
+    key: string,
+    label: string,
+    primary: bool,
+    // Placement in the map, 0..1 of its width and height.
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    rule: int,          // the wallpaper rule that applies there, or -1
+    preview: image,
+    has-preview: bool,
+}
+
+export struct WallRule {
+    match: string,
+    match-index: int, // in match-choices
+    match-label: string,
+    kind: int,      // 0 image, 1 slideshow, 2 video, 3 color
+    source: string,
+    fit: int,       // 0 fill, 1 fit, 2 stretch, 3 center, 4 tile
+    fallback: string,
+    color: string,  // "#RRGGBB"
+    interval: int,  // minutes (slideshow)
+    shuffle: bool,
+    preview: image,
+    has-preview: bool,
+}
+
+export struct SwatchColor {
+    color: color,
+    hex: string,
+}
+
+export struct CursorPreview {
+    role: string,
+    image: image,
+}
+
+export struct WidgetChip {
+    id: string,
+    label: string,
+    plugin: bool,
+}
+
+export struct WidgetChoice {
+    id: string,
+    label: string,
+}
+
+export struct BarModel {
+    monitor: string,
+    monitor-index: int, // in match-choices
+    position: int,      // 0 top, 1 bottom, 2 left, 3 right
+    mode: int,          // 0 reserve, 1 float
+    thickness: int,
+    length-percent: bool,
+    length: int,        // % or px
+    margin-top: int,
+    margin-right: int,
+    margin-bottom: int,
+    margin-left: int,
+    radius: int,
+    background: int,    // 0 solid, 1 transparent, 2 acrylic, 3 mica
+    tint: string,       // "#RRGGBB", "palette.x" or ""
+    opacity: int,       // 0..100
+    foreground: string,
+    autohide: bool,
+    hide-native: bool,
+    skin: string,
+    left: [WidgetChip],
+    center: [WidgetChip],
+    right: [WidgetChip],
+}
+
+export struct Permission {
+    name: string,
+    description: string,
+    sensitive: bool,
+}
+
+export struct PluginRow {
+    id: string,
+    name: string,
+    version: string,
+    author: string,
+    description: string,
+    state: string,      // "running", "enabled", "disabled", "needs-approval", "stopped", "broken"
+    detail: string,     // why it stopped, what it needs
+    permissions: [Permission],
+    dev: bool,
+    can-enable: bool,   // an action or rule plugin: runs without a rice when turned on
+    has-config: bool,
+    in-rice: bool,      // the edited rice uses it
+}
+
+export struct ConfigField {
+    key: string,
+    label: string,
+    kind: int,          // 0 text, 1 integer, 2 number, 3 toggle, 4 choice, 5 color
+    value: string,
+    choices: [string],
+    help: string,
+}
+
+export struct ActionChoice {
+    name: string,
+    label: string,
+}
+
+export struct HotkeyRow {
+    keys: string,
+    action: string,
+    rice: string,
+    app: string,
+    app-name: string,
+    problem: string,
+}
+
+export struct RuleRow {
+    when: int,          // 0 time, 1 battery, 2 plugged in, 3 monitor connected
+    at: string,
+    monitor: string,
+    action: string,
+    rice: string,
+    app: string,
+    app-name: string,
+}
+
+export struct AppChoice {
+    id: string,
+    name: string,
+}
+
+export struct ProcessRow {
+    name: string,
+    pid: int,
+    memory: string,
+    cpu: string,
+    role: string,
+}
+
+export global Api {
+    // ---- the window ------------------------------------------------------------------------
+    in-out property <Page> page: Page.home;
+    in property <string> version;
+    in property <bool> connected;
+    in property <bool> busy;            // an operation runs in the core
+    in property <Notice> notice;
+    callback dismiss-notice();
+    callback undo-last();               // the info bar's "Undo"
+    // A question before something that cannot be taken back: the pages set what and arg, the
+    // window asks, `confirmed` runs it.
+    in-out property <string> confirm-what;
+    in-out property <string> confirm-arg;
+    callback confirmed(string /* what */, string /* arg */);
+    callback page-shown(Page);
+
+    // ---- home ------------------------------------------------------------------------------
+    in property <string> active-name;
+    in property <string> active-folder;
+    in property <[string]> managed;     // module names: appearance, wallpaper, cursors, taskbar, bar, tweaks
+    in property <bool> safe-mode;
+    in property <bool> original-captured;
+    in property <[StatusLine]> status-lines;
+    in property <[HistoryRow]> history;
+    in property <bool> can-undo;
+
+    // ---- rices -----------------------------------------------------------------------------
+    in property <[RiceRow]> rices;
+    callback apply-rice(string /* folder */);
+    callback edit-rice(string /* folder */);
+    callback duplicate-rice(string /* folder */);
+    callback open-folder(string /* folder */);
+    callback add-rice-folder();
+    callback new-rice();
+    callback export-current();
+
+    // ---- the rice being edited -----------------------------------------------------------------
+    in property <bool> editing;
+    in property <string> edit-name;
+    in property <string> edit-folder;
+    in property <bool> edit-active;     // it is the applied rice: the bar follows each save
+    in property <bool> edit-hand-written;
+    in property <[string]> edit-warnings;
+    callback apply-edited();
+    callback rename-edited(string);
+    callback edit-active-rice();
+
+    // ---- appearance ------------------------------------------------------------------------
+    in-out property <int> theme-mode;           // 0 leave as is, 1 light, 2 dark, 3 Windows decides, 4 schedule
+    in-out property <string> light-at: "07:00";
+    in-out property <string> dark-at: "19:00";
+    in-out property <string> accent;            // "#RRGGBB"; "" leaves it
+    in-out property <int> transparency;         // 0 leave, 1 on, 2 off
+    in-out property <int> accent-on-taskbar;    // 0 leave, 1 on, 2 off
+    in property <[SwatchColor]> palette-colors; // the rice's palette, for the swatches
+    callback appearance-edited();
+
+    // ---- wallpapers ------------------------------------------------------------------------
+    in property <[MonitorBox]> monitors;
+    in property <[string]> match-choices;       // "primary", "all", "left"... "edid:..."
+    in property <[string]> match-labels;        // the same, as the user reads them
+    in property <[WallRule]> rules;
+    in-out property <int> selected-rule: -1;
+    callback rule-field(int /* rule */, string /* field: match, kind, fit, color, interval, shuffle */, string /* value */);
+    callback rule-pick(int /* rule */, int /* 0 source, 1 fallback */);
+    callback rule-add(string /* match */);
+    callback rule-remove(int);
+    in-out property <bool> pause-fullscreen: true;
+    in-out property <bool> pause-battery: true;
+    in-out property <bool> pause-covered: true;
+    in-out property <int> fps-limit: 30;
+    callback policy-edited();
+
+    // ---- cursors ---------------------------------------------------------------------------
+    in property <bool> cursors-managed;
+    in property <string> cursors-source;
+    in property <[CursorPreview]> cursor-previews;
+    in-out property <int> cursor-size;          // 0 leave, 1 32, 2 48, 3 64, 4 96, 5 128
+    callback cursors-pick();
+    callback cursors-clear();
+    callback cursors-edited();
+
+    // ---- the native taskbar and our bars ---------------------------------------------------
+    in-out property <int> taskbar-alignment;    // 0 leave, 1 left, 2 center
+    in-out property <int> taskbar-autohide;     // 0 leave, 1 on, 2 off
+    in-out property <int> taskbar-task-view;    // 0 leave, 1 on, 2 off
+    in-out property <int> taskbar-search;       // 0 leave, 1 hidden, 2 icon, 3 box, 4 button
+    callback taskbar-edited();
+    in property <[string]> bar-names;
+    in-out property <int> selected-bar: -1;
+    in-out property <BarModel> bar;
+    in property <[WidgetChoice]> widget-choices;
+    in property <[string]> widget-labels;       // the same, for the add menu
+    callback bar-selected(int);
+    callback bar-edited();
+    callback bar-add();
+    callback bar-remove();
+    callback bar-move-item(int /* zone */, int /* index */, int /* to zone */, int /* to index */);
+    callback bar-add-item(int /* zone */, string /* id */);
+    callback bar-remove-item(int /* zone */, int /* index */);
+
+    // ---- plugins ---------------------------------------------------------------------------
+    in property <[PluginRow]> plugins;
+    in-out property <int> selected-plugin: -1;
+    in property <[ConfigField]> plugin-config;  // the selected plugin's settings in the edited rice
+    callback plugin-selected(int);
+    callback plugin-install();
+    callback plugin-approve(string);
+    callback plugin-enable(string, bool);
+    callback plugin-remove(string);
+    callback plugin-use(string, bool);          // in the edited rice's [plugins] requires
+    callback plugin-config-edited(string /* key */, string /* value */);
+    callback plugins-refresh();
+
+    // ---- hotkeys and rules -----------------------------------------------------------------
+    in property <string> settings-problem;      // settings.toml does not read: not overwritten
+    in property <[ActionChoice]> actions;
+    in property <[string]> action-labels;       // the same, as the user reads them
+    pure callback action-index(string) -> int;  // of an action name in actions (0 when unknown)
+    pure callback match-index(string) -> int;   // of a monitor selector in match-choices
+    in property <[HotkeyRow]> hotkeys;
+    in property <[RuleRow]> rules-list;
+    callback hotkey-add();
+    callback hotkey-edited(int, HotkeyRow);
+    callback hotkey-remove(int);
+    callback rule-list-add();
+    callback rule-list-edited(int, RuleRow);
+    callback rule-list-remove(int);
+    callback pick-rice-for(int /* 0 hotkey, 1 rule */, int /* index */);
+    // launch.app: the window lists the installed apps; picking one sets the hotkey's or rule's app.
+    callback pick-app-for(int /* 0 hotkey, 1 rule */, int /* index */);
+    in-out property <bool> picking-app;
+    in property <[AppChoice]> apps-shown;
+    callback app-filter-edited(string);
+    callback app-picked(string /* id; empty: cancelled */);
+
+    // ---- diagnostics -----------------------------------------------------------------------
+    in property <[ProcessRow]> processes;
+    in property <[string]> recent-problems;
+    in property <string> data-folder;
+    callback diagnostics-refresh();
+    callback open-logs();
+    callback support-bundle();
+
+    // ---- settings --------------------------------------------------------------------------
+    in-out property <bool> autostart;
+    in-out property <bool> keep-in-tray;
+    in-out property <int> language;             // 0 Windows' own, 1 English, 2 Português (Brasil)
+    callback settings-edited();
+    callback autostart-edited();
+}

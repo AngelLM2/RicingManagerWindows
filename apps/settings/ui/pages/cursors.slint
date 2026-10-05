@@ -1,0 +1,87 @@
+import { Button, ComboBox, ScrollView, Palette } from "std-widgets.slint";
+import { Api } from "../api.slint";
+import { Card, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
+import { EditingBanner } from "editing.slint";
+
+export component CursorsPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Cursors");
+            subtitle: @tr("A cursor scheme: a folder of .cur and .ani files, usually with an install.inf.");
+        }
+
+        EditingBanner { }
+
+        if Api.editing: Card {
+            title: @tr("Scheme");
+            subtitle: Api.cursors-managed ? Api.cursors-source : @tr("This rice leaves the cursors as they are.");
+
+            if Api.cursor-previews.length > 0: HorizontalLayout {
+                spacing: 10px;
+                alignment: start;
+
+                for preview in Api.cursor-previews: VerticalLayout {
+                    spacing: 4px;
+                    Rectangle {
+                        width: 48px;
+                        height: 48px;
+                        border-radius: 6px;
+                        background: Palette.foreground.transparentize(92%);
+                        Image {
+                            width: 32px;
+                            height: 32px;
+                            source: preview.image;
+                            image-fit: contain;
+                        }
+                    }
+
+                    Hint {
+                        text: preview.role;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                Button {
+                    text: Api.cursors-managed ? @tr("Choose another folder…") : @tr("Choose a folder…");
+                    clicked => {
+                        Api.cursors-pick();
+                    }
+                }
+
+                if Api.cursors-managed: Button {
+                    text: @tr("Leave the cursors as they are");
+                    clicked => {
+                        Api.cursors-clear();
+                    }
+                }
+            }
+        }
+
+        if Api.editing && Api.cursors-managed: Card {
+            title: @tr("Size");
+
+            SettingRow {
+                label: @tr("Cursor size");
+                description: @tr("Windows draws them at this size (pixels).");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Leave as it is"), "32", "48", "64", "96", "128"];
+                    current-index <=> Api.cursor-size;
+                    accessible-label: @tr("Cursor size");
+                    selected => {
+                        Api.cursors-edited();
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,161 @@
+import { Button, ScrollView, Palette } from "std-widgets.slint";
+import { Api, RiceRow } from "../api.slint";
+import { Card, Hint, PageHeader, Chip, Problem, Metrics } from "../common.slint";
+
+component RiceCard inherits Rectangle {
+    in property <RiceRow> rice;
+    background: Palette.alternate-background;
+    border-radius: Metrics.radius;
+    border-width: root.rice.active ? 2px : 1px;
+    border-color: root.rice.active ? Palette.accent-background : Palette.border;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: root.rice.name;
+
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 14px;
+
+        Rectangle {
+            width: 160px;
+            height: 90px;
+            border-radius: 6px;
+            clip: true;
+            background: Palette.foreground.transparentize(90%);
+
+            if root.rice.has-preview: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.rice.preview;
+                image-fit: cover;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 4px;
+            horizontal-stretch: 1;
+            alignment: center;
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                Text {
+                    text: root.rice.name;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Palette.foreground;
+                    vertical-alignment: center;
+                }
+
+                if root.rice.active: Chip {
+                    text: @tr("applied");
+                    strong: true;
+                }
+            }
+
+            if root.rice.author != "": Hint {
+                text: @tr("by {}", root.rice.author);
+            }
+
+            if root.rice.description != "": Text {
+                text: root.rice.description;
+                wrap: word-wrap;
+                color: Palette.foreground;
+                font-size: Metrics.small-text;
+            }
+
+            if root.rice.problem != "": Problem {
+                text: root.rice.problem;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                Button {
+                    text: @tr("Apply");
+                    primary: true;
+                    enabled: root.rice.problem == "" && !Api.busy;
+                    accessible-label: @tr("Apply {}", root.rice.name);
+                    clicked => {
+                        Api.apply-rice(root.rice.folder);
+                    }
+                }
+
+                Button {
+                    text: @tr("Edit");
+                    enabled: root.rice.problem == "";
+                    accessible-label: @tr("Edit {}", root.rice.name);
+                    clicked => {
+                        Api.edit-rice(root.rice.folder);
+                    }
+                }
+
+                Button {
+                    text: @tr("Duplicate");
+                    enabled: root.rice.problem == "";
+                    accessible-label: @tr("Duplicate {}", root.rice.name);
+                    clicked => {
+                        Api.duplicate-rice(root.rice.folder);
+                    }
+                }
+
+                Button {
+                    text: @tr("Open folder");
+                    accessible-label: @tr("Open the folder of {}", root.rice.name);
+                    clicked => {
+                        Api.open-folder(root.rice.folder);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component RicesPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Rices");
+            subtitle: @tr("A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share.");
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            Button {
+                text: @tr("New rice");
+                clicked => {
+                    Api.new-rice();
+                }
+            }
+
+            Button {
+                text: @tr("Save my current look as a rice");
+                enabled: !Api.busy;
+                clicked => {
+                    Api.export-current();
+                }
+            }
+
+            Button {
+                text: @tr("Add a rice folder…");
+                clicked => {
+                    Api.add-rice-folder();
+                }
+            }
+        }
+
+        if Api.rices.length == 0: Hint {
+            text: @tr("No rices yet. Save your current look, or add a folder with a rice.toml.");
+        }
+
+        for rice in Api.rices: RiceCard {
+            rice: rice;
+        }
+    }
+}

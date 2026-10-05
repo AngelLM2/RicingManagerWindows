@@ -1,0 +1,163 @@
+import { ComboBox, LineEdit, ScrollView, Palette } from "std-widgets.slint";
+import { Api, SwatchColor } from "../api.slint";
+import { Card, Hint, PageHeader, SettingRow, Swatch } from "../common.slint";
+import { EditingBanner } from "editing.slint";
+
+// The accent colors offered as swatches (Windows' own and a few more); any #RRGGBB can be typed.
+component AccentSwatches inherits HorizontalLayout {
+    in property <[SwatchColor]> colors: [
+        { color: #0078D4, hex: "#0078D4" }, { color: #0063B1, hex: "#0063B1" }, { color: #8E8CD8, hex: "#8E8CD8" },
+        { color: #6B69D6, hex: "#6B69D6" }, { color: #C239B3, hex: "#C239B3" }, { color: #E3008C, hex: "#E3008C" },
+        { color: #E74856, hex: "#E74856" }, { color: #CA5010, hex: "#CA5010" }, { color: #FF8C00, hex: "#FF8C00" },
+        { color: #FFB900, hex: "#FFB900" }, { color: #10893E, hex: "#10893E" }, { color: #00B7C3, hex: "#00B7C3" },
+        { color: #2D7D9A, hex: "#2D7D9A" }, { color: #7A7574, hex: "#7A7574" }, { color: #7AA2F7, hex: "#7AA2F7" },
+        { color: #BB9AF7, hex: "#BB9AF7" },
+    ];
+    spacing: 6px;
+    alignment: start;
+
+    for swatch in root.colors: Swatch {
+        swatch-color: swatch.color;
+        name: swatch.hex;
+        selected: Api.accent == swatch.hex;
+        clicked => {
+            Api.accent = swatch.hex;
+            Api.appearance-edited();
+        }
+    }
+}
+
+export component AppearancePage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Appearance");
+            subtitle: @tr("Light or dark mode, the accent color and transparency.");
+        }
+
+        EditingBanner { }
+
+        if Api.editing: Card {
+            title: @tr("Mode");
+
+            SettingRow {
+                label: @tr("Light or dark");
+                description: @tr("“On a schedule” switches by itself at the times below.");
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Leave as it is"), @tr("Light"), @tr("Dark"), @tr("Windows decides"), @tr("On a schedule")];
+                    current-index <=> Api.theme-mode;
+                    accessible-label: @tr("Light or dark");
+                    selected => {
+                        Api.appearance-edited();
+                    }
+                }
+            }
+
+            if Api.theme-mode == 4: SettingRow {
+                label: @tr("Light from");
+                description: @tr("24-hour time, like 07:00.");
+                LineEdit {
+                    width: 100px;
+                    text <=> Api.light-at;
+                    accessible-label: @tr("Light from");
+                    accepted => {
+                        Api.appearance-edited();
+                    }
+                    edited => {
+                        if (self.text.character-count == 5) {
+                            Api.appearance-edited();
+                        }
+                    }
+                }
+            }
+
+            if Api.theme-mode == 4: SettingRow {
+                label: @tr("Dark from");
+                LineEdit {
+                    width: 100px;
+                    text <=> Api.dark-at;
+                    accessible-label: @tr("Dark from");
+                    accepted => {
+                        Api.appearance-edited();
+                    }
+                    edited => {
+                        if (self.text.character-count == 5) {
+                            Api.appearance-edited();
+                        }
+                    }
+                }
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("Accent color");
+            subtitle: @tr("Used by Windows for highlights, and by the bar for palette.accent.");
+
+            AccentSwatches { }
+
+            if Api.palette-colors.length > 0: VerticalLayout {
+                spacing: 6px;
+                Hint {
+                    text: @tr("From this rice's palette");
+                }
+
+                AccentSwatches {
+                    colors: Api.palette-colors;
+                }
+            }
+
+            SettingRow {
+                label: @tr("Color code");
+                description: @tr("#RRGGBB. Empty leaves Windows' accent as it is.");
+                LineEdit {
+                    width: 120px;
+                    text <=> Api.accent;
+                    placeholder-text: "#0078D4";
+                    accessible-label: @tr("Accent color code");
+                    accepted => {
+                        Api.appearance-edited();
+                    }
+                    edited => {
+                        if (self.text.character-count == 7 || self.text.character-count == 0) {
+                            Api.appearance-edited();
+                        }
+                    }
+                }
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("Effects");
+
+            SettingRow {
+                label: @tr("Transparency effects");
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
+                    current-index <=> Api.transparency;
+                    accessible-label: @tr("Transparency effects");
+                    selected => {
+                        Api.appearance-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Accent color on Start and the taskbar");
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
+                    current-index <=> Api.accent-on-taskbar;
+                    accessible-label: @tr("Accent color on Start and the taskbar");
+                    selected => {
+                        Api.appearance-edited();
+                    }
+                }
+            }
+        }
+    }
+}
