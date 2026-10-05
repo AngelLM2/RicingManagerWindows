@@ -26,6 +26,23 @@ jobs:
         shell: pwsh
         run: ./scripts/format.ps1 -Check
 
+  tidy:
+    name: clang-tidy
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/triplets/**') }}
+          restore-keys: vcpkg-
+
+      - name: Run clang-tidy
+        shell: pwsh
+        run: ./scripts/tidy.ps1
+
   build-test:
     name: build + test (${{ matrix.preset }})
     runs-on: windows-2025

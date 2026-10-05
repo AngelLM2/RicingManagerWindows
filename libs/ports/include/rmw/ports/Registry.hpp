@@ -1,0 +1,57 @@
+#pragma once
+
+#include "rmw/base/Error.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace rmw::ports
+{
+
+struct RegistryValue
+{
+    enum class Type
+    {
+        Dword,
+        String,
+        ExpandString, // REG_EXPAND_SZ: Windows expands %VARS% when reading (cursor paths)
+        Binary,
+    };
+
+    Type type = Type::Dword;
+    std::uint32_t dword = 0;
+    std::string text; // UTF-8
+    std::vector<std::byte> bytes;
+
+    static RegistryValue fromDword(std::uint32_t value) { return {Type::Dword, value, {}, {}}; }
+    static RegistryValue fromString(std::string value) { return {Type::String, 0, std::move(value), {}}; }
+    static RegistryValue fromExpandString(std::string value)
+    {
+        return {Type::ExpandString, 0, std::move(value), {}};
+    }
+
+    friend bool operator==(const RegistryValue&, const RegistryValue&) = default;
+};
+
+// HKEY_CURRENT_USER only: the app never writes machine-wide settings. `key` is a subkey path
+// such as R"(Control Panel\Cursors)"; `name` empty means the key's default value.
+class IRegistry
+{
+public:
+    virtual ~IRegistry() = default;
+
+    // nullopt when the key or the value does not exist.
+    [[nodiscard]] virtual Result<std::optional<RegistryValue>> read(std::string_view key,
+                                                                    std::string_view name) = 0;
+    // Creates the key when needed.
+    [[nodiscard]] virtual Result<void> write(std::string_view key, std::string_view name,
+                                             const RegistryValue& value) = 0;
+    // Succeeds when the value is already absent.
+    [[nodiscard]] virtual Result<void> remove(std::string_view key, std::string_view name) = 0;
+};
+
+} // namespace rmw::ports

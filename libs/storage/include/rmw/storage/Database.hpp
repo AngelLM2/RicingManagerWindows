@@ -3,6 +3,7 @@
 #include "rmw/base/Error.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <string_view>
 
@@ -54,6 +55,10 @@ public:
     [[nodiscard]] Result<void> rollback();
 
     [[nodiscard]] bool isOpen() const noexcept;
+    // Rowid of the last successful INSERT on this connection.
+    [[nodiscard]] std::int64_t lastInsertRowId() const noexcept;
+    // Rows changed by the last INSERT/UPDATE/DELETE.
+    [[nodiscard]] std::int64_t changes() const noexcept;
     // Borrowed pointer; never close it.
     [[nodiscard]] sqlite3* handle() const noexcept;
     [[nodiscard]] const std::filesystem::path& path() const noexcept;
