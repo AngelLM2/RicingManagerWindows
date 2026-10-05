@@ -22,8 +22,8 @@ constexpr int kMaxAttempts = 60; // two minutes
 
 HICON iconOf(std::uint32_t handle) noexcept
 {
-    return reinterpret_cast<HICON>(
-        static_cast<std::intptr_t>(static_cast<std::int32_t>(handle))); // NOLINT(performance-no-int-to-ptr)
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    return reinterpret_cast<HICON>(static_cast<std::intptr_t>(static_cast<std::int32_t>(handle)));
 }
 
 // 32 bits on the wire: a 64-bit process truncates its handles (and sign-extends them back).

@@ -28,15 +28,18 @@ constexpr UINT kAddAgain = WM_APP + 14;
 constexpr UINT kQuit = WM_APP + 15;
 constexpr UINT kAskRect = WM_APP + 16;
 
-std::ofstream g_log;
+std::ofstream* g_log = nullptr; // wmain's
 NOTIFYICONDATAW g_icon{};
 UINT g_taskbarCreated = 0;
 UINT g_version = 0;
 
 void line(const std::string& text)
 {
-    g_log << text << '\n';
-    g_log.flush();
+    if (g_log != nullptr)
+    {
+        *g_log << text << '\n';
+        g_log->flush();
+    }
 }
 
 void logRect()
@@ -167,7 +170,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 
 } // namespace
 
-int wmain(int argc, wchar_t** argv)
+int wmain(int argc, wchar_t** argv) // NOLINT(misc-use-internal-linkage): the entry point
 {
     if (argc < 5)
     {
@@ -177,7 +180,8 @@ int wmain(int argc, wchar_t** argv)
     const auto number = static_cast<UINT>(std::wcstoul(argv[1], nullptr, 10));
     g_version = static_cast<UINT>(std::wcstoul(argv[2], nullptr, 10));
     const bool messageOnly = std::wcscmp(argv[3], L"message") == 0;
-    g_log.open(argv[4], std::ios::app);
+    std::ofstream log(argv[4], std::ios::app);
+    g_log = &log;
 
     const std::wstring className = std::format(L"RmwTrayTest{}", number);
     WNDCLASSEXW windowClass{};

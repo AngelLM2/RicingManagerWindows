@@ -274,8 +274,8 @@ Result<ManagedTheme> writeManagedTheme(const ports::ThemeLook& look)
         }
     }
     // Whichever of the two is not the current theme.
-    const bool firstIsCurrent =
-        !base.empty() && equalsIgnoreCase(base.lexically_normal().native(), first.lexically_normal().native());
+    const bool firstIsCurrent = !base.empty() && equalsIgnoreCase(base.lexically_normal().native(),
+                                                                  first.lexically_normal().native());
     ManagedTheme managed = firstIsCurrent ? ManagedTheme{second, kManagedThemeNameB, first}
                                           : ManagedTheme{first, kManagedThemeName, second};
     const std::wstring text = buildManagedTheme(file->text, look, managed.displayName);
@@ -465,7 +465,8 @@ Result<void> Win32ThemeApi::applyLook(const ports::ThemeLook& look)
             log::warn("theme: not shown yet ({}); applying it again", lookDifference(look));
         }
     }
-    return fail(ErrorCode::Timeout, std::format("Windows did not report the new theme in time ({})", lookDifference(look)));
+    return fail(ErrorCode::Timeout,
+                std::format("Windows did not report the new theme in time ({})", lookDifference(look)));
 }
 
 } // namespace rmw::platform
