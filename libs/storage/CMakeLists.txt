@@ -5,6 +5,7 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 rmw_add_library(storage
     SOURCES
         src/Database.cpp
+        src/Statement.cpp
     PUBLIC_DEPS
         rmw::base
     PRIVATE_DEPS

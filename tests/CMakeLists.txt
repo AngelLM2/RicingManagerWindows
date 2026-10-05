@@ -13,6 +13,7 @@ add_executable(rmw_unit_tests
     unit/PathRulesTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
+    unit/StatementTests.cpp
     unit/UtfTests.cpp
     unit/WinErrorTests.cpp
 )
