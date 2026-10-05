@@ -1,0 +1,40 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.mini-tray"
+name        = "Mini tray"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = "The system tray as a small pill: left click and right click go to the app, like the built-in tray."
+kind        = ["bar.widget"]
+
+# The tray's tips may say what you are doing (messages, sync status): the install prompt highlights it.
+[permissions]
+providers = ["tray"]
+actions   = ["tray.click"]
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui                 = "widget.slint"
+component          = "MiniTray"
+vertical_component = "MiniTrayColumn"
+
+[widget.structs.Item]
+id   = "int"
+icon = "image"
+
+[widget.properties]
+icons = "[Item]"
+
+[widget.callbacks]
+click = ["int"]
+menu  = ["int"]
+
+[config]
+all = { type = "bool", default = false, label = "Every icon (not only those Windows shows)" }
+max = { type = "int", default = 12, min = 1, max = 40, label = "Icons at most" }

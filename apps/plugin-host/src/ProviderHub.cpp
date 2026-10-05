@@ -221,6 +221,11 @@ void ProviderHub::media(std::string_view command)
     }
 }
 
+void ProviderHub::fromBar(std::string_view name, domain::Value value)
+{
+    publish(name, std::move(value));
+}
+
 void ProviderHub::windowsChanged()
 {
     if (!m_windowsDue)

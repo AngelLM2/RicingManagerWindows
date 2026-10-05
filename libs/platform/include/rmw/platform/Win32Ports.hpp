@@ -116,11 +116,16 @@ struct EdidIdentity
 [[nodiscard]] EdidIdentity edidFromIds(std::uint16_t manufactureId, std::uint16_t productCode);
 [[nodiscard]] EdidIdentity parseEdid(std::span<const std::byte> edid);
 
+inline constexpr std::wstring_view kManagedThemeName = L"Ricing Manager";
+// The managed theme takes turns between two files, so that what is applied is never the theme
+// Windows has already: re-applying the current theme (same file, same name) right after Explorer
+// restarts sometimes leaves the old accent in place (found by the system suite).
+inline constexpr std::wstring_view kManagedThemeNameB = L"Ricing Manager (2)";
+
 // Builds the managed .theme text from a base theme (pure, testable): sets [Theme] DisplayName and
 // [VisualStyles] SystemMode/AppMode/ColorizationColor, adding them when missing, keeping every
 // other line as it was.
-[[nodiscard]] std::wstring buildManagedTheme(std::wstring_view baseTheme, const ports::ThemeLook& look);
-
-inline constexpr std::wstring_view kManagedThemeName = L"Ricing Manager";
+[[nodiscard]] std::wstring buildManagedTheme(std::wstring_view baseTheme, const ports::ThemeLook& look,
+                                             std::wstring_view displayName = kManagedThemeName);
 
 } // namespace rmw::platform

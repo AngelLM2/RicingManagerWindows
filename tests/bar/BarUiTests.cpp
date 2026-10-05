@@ -142,7 +142,7 @@ TEST(BarSurface, GeneratedBarsCompileAndDraw)
         config.position = position;
         config.left = {{"start", {}}, {"desktops", {}}, {"cpu", {}}, {"volume", {}}, {"notifications", {}}};
         config.center = {{"media", {}}, {"clock", {}}};
-        config.right = {{"windows", {}}, {"clock", {}}, {"no-such-widget", {}}};
+        config.right = {{"windows", {}}, {"tray", {}}, {"clock", {}}, {"no-such-widget", {}}};
         const auto generated =
             rmw::bar::generateBarSource(config, rmw::barapp::builtinKinds(), rmw::barapp::builtinSources());
         EXPECT_EQ(generated.unknown.size(), 1u);
@@ -163,6 +163,15 @@ TEST(BarSurface, GeneratedBarsCompileAndDraw)
                                                  {"active", Value(i == 0)}}));
         }
         instance->set_property("w7-windows", Value(std::shared_ptr<slint::Model<Value>>(windows)));
+        // Two tray icons shown and three behind the chevron (what TrayWidget sets).
+        auto icons = std::make_shared<slint::VectorModel<Value>>();
+        for (int i = 0; i < 2; ++i)
+        {
+            icons->push_back(Value(slint::interpreter::Struct{{"id", Value(static_cast<double>(i))},
+                                                              {"icon", Value(slint::Image())}}));
+        }
+        EXPECT_TRUE(instance->set_property("w8-icons", Value(std::shared_ptr<slint::Model<Value>>(icons))));
+        EXPECT_TRUE(instance->set_property("w8-hidden-count", Value(3.0)));
         const bool horizontal = position == rmw::domain::BarPosition::Bottom;
         HeadlessPlatform::last->resize(horizontal ? 800 : 48, horizontal ? 48 : 600);
         Surface surface;

@@ -153,6 +153,7 @@ private:
                                               bool changesWindows = true);
     [[nodiscard]] Result<ipc::Json> onWindow(const std::function<ipc::Json()>& task);
     void notifyResident();
+    void pluginStopped(const std::string& id); // tells the user (tray balloon), refreshes
 
     [[nodiscard]] Result<ipc::Json> status();
     [[nodiscard]] Result<ipc::Json> validateRice(const ipc::Json& params);

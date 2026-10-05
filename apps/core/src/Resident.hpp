@@ -55,6 +55,8 @@ public:
     [[nodiscard]] ipc::Json reloadSettings();
     // The supervisor gave up on rmw-bar (it failed too often).
     void onBarDisabled();
+    // A plugin failed too often and was turned off.
+    void onPluginStopped(const std::string& name, const std::string& id);
 
     // Any thread.
     [[nodiscard]] ipc::Json status() const;

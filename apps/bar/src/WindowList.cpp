@@ -48,77 +48,10 @@ HICON iconHandle(HWND window)
     return reinterpret_cast<HICON>(GetClassLongPtrW(window, GCLP_HICON)); // NOLINT(performance-no-int-to-ptr)
 }
 
-// Draws an icon into 32-bit pixels and hands them to Slint (straight, not premultiplied, alpha).
+// The icon at kIconSize pixels, for Slint.
 slint::Image imageOf(HICON icon)
 {
-    if (icon == nullptr)
-    {
-        return {};
-    }
-    BITMAPINFO info{};
-    info.bmiHeader.biSize = sizeof(info.bmiHeader);
-    info.bmiHeader.biWidth = kIconSize;
-    info.bmiHeader.biHeight = -kIconSize;
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-    HDC dc = CreateCompatibleDC(nullptr);
-    void* colorBits = nullptr;
-    void* maskBits = nullptr;
-    HBITMAP color = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &colorBits, nullptr, 0);
-    HBITMAP mask = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &maskBits, nullptr, 0);
-    if (dc == nullptr || color == nullptr || mask == nullptr)
-    {
-        for (HBITMAP bitmap : {color, mask})
-        {
-            if (bitmap != nullptr)
-            {
-                DeleteObject(bitmap);
-            }
-        }
-        if (dc != nullptr)
-        {
-            DeleteDC(dc);
-        }
-        return {};
-    }
-    HGDIOBJ old = SelectObject(dc, color);
-    DrawIconEx(dc, 0, 0, icon, kIconSize, kIconSize, 0, nullptr, DI_NORMAL);
-    SelectObject(dc, mask);
-    DrawIconEx(dc, 0, 0, icon, kIconSize, kIconSize, 0, nullptr, DI_MASK); // white = transparent
-    SelectObject(dc, old);
-
-    constexpr std::size_t kPixels = std::size_t{kIconSize} * kIconSize;
-    const std::span pixels(static_cast<const std::uint32_t*>(colorBits), kPixels);
-    const std::span maskPixels(static_cast<const std::uint32_t*>(maskBits), kPixels);
-    // Old icons have no alpha channel (it stays 0): their mask says what is drawn.
-    const bool alpha = std::ranges::any_of(pixels, [](std::uint32_t p) { return (p >> 24) != 0; });
-    slint::SharedPixelBuffer<slint::Rgba8Pixel> buffer(kIconSize, kIconSize);
-    auto* out = buffer.begin();
-    for (std::size_t i = 0; i < kPixels; ++i)
-    {
-        const std::uint32_t p = pixels[i];
-        auto a = static_cast<std::uint32_t>(p >> 24);
-        if (!alpha)
-        {
-            a = (maskPixels[i] & 0x00FFFFFFU) != 0 ? 0U : 255U;
-        }
-        auto r = (p >> 16) & 0xFFU;
-        auto g = (p >> 8) & 0xFFU;
-        auto b = p & 0xFFU;
-        if (alpha && a != 0 && a != 255) // GDI wrote premultiplied color
-        {
-            r = std::min(255U, r * 255U / a);
-            g = std::min(255U, g * 255U / a);
-            b = std::min(255U, b * 255U / a);
-        }
-        out[i] = slint::Rgba8Pixel{static_cast<std::uint8_t>(r), static_cast<std::uint8_t>(g),
-                                   static_cast<std::uint8_t>(b), static_cast<std::uint8_t>(a)};
-    }
-    DeleteObject(color);
-    DeleteObject(mask);
-    DeleteDC(dc);
-    return {buffer};
+    return imageFromPixels(providers::iconPixels(icon, kIconSize));
 }
 
 class WindowListProvider final : public Provider

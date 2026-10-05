@@ -14,6 +14,7 @@
 
 #include <oleauto.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -174,6 +175,19 @@ bool registryShows(const ports::ThemeLook& look)
            (*colorization & 0x00FFFFFF) == (look.colorizationArgb & 0x00FFFFFF);
 }
 
+// What we wait for and what Windows shows, for the message when it never comes.
+std::string lookDifference(const ports::ThemeLook& look)
+{
+    const auto shown = [](std::optional<DWORD> value) {
+        return value ? std::format("{:X}", *value) : std::string("none");
+    };
+    return std::format("wanted apps={} system={} color={:06X}; Windows shows apps={} system={} color={}",
+                       look.appsLight ? 1 : 0, look.systemLight ? 1 : 0, look.colorizationArgb & 0x00FFFFFF,
+                       shown(readDword(kPersonalize, L"AppsUseLightTheme")),
+                       shown(readDword(kPersonalize, L"SystemUsesLightTheme")),
+                       shown(readDword(kDwm, L"ColorizationColor")));
+}
+
 // Fresh manager (it re-reads the Themes folders), find ours by name, apply it by index.
 HRESULT applyByIndex(std::wstring_view displayName)
 {
@@ -221,7 +235,14 @@ HRESULT applyLegacy(const std::filesystem::path& path)
     return bstr ? legacy->ApplyTheme(bstr.get()) : E_OUTOFMEMORY;
 }
 
-Result<std::filesystem::path> writeManagedTheme(const ports::ThemeLook& look)
+struct ManagedTheme
+{
+    std::filesystem::path path;
+    std::wstring_view displayName;
+    std::filesystem::path other; // the previous turn's file: removed once this one shows
+};
+
+Result<ManagedTheme> writeManagedTheme(const ports::ThemeLook& look)
 {
     wil::unique_cotaskmem_string localAppData;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, localAppData.put())))
@@ -232,7 +253,8 @@ Result<std::filesystem::path> writeManagedTheme(const ports::ThemeLook& look)
         std::filesystem::path(localAppData.get()) / L"Microsoft" / L"Windows" / L"Themes";
     std::error_code ec;
     std::filesystem::create_directories(themes, ec);
-    std::filesystem::path managed = themes / L"RicingManager.theme";
+    const std::filesystem::path first = themes / L"RicingManager.theme";
+    const std::filesystem::path second = themes / L"RicingManager-2.theme";
 
     // Base: the active theme, so cursors, sounds and wallpaper entries stay the user's.
     std::filesystem::path base;
@@ -251,8 +273,13 @@ Result<std::filesystem::path> writeManagedTheme(const ports::ThemeLook& look)
             return std::unexpected(std::move(file.error()));
         }
     }
-    const std::wstring text = buildManagedTheme(file->text, look);
-    if (auto written = writeFileAtomic(managed, encodeThemeFile(text, file->utf16)); !written)
+    // Whichever of the two is not the current theme.
+    const bool firstIsCurrent = !base.empty() && equalsIgnoreCase(base.lexically_normal().native(),
+                                                                  first.lexically_normal().native());
+    ManagedTheme managed = firstIsCurrent ? ManagedTheme{second, kManagedThemeNameB, first}
+                                          : ManagedTheme{first, kManagedThemeName, second};
+    const std::wstring text = buildManagedTheme(file->text, look, managed.displayName);
+    if (auto written = writeFileAtomic(managed.path, encodeThemeFile(text, file->utf16)); !written)
     {
         return std::unexpected(std::move(written.error()).withContext("write the managed theme"));
     }
@@ -261,7 +288,8 @@ Result<std::filesystem::path> writeManagedTheme(const ports::ThemeLook& look)
 
 } // namespace
 
-std::wstring buildManagedTheme(std::wstring_view baseTheme, const ports::ThemeLook& look)
+std::wstring buildManagedTheme(std::wstring_view baseTheme, const ports::ThemeLook& look,
+                               std::wstring_view displayName)
 {
     struct Setting
     {
@@ -271,7 +299,7 @@ std::wstring buildManagedTheme(std::wstring_view baseTheme, const ports::ThemeLo
         bool done = false;
     };
     std::array<Setting, 4> settings = {{
-        {L"Theme", L"DisplayName", std::wstring(kManagedThemeName)},
+        {L"Theme", L"DisplayName", std::wstring(displayName)},
         {L"VisualStyles", L"SystemMode", look.systemLight ? L"Light" : L"Dark"},
         {L"VisualStyles", L"AppMode", look.appsLight ? L"Light" : L"Dark"},
         {L"VisualStyles", L"ColorizationColor", std::format(L"0X{:08X}", look.colorizationArgb)},
@@ -375,46 +403,70 @@ std::wstring buildManagedTheme(std::wstring_view baseTheme, const ports::ThemeLo
 
 Result<void> Win32ThemeApi::applyLook(const ports::ThemeLook& look)
 {
-    auto path = writeManagedTheme(look);
-    if (!path)
+    // Windows sometimes takes a theme and keeps the old accent (seen right after Explorer
+    // restarts): a turn that does not show in a third of the time is applied again — as the other
+    // turn's file, and the last time through the legacy manager.
+    constexpr int kTurns = 3;
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + m_wait;
+    for (int turn = 1; turn <= kTurns; ++turn)
     {
-        return std::unexpected(std::move(path.error()));
-    }
+        auto managed = writeManagedTheme(look);
+        if (!managed)
+        {
+            return std::unexpected(std::move(managed.error()));
+        }
 
-    // A dedicated STA thread: the caller's apartment is unknown, and a COM call into Explorer may
-    // block (the --apply-helper process timeout covers that case).
-    HRESULT result = E_FAIL;
-    std::thread worker([&] {
-        const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        if (FAILED(init))
+        // A dedicated STA thread: the caller's apartment is unknown, and a COM call into Explorer
+        // may block (the --apply-helper process timeout covers that case).
+        HRESULT result = E_FAIL;
+        std::thread worker([&] {
+            const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            if (FAILED(init))
+            {
+                result = init;
+                return;
+            }
+            result = turn < kTurns ? applyByIndex(managed->displayName) : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+            if (result == HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
+            {
+                if (turn < kTurns)
+                {
+                    log::warn("theme: managed theme not listed by IThemeManager2; using the legacy manager");
+                }
+                result = applyLegacy(managed->path);
+            }
+            CoUninitialize();
+        });
+        worker.join();
+        if (FAILED(result))
         {
-            result = init;
-            return;
+            return std::unexpected(hresultError(result, "apply the managed theme"));
         }
-        result = applyByIndex(kManagedThemeName);
-        if (result == HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
-        {
-            log::warn("theme: managed theme not listed by IThemeManager2; using the legacy manager");
-            result = applyLegacy(*path);
-        }
-        CoUninitialize();
-    });
-    worker.join();
-    if (FAILED(result))
-    {
-        return std::unexpected(hresultError(result, "apply the managed theme"));
-    }
 
-    const auto deadline = std::chrono::steady_clock::now() + m_wait;
-    while (!registryShows(look))
-    {
-        if (std::chrono::steady_clock::now() >= deadline)
+        const auto turnEnd = turn == kTurns ? deadline : std::min(deadline, start + (m_wait * turn / kTurns));
+        while (!registryShows(look) && std::chrono::steady_clock::now() < turnEnd)
         {
-            return fail(ErrorCode::Timeout, "Windows did not report the new theme in time");
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (registryShows(look))
+        {
+            if (turn > 1)
+            {
+                log::info("theme: shown on try {}", turn);
+            }
+            // The other turn's file goes: Settings lists one "Ricing Manager" theme, the current one.
+            std::error_code ec;
+            std::filesystem::remove(managed->other, ec);
+            return {};
+        }
+        if (turn < kTurns)
+        {
+            log::warn("theme: not shown yet ({}); applying it again", lookDifference(look));
+        }
     }
-    return {};
+    return fail(ErrorCode::Timeout,
+                std::format("Windows did not report the new theme in time ({})", lookDifference(look)));
 }
 
 } // namespace rmw::platform

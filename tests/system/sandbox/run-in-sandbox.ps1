@@ -5,7 +5,7 @@
     C:\rmw\out    = results (read-write, visible on the host)
 #>
 param(
-    [ValidateSet('unit', 'system', 'bar', 'plugins', 'spike')]
+    [ValidateSet('unit', 'system', 'bar', 'plugins', 'tray', 'spike')]
     [string] $Suite = 'unit',
     [string] $Spike,
     [string] $SpikeArgs = '',
@@ -56,6 +56,16 @@ try {
             for ($i = 0; $i -lt 60 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
             Start-Sleep -Seconds 5
             & (Join-Path $PSScriptRoot 'plugins-tests.ps1') -Bin (Join-Path $work 'bin') -Work $work -Out $out -Examples 'C:\rmw\plugins\examples' *> $log
+            $exitCode = $LASTEXITCODE
+        }
+        'tray' {
+            # The system tray in our bar: our tray window takes every app's tray icon messages.
+            $work = 'C:\rmw\work'
+            New-Item -ItemType Directory -Force $work | Out-Null
+            Copy-Item 'C:\rmw\build\bin' (Join-Path $work 'bin') -Recurse -Force
+            for ($i = 0; $i -lt 60 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
+            Start-Sleep -Seconds 5
+            & (Join-Path $PSScriptRoot 'tray-tests.ps1') -Bin (Join-Path $work 'bin') -Work $work -Out $out -Examples 'C:\rmw\plugins\examples' *> $log
             $exitCode = $LASTEXITCODE
         }
         'spike' {

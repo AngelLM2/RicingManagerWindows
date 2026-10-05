@@ -8,6 +8,18 @@
 namespace rmw::platform
 {
 
+// The property our bar's tray window carries (M5). It is a window of class "Shell_TrayWnd" too, put
+// in front so that apps' Shell_NotifyIcon reaches it first (ADR-0009): FindWindow("Shell_TrayWnd")
+// may return it, so anything that means Explorer's taskbar asks nativeTrayWindow() instead.
+inline constexpr const wchar_t* kTraySpyProperty = L"RicingManagerWindows.TrayWindow";
+
+// Explorer's primary taskbar window ("Shell_TrayWnd", not ours); nullptr when Explorer has none.
+[[nodiscard]] void* nativeTrayWindow() noexcept;
+
+// Asks every app to add its tray icons again, as Explorer does when it starts (TaskbarCreated) —
+// message-only windows too, which a broadcast misses. Not the windows of this process.
+void askAppsForTrayIcons() noexcept;
+
 // Shows every native taskbar again. Never blocks: Explorer may be hung (ShowWindowAsync).
 void showNativeTaskbars() noexcept;
 

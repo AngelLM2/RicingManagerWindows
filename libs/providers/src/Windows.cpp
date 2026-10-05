@@ -11,6 +11,7 @@
 #include <array>
 #include <atomic>
 #include <filesystem>
+#include <span>
 
 namespace rmw::providers
 {
@@ -153,6 +154,95 @@ void closeWindow(void* handle)
     {
         PostMessageW(static_cast<HWND>(handle), WM_CLOSE, 0, 0);
     }
+}
+
+IconPixels iconPixels(void* handle, int size)
+{
+    constexpr int kMaxSide = 64;
+    auto* const icon = static_cast<HICON>(handle);
+    if (icon == nullptr)
+    {
+        return {};
+    }
+    if (size <= 0)
+    {
+        ICONINFO info{};
+        if (GetIconInfo(icon, &info) == FALSE)
+        {
+            return {};
+        }
+        const wil::unique_hbitmap color(info.hbmColor);
+        const wil::unique_hbitmap mask(info.hbmMask);
+        BITMAP bitmap{};
+        // A monochrome icon has only a mask, twice as tall as wide: the width is the side.
+        if (GetObjectW(color ? color.get() : mask.get(), sizeof(bitmap), &bitmap) == 0)
+        {
+            return {};
+        }
+        size = bitmap.bmWidth;
+    }
+    size = std::clamp(size, 1, kMaxSide);
+
+    BITMAPINFO bitmapInfo{};
+    bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
+    bitmapInfo.bmiHeader.biWidth = size;
+    bitmapInfo.bmiHeader.biHeight = -size; // top-down
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 32;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+    const wil::unique_hdc dc(CreateCompatibleDC(nullptr));
+    void* colorBits = nullptr;
+    void* maskBits = nullptr;
+    const wil::unique_hbitmap color(
+        CreateDIBSection(dc.get(), &bitmapInfo, DIB_RGB_COLORS, &colorBits, nullptr, 0));
+    const wil::unique_hbitmap mask(
+        CreateDIBSection(dc.get(), &bitmapInfo, DIB_RGB_COLORS, &maskBits, nullptr, 0));
+    if (!dc || !color || !mask)
+    {
+        return {};
+    }
+    HGDIOBJ old = SelectObject(dc.get(), color.get());
+    const bool drawn = DrawIconEx(dc.get(), 0, 0, icon, size, size, 0, nullptr, DI_NORMAL) != FALSE;
+    SelectObject(dc.get(), mask.get());
+    DrawIconEx(dc.get(), 0, 0, icon, size, size, 0, nullptr, DI_MASK); // white = transparent
+    SelectObject(dc.get(), old);
+    if (!drawn)
+    {
+        return {};
+    }
+
+    const auto pixelCount = static_cast<std::size_t>(size) * static_cast<std::size_t>(size);
+    const std::span pixels(static_cast<const std::uint32_t*>(colorBits), pixelCount);
+    const std::span maskPixels(static_cast<const std::uint32_t*>(maskBits), pixelCount);
+    // Old icons have no alpha channel (it stays 0): their mask says what is drawn.
+    const bool alpha = std::ranges::any_of(pixels, [](std::uint32_t p) { return (p >> 24) != 0; });
+    IconPixels out;
+    out.width = size;
+    out.height = size;
+    out.rgba.resize(pixelCount * 4);
+    for (std::size_t i = 0; i < pixelCount; ++i)
+    {
+        const std::uint32_t p = pixels[i];
+        std::uint32_t a = p >> 24;
+        if (!alpha)
+        {
+            a = (maskPixels[i] & 0x00FFFFFFU) != 0 ? 0U : 255U;
+        }
+        std::uint32_t r = (p >> 16) & 0xFFU;
+        std::uint32_t g = (p >> 8) & 0xFFU;
+        std::uint32_t b = p & 0xFFU;
+        if (alpha && a != 0 && a != 255) // GDI wrote premultiplied color
+        {
+            r = std::min(255U, r * 255U / a);
+            g = std::min(255U, g * 255U / a);
+            b = std::min(255U, b * 255U / a);
+        }
+        out.rgba[(i * 4) + 0] = static_cast<std::uint8_t>(r);
+        out.rgba[(i * 4) + 1] = static_cast<std::uint8_t>(g);
+        out.rgba[(i * 4) + 2] = static_cast<std::uint8_t>(b);
+        out.rgba[(i * 4) + 3] = static_cast<std::uint8_t>(a);
+    }
+    return out;
 }
 
 WindowEventHooks::WindowEventHooks(void (*changed)())

@@ -30,6 +30,7 @@ add_executable(rmw_unit_tests
     unit/SettingsTests.cpp
     unit/StatementTests.cpp
     unit/SupervisorTests.cpp
+    unit/TrayTests.cpp
     unit/TweaksModuleTests.cpp
     unit/UtfTests.cpp
     unit/WallpaperModuleTests.cpp
@@ -65,6 +66,13 @@ add_executable(rmw_test_worker support/TestWorker.cpp)
 target_link_libraries(rmw_test_worker PRIVATE rmw::platform)
 rmw_configure_target(rmw_test_worker)
 add_dependencies(rmw_unit_tests rmw_test_worker)
+
+# A tray icon the M5 Sandbox tests click (tests/system/sandbox/tray-tests.ps1).
+add_executable(rmw_tray_test_app WIN32 support/TrayTestApp.cpp)
+target_link_libraries(rmw_tray_test_app PRIVATE shell32 user32)
+target_link_options(rmw_tray_test_app PRIVATE /ENTRY:wmainCRTStartup) # no console window: only a tray icon
+rmw_configure_target(rmw_tray_test_app)
+add_dependencies(rmw_unit_tests rmw_tray_test_app)
 
 # NO_PRETTY_VALUES: parameterized tests keep their generated names instead of raw parameter bytes.
 gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)
