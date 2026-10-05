@@ -1,5 +1,6 @@
 #include "PluginWidgets.hpp"
 
+#include "TrayHost.hpp"
 #include "WindowList.hpp"
 
 #include "rmw/base/Limits.hpp"
@@ -436,6 +437,17 @@ Result<slint::Image> PluginWidgets::image(const PluginWidget& widget, std::strin
             }
         }
         return slint::Image(); // gone, or not a taskbar window
+    }
+    if (source.starts_with("tray:"))
+    {
+        std::uint64_t number = 0;
+        const std::string_view digits = source.substr(5);
+        std::from_chars(digits.data(), digits.data() + digits.size(), number);
+        if (const auto* view = TrayHost::instance().find(number))
+        {
+            return imageFromPixels(view->pixels);
+        }
+        return slint::Image(); // gone, or the tray is not watched
     }
     auto file = plugins::pluginImageFile(widget.folder, source);
     if (!file)

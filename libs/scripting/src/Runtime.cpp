@@ -650,12 +650,16 @@ struct Api
         }
     }
 
-    // A window's icon tells what the user has open: the same permission as the window list.
+    // A window's or a tray icon tells what the user has open: the same permission as their list.
     static void checkImageSource(lua_State* L, const Plugin& plugin, std::string_view image)
     {
         if (image.starts_with("window:") && !contains(plugin.spec.granted.providers, "windows.list"))
         {
             denied(L, "window icons need provider 'windows.list'");
+        }
+        if (image.starts_with("tray:") && !contains(plugin.spec.granted.providers, "tray"))
+        {
+            denied(L, "tray icons need provider 'tray'");
         }
     }
 

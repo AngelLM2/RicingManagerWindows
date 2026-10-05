@@ -81,6 +81,7 @@ private:
     plugins::HostPlan m_plan;
     std::map<std::string, std::string, std::less<>> m_loadErrors;
     std::vector<bar::bridge::InstanceInfo> m_instances;
+    std::vector<std::string> m_barWatched; // providers the bar sends us (Watch)
     std::optional<Clock::time_point> m_planDue;
     std::map<std::string, Clock::time_point, std::less<>> m_devDue;
     std::vector<std::unique_ptr<Watch>> m_watches; // plan folder first, then dev plugin folders

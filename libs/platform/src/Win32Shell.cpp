@@ -1,5 +1,6 @@
 #include "rmw/base/Utf.hpp"
 #include "rmw/platform/FileSystem.hpp"
+#include "rmw/platform/NativeTaskbar.hpp"
 #include "rmw/platform/Win32Ports.hpp"
 #include "rmw/platform/WinError.hpp"
 
@@ -103,7 +104,7 @@ Result<void> Win32Shell::setTaskbarAutoHide(bool enabled)
 {
     APPBARDATA data{};
     data.cbSize = sizeof(data);
-    data.hWnd = FindWindowW(L"Shell_TrayWnd", nullptr);
+    data.hWnd = static_cast<HWND>(nativeTrayWindow());
     if (data.hWnd == nullptr)
     {
         return fail(ErrorCode::NotFound, "the taskbar (Shell_TrayWnd) is not running");

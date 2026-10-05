@@ -19,8 +19,8 @@ Plugins vêm de qualquer pessoa. O modelo parte daí: **um plugin malicioso não
 - Instalar (`rmw plugin install`) mostra **tudo** o que o plugin pede, com as sensíveis destacadas, e pergunta. Sem aprovação o plugin fica instalado, mas o script não roda (`rmw plugin approve <id>` depois).
 - Uma atualização que pede **mais** do que o aprovado fica parada até nova aprovação; uma que pede menos roda com menos.
 - O script recebe a **interseção** do que o manifesto pede com o que foi aprovado.
-- Sensíveis (destacadas): `media` e `windows.list` (privacidade: o que você ouve e os títulos das suas janelas), `window.close` (efeito que você sente), qualquer domínio de `network`.
-- Os ícones de janelas (`"window:<id>"`) exigem `windows.list`: o ícone também diz o que está aberto.
+- Sensíveis (destacadas): `media`, `windows.list` e `tray` (privacidade: o que você ouve, os títulos das suas janelas, as dicas da bandeja — "3 mensagens novas"), `window.close` (efeito que você sente), qualquer domínio de `network`.
+- Os ícones de janelas (`"window:<id>"`) exigem `windows.list`, e os da bandeja (`"tray:<id>"`) exigem `tray`: o ícone também diz o que está aberto.
 - `rmw plugin dev` também pergunta antes de rodar uma pasta que pede permissões.
 
 ## Rede
@@ -54,7 +54,7 @@ Quando o host cai, o core sabe qual plugin estava rodando (um registro compartil
 
 - Só conexões do `rmw-plugin-host.exe` da mesma pasta (o caminho do processo do outro lado do pipe é conferido).
 - Cada valor é conferido de novo contra o tipo declarado no manifesto; imagens só da pasta do plugin (o caminho final, depois de resolver links) ou ícones de janelas.
-- Ações de janela (`window.*`) são decididas pela barra no momento do clique, para janelas que ela mesma lista.
+- Ações de janela (`window.*`) são decididas pela barra no momento do clique, para janelas que ela mesma lista; `tray.click` só alcança ícones que a bandeja da barra conhece.
 
 ## O que o core aceita do host
 

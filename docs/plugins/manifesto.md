@@ -70,8 +70,8 @@ O que o script pode **ler** (`providers`), **fazer** (`actions`), **alcançar** 
 
 | Chave | Valores |
 |---|---|
-| `providers` | `time`, `system.cpu`, `system.memory`, `network.stats`, `battery`, `audio.volume`, `monitors`, `virtual-desktops`, **`media`**, **`windows.list`** |
-| `actions` | `media.control`, `window.activate`, `window.focus`, `window.minimize`, **`window.close`**, `rice.apply`, `rice.undo`, `wallpaper.next`, `bar.toggle`, `bar.on`, `bar.off`, `appearance.toggle`, `appearance.dark`, `appearance.light` |
+| `providers` | `time`, `system.cpu`, `system.memory`, `network.stats`, `battery`, `audio.volume`, `monitors`, `virtual-desktops`, **`media`**, **`windows.list`**, **`tray`** |
+| `actions` | `media.control`, `window.activate`, `window.focus`, `window.minimize`, **`window.close`**, `tray.click`, `rice.apply`, `rice.undo`, `wallpaper.next`, `bar.toggle`, `bar.on`, `bar.off`, `appearance.toggle`, `appearance.dark`, `appearance.light` |
 | `network` | até 16 domínios públicos: `"api.example.com"` ou `"*.example.com"` (só subdomínios). Endereços IP, `localhost` e nomes locais (`.local`, `.lan`, `.home`, `.internal`, `.test`...) são recusados |
 | `storage` | `true` para usar `rmw.storage` (1 MB) |
 

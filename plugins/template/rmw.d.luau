@@ -8,7 +8,8 @@ export type RmwConfig = { [string]: any }
 export type RmwArgs = { [string]: any }
 
 -- Types to annotate with (`function(cpu: RmwCpu)`): what providers give (rmw.provider and
--- rmw.on); "monitors" and "windows.list" give lists of RmwMonitor and RmwWindow.
+-- rmw.on); "monitors", "windows.list" and "tray" give lists of RmwMonitor, RmwWindow and
+-- RmwTrayIcon.
 export type RmwTime = { unix: number, offset: number }
 export type RmwCpu = { usage: number }
 export type RmwMemory = { usage: number, total: number, available: number }
@@ -34,6 +35,9 @@ export type RmwMedia = {
     app: string,
 }
 export type RmwWindow = { id: number, title: string, app: string, active: boolean, minimized: boolean }
+-- An icon of the system tray: "tray:<id>" is its picture in a widget; promoted = Windows shows it
+-- on its taskbar (the others are in the overflow).
+export type RmwTrayIcon = { id: number, tip: string, app: string, promoted: boolean }
 
 -- Each needs the name in [permissions] providers.
 export type RmwProviderName =
@@ -47,6 +51,7 @@ export type RmwProviderName =
     | "virtual-desktops"
     | "media"
     | "windows.list"
+    | "tray"
 
 export type RmwActionName =
     "media.control"
@@ -54,6 +59,7 @@ export type RmwActionName =
     | "window.focus"
     | "window.minimize"
     | "window.close"
+    | "tray.click"
     | "rice.apply"
     | "rice.undo"
     | "wallpaper.next"

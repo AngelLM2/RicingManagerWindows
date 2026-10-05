@@ -1,5 +1,6 @@
 #include "BarApp.hpp"
 
+#include "TrayHost.hpp"
 #include "WindowList.hpp"
 
 #include "rmw/bar/Plan.hpp"
@@ -204,6 +205,7 @@ BarApp::~BarApp()
     try
     {
         m_bridge.reset(); // joins its threads
+        watchTray(false);
         watchDevPlugins({});
         if (m_windowSubscription != 0)
         {
@@ -219,6 +221,7 @@ BarApp::~BarApp()
         FindCloseChangeNotification(m_planWatch);
     }
     clear();
+    TrayHost::instance().shutdown(); // apps keep their icons in Explorer's tray
     m_native.show();
     if (m_events != nullptr)
     {
@@ -602,7 +605,18 @@ void BarApp::onPluginMessage(bar::bridge::Message message)
     }
     else if (const auto* action = std::get_if<bar::bridge::Action>(&message))
     {
-        windowAction(*action);
+        if (action->name == "tray.click")
+        {
+            trayAction(*action);
+        }
+        else
+        {
+            windowAction(*action);
+        }
+    }
+    else if (const auto* watch = std::get_if<bar::bridge::Watch>(&message))
+    {
+        watchTray(std::ranges::find(watch->providers, "tray") != watch->providers.end());
     }
     else if (const auto* hello = std::get_if<bar::bridge::Hello>(&message))
     {
@@ -641,6 +655,84 @@ void BarApp::applyProperties(const PluginSlot& slot, const domain::Value::Table&
             log::warn("bar: {}.{} was refused by the widget", slot.widget->id, member.key);
         }
     }
+}
+
+void BarApp::watchTray(bool wanted)
+{
+    if (wanted == (m_traySubscription != 0))
+    {
+        return;
+    }
+    if (!wanted)
+    {
+        TrayHost::instance().unsubscribe(m_traySubscription);
+        m_traySubscription = 0;
+        return;
+    }
+    log::info("bar: plugins watch the tray");
+    m_traySubscription = TrayHost::instance().subscribe([this] { provideTray(); });
+    provideTray();
+}
+
+// What plugins see of the tray (provider "tray", sensitive: tips may say what the user does).
+void BarApp::provideTray()
+{
+    if (!m_bridge)
+    {
+        return;
+    }
+    domain::Value::Array list;
+    for (const auto& view : TrayHost::instance().icons())
+    {
+        if (view.icon.hidden)
+        {
+            continue;
+        }
+        list.push_back(domain::Value{domain::Value::Table{
+            {"id", domain::Value{static_cast<std::int64_t>(view.icon.number)}},
+            {"tip", domain::Value{view.tip}},
+            {"app", domain::Value{view.app}},
+            {"promoted", domain::Value{view.promoted}},
+        }});
+    }
+    m_bridge->send(bar::bridge::Provide{"tray", domain::Value{std::move(list)}});
+}
+
+// tray.click { id = <icon>, button = "left" | "right" | "double" | "middle" }: as if the user
+// clicked it in our bar (the plugin's widget got the click).
+void BarApp::trayAction(const bar::bridge::Action& action)
+{
+    const auto* id = action.arguments.find("id");
+    const auto* number = id != nullptr ? std::get_if<std::int64_t>(&id->data) : nullptr;
+    const auto* buttonValue = action.arguments.find("button");
+    const auto* button = buttonValue != nullptr ? std::get_if<std::string>(&buttonValue->data) : nullptr;
+    const std::string which = button != nullptr ? *button : "left";
+    std::optional<bar::tray::Gesture> gesture;
+    if (which == "left")
+    {
+        gesture = bar::tray::Gesture::LeftClick;
+    }
+    else if (which == "right")
+    {
+        gesture = bar::tray::Gesture::RightClick;
+    }
+    else if (which == "double")
+    {
+        gesture = bar::tray::Gesture::DoubleClick;
+    }
+    else if (which == "middle")
+    {
+        gesture = bar::tray::Gesture::MiddleClick;
+    }
+    if (number == nullptr || *number <= 0 || !gesture ||
+        TrayHost::instance().find(static_cast<std::uint64_t>(*number)) == nullptr)
+    {
+        log::warn("bar: tray.click: no such icon or button");
+        return;
+    }
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    TrayHost::instance().gesture(static_cast<std::uint64_t>(*number), *gesture, cursor.x, cursor.y);
 }
 
 void BarApp::windowAction(const bar::bridge::Action& action)

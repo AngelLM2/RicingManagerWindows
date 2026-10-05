@@ -35,8 +35,9 @@ constexpr std::uint64_t kPlanMaxBytes = 1u << 20;
 constexpr int kMaxRequests = 8;
 constexpr std::size_t kMaxDevWatches = 32;
 
-constexpr auto kWindowActions =
-    std::to_array<std::string_view>({"window.activate", "window.focus", "window.minimize", "window.close"});
+// Actions only the bar can do: it got the click, so Windows lets it bring a window or an app forward.
+constexpr auto kBarActions = std::to_array<std::string_view>(
+    {"window.activate", "window.focus", "window.minimize", "window.close", "tray.click"});
 constexpr auto kMediaCommands =
     std::to_array<std::string_view>({"toggle", "play", "pause", "next", "previous"});
 
@@ -382,6 +383,10 @@ void HostApp::connectBridge(Clock::time_point now)
         },
         [inbox, this] { inbox->post([this] { bridgeClosed(); }); });
     send(bar::bridge::Hello{});
+    if (!m_barWatched.empty())
+    {
+        send(bar::bridge::Watch{m_barWatched});
+    }
     rmw::log::info("plugin host: connected to the bar");
 }
 
@@ -438,6 +443,13 @@ void HostApp::onBridge(const std::string& text)
     {
         m_runtime.widgetEvent(event->key, event->callback, event->arguments, now);
     }
+    else if (auto* provided = std::get_if<bar::bridge::Provide>(&*message))
+    {
+        if (std::ranges::find(m_barWatched, provided->name) != m_barWatched.end())
+        {
+            m_providers.fromBar(provided->name, std::move(provided->value));
+        }
+    }
 }
 
 // ---- scripting::IPluginHost -----------------------------------------------------------------------
@@ -450,12 +462,26 @@ domain::Value HostApp::provider(std::string_view name)
 void HostApp::watchProviders(std::span<const std::string> names)
 {
     m_providers.watch(names);
+    // The tray is the bar's: it sends what it sees while some plugin watches it.
+    std::vector<std::string> fromBar;
+    for (const auto& name : names)
+    {
+        if (bar::bridge::isBarProvider(name))
+        {
+            fromBar.push_back(name);
+        }
+    }
+    if (fromBar != m_barWatched)
+    {
+        m_barWatched = std::move(fromBar);
+        send(bar::bridge::Watch{m_barWatched});
+    }
 }
 
 void HostApp::action(const std::string& plugin, const std::string& name, const domain::Value& args,
                      bool byUser)
 {
-    if (std::ranges::find(kWindowActions, name) != kWindowActions.end())
+    if (std::ranges::find(kBarActions, name) != kBarActions.end())
     {
         if (!m_bridge)
         {

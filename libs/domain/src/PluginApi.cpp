@@ -21,6 +21,7 @@ constexpr auto kProviders = std::to_array<PluginCapability>({
     {"virtual-desktops", false, "read how many virtual desktops there are and which one is shown"},
     {"media", true, "see what is playing (title, artist, app)"},
     {"windows.list", true, "see the titles of your open windows"},
+    {"tray", true, "see the icons of the system tray and their tips"},
 });
 
 constexpr auto kActions = std::to_array<PluginCapability>({
@@ -29,6 +30,7 @@ constexpr auto kActions = std::to_array<PluginCapability>({
     {"window.focus", false, "bring a window to the front"},
     {"window.minimize", false, "minimize a window"},
     {"window.close", true, "close your windows"},
+    {"tray.click", false, "click the icons of the system tray"},
     {"rice.apply", false, "apply a rice that comes with the plugin"},
     {"rice.undo", false, "undo the last change of rice"},
     {"wallpaper.next", false, "show the next wallpaper of a slideshow"},

@@ -2,15 +2,18 @@
 
 #include "MediaWidget.hpp"
 #include "SystemWidgets.hpp"
+#include "TrayWidget.hpp"
 #include "WindowList.hpp"
 
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
+#include "rmw/platform/NativeTaskbar.hpp"
 
 #include <windows.h>
 
 #include <shellapi.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <format>
@@ -306,6 +309,107 @@ export component RmwDesktopsColumn inherits VerticalLayout {
     }
 }
 
+// The system tray (M5): the apps' icons; a click goes back to the app (rmw-bar's TrayHost).
+export struct RmwTrayItem {
+    id: int,
+    icon: image,
+}
+
+component RmwTrayButton inherits Rectangle {
+    in property <RmwTrayItem> item;
+    // kind: 0 left, 1 right, 2 double, 3 hover starts, 4 hover ends, 5 middle (TrayWidget.cpp)
+    callback act(int, int);
+    min-width: 24px;
+    min-height: 24px;
+    preferred-width: 28px;
+    preferred-height: 32px;
+    border-radius: 4px;
+    background: touch.pressed ? rgba(255, 255, 255, 0.20) : touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    Image {
+        source: root.item.icon;
+        width: 16px;
+        height: 16px;
+        image-fit: contain;
+    }
+    touch := TouchArea {
+        clicked => { root.act(root.item.id, 0); }
+        double-clicked => { root.act(root.item.id, 2); }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.right) {
+                root.act(root.item.id, 1);
+            }
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.middle) {
+                root.act(root.item.id, 5);
+            }
+        }
+        changed has-hover => { root.act(root.item.id, self.has-hover ? 3 : 4); }
+    }
+}
+
+component RmwTrayChevron inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> expanded;
+    callback toggle();
+    min-width: 20px;
+    min-height: 24px;
+    preferred-width: 22px;
+    preferred-height: 32px;
+    border-radius: 4px;
+    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    Text {
+        // Segoe Fluent Icons: chevron up (more) / down (fewer)
+        text: root.expanded ? "\u{E70D}" : "\u{E70E}";
+        font-family: "Segoe Fluent Icons";
+        font-size: 10px;
+        color: root.foreground;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.toggle(); }
+    }
+}
+
+export component RmwTray inherits HorizontalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[RmwTrayItem]> icons;
+    in property <int> hidden-count;
+    in property <bool> expanded;
+    callback act(int, int);
+    callback toggle();
+    spacing: 0px;
+    if root.hidden-count > 0: RmwTrayChevron {
+        foreground: root.foreground;
+        expanded: root.expanded;
+        toggle => { root.toggle(); }
+    }
+    for item in root.icons: RmwTrayButton {
+        item: item;
+        act(id, kind) => { root.act(id, kind); }
+    }
+}
+
+export component RmwTrayColumn inherits VerticalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[RmwTrayItem]> icons;
+    in property <int> hidden-count;
+    in property <bool> expanded;
+    callback act(int, int);
+    callback toggle();
+    spacing: 0px;
+    if root.hidden-count > 0: RmwTrayChevron {
+        foreground: root.foreground;
+        expanded: root.expanded;
+        toggle => { root.toggle(); }
+    }
+    for item in root.icons: RmwTrayButton {
+        item: item;
+        act(id, kind) => { root.act(id, kind); }
+    }
+}
+
 export component RmwClock inherits Rectangle {
     in property <color> foreground;
     in property <bool> vertical;
@@ -340,7 +444,11 @@ constexpr std::array<std::string_view, 1> kSelect = {"select(int)"};
 constexpr std::array<bar::WidgetProperty, 3> kMediaProperties = {
     {{"title", "string"}, {"playing", "bool"}, {"shown", "bool"}}};
 constexpr std::array<std::string_view, 3> kMediaCallbacks = {"toggle", "next", "previous"};
-constexpr std::array<bar::WidgetKind, 11> kKinds = {{
+constexpr std::array<bar::WidgetProperty, 3> kTrayProperties = {
+    {{"icons", "[RmwTrayItem]"}, {"hidden-count", "int"}, {"expanded", "bool"}}};
+constexpr std::array<std::string_view, 2> kTrayCallbacks = {"act(int, int)", "toggle"};
+constexpr std::array<bar::WidgetKind, 12> kKinds = {{
+    {"tray", "RmwTray", kTrayProperties, kTrayCallbacks, "RmwTrayColumn"},
     {"media", "RmwMedia", kMediaProperties, kMediaCallbacks},
     {"start", "RmwStart", {}, kClicked},
     {"clock", "RmwClock", kTextProperty, kClicked},
@@ -374,7 +482,7 @@ public:
     {
         instance->set_callback(slot.prefix + "-clicked", [](std::span<const Value>) {
             // Opens Start; works with the native taskbar hidden (ADR-0003).
-            if (auto* const tray = FindWindowW(L"Shell_TrayWnd", nullptr))
+            if (auto* const tray = static_cast<HWND>(platform::nativeTrayWindow()))
             {
                 PostMessageW(tray, WM_SYSCOMMAND, SC_TASKLIST, 0);
             }
@@ -448,6 +556,25 @@ bool settingBool(const domain::BarItem& item, std::string_view key, bool fallbac
     return flag != nullptr ? *flag : fallback;
 }
 
+slint::Image imageFromPixels(const providers::IconPixels& pixels)
+{
+    if (pixels.empty() || pixels.width <= 0 || pixels.height <= 0)
+    {
+        return {};
+    }
+    slint::SharedPixelBuffer<slint::Rgba8Pixel> buffer(static_cast<std::uint32_t>(pixels.width),
+                                                       static_cast<std::uint32_t>(pixels.height));
+    auto* out = buffer.begin();
+    const std::size_t count = std::min(pixels.rgba.size() / 4, static_cast<std::size_t>(pixels.width) *
+                                                                   static_cast<std::size_t>(pixels.height));
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        out[i] = slint::Rgba8Pixel{pixels.rgba[(i * 4) + 0], pixels.rgba[(i * 4) + 1],
+                                   pixels.rgba[(i * 4) + 2], pixels.rgba[(i * 4) + 3]};
+    }
+    return {buffer};
+}
+
 std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& instance)
 {
     if (auto system = makeSystemProvider(slot, instance))
@@ -469,6 +596,10 @@ std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& in
     if (slot.kind->id == "media")
     {
         return makeMediaProvider(slot, instance);
+    }
+    if (slot.kind->id == "tray")
+    {
+        return makeTrayProvider(slot, instance);
     }
     return nullptr;
 }

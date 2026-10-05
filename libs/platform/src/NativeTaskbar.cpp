@@ -17,7 +17,7 @@ std::atomic<NativeTaskbarHider*> g_hider{nullptr}; // WinEvent callbacks carry n
 std::vector<HWND> taskbarWindows()
 {
     std::vector<HWND> windows;
-    if (auto* const primary = FindWindowW(L"Shell_TrayWnd", nullptr))
+    if (auto* const primary = static_cast<HWND>(nativeTrayWindow()))
     {
         windows.push_back(primary);
     }
@@ -37,6 +37,55 @@ std::vector<HWND> taskbarWindows()
 }
 
 } // namespace
+
+void* nativeTrayWindow() noexcept
+{
+    // Top-level windows of that class, front to back: ours (if any) comes first.
+    for (HWND window = FindWindowExW(nullptr, nullptr, L"Shell_TrayWnd", nullptr); window != nullptr;
+         window = FindWindowExW(nullptr, window, L"Shell_TrayWnd", nullptr))
+    {
+        if (GetPropW(window, kTraySpyProperty) == nullptr)
+        {
+            return window;
+        }
+    }
+    return nullptr;
+}
+
+void askAppsForTrayIcons() noexcept
+{
+    struct Invitation
+    {
+        UINT message = 0;
+        DWORD self = 0;
+
+        void ask(HWND window) const noexcept
+        {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            if (pid != 0 && pid != self)
+            {
+                PostMessageW(window, message, 0, 0);
+            }
+        }
+    };
+    const Invitation invitation{RegisterWindowMessageW(L"TaskbarCreated"), GetCurrentProcessId()};
+    if (invitation.message == 0)
+    {
+        return;
+    }
+    EnumWindows(
+        [](HWND window, LPARAM param) -> BOOL {
+            reinterpret_cast<const Invitation*>(param)->ask(window); // NOLINT(performance-no-int-to-ptr)
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&invitation));
+    for (HWND window = FindWindowExW(HWND_MESSAGE, nullptr, nullptr, nullptr); window != nullptr;
+         window = FindWindowExW(HWND_MESSAGE, window, nullptr, nullptr))
+    {
+        invitation.ask(window);
+    }
+}
 
 void showNativeTaskbars() noexcept
 {

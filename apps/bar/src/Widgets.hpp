@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rmw/bar/Source.hpp"
+#include "rmw/providers/Windows.hpp"
 
 #include <slint-interpreter.h>
 
@@ -39,6 +40,9 @@ public:
 [[nodiscard]] std::string settingString(const domain::BarItem& item, std::string_view key,
                                         std::string_view fallback);
 [[nodiscard]] bool settingBool(const domain::BarItem& item, std::string_view key, bool fallback);
+
+// Icon pixels (rmw::providers::iconPixels) as a Slint image; empty pixels give an empty image.
+[[nodiscard]] slint::Image imageFromPixels(const providers::IconPixels& pixels);
 
 // "%H:%M" with a safe, small set of conversions (a rice is untrusted: no strftime, whose invalid
 // conversions end the process): %H %I %M %S %p %d %m %y %Y, and the user's language for %a %A

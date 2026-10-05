@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: alpha (v0.4.0, milestone M4 "Plugins").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows; a custom, fully resizable taskbar; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
+**Status: alpha (v0.5.0, milestone M5 "Bandeja").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
 
 ---
 
@@ -18,7 +18,7 @@ Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: w
 
 Planejamento completo: [docs/README.md](docs/README.md).
 
-### Usar (linha de comando, v0.4)
+### Usar (linha de comando, v0.5)
 
 Um rice é uma pasta com um `rice.toml` e seus arquivos:
 
@@ -108,11 +108,11 @@ autohide = false
 hide_native_taskbar = true
 left = ["start", "desktops", "windows"]
 center = ["clock"]
-right = ["media", "cpu", "memory", "network", "volume", "battery", "notifications",
+right = ["tray", "media", "cpu", "memory", "network", "volume", "battery", "notifications",
          { id = "clock", format = "%d/%m/%Y" }]
 ```
 
-Salvar o `rice.toml` atualiza a barra na hora. Se algo der errado, **Ctrl+Alt+Win+T** desliga a barra e traz a do Windows de volta (`rmw action bar.on` religa). Se a barra travar ou cair, a do Windows volta em menos de um segundo.
+O `tray` é a bandeja do sistema: os ícones dos apps (Discord, Steam, OneDrive…), com clique, menu e dica; mostra os que o Windows mostra na barra dele e guarda o resto atrás de uma seta (`{ id = "tray", show = "all" }` mostra todos). Salvar o `rice.toml` atualiza a barra na hora. Se algo der errado, **Ctrl+Alt+Win+T** desliga a barra e traz a do Windows de volta (`rmw action bar.on` religa). Se a barra travar ou cair, a do Windows volta em menos de um segundo.
 
 **Plugins** — widgets da barra, skins, tweaks, ações e regras feitos pela comunidade. Scripts em Luau rodam isolados num processo próprio, só com as permissões que você aprovou; a barra e o core nunca executam código de plugin.
 
@@ -131,7 +131,7 @@ requires = ["io.github.angellm2.now-playing"]
 right = ["io.github.angellm2.now-playing", "clock"]
 ```
 
-Sete exemplos em [`plugins/examples`](plugins/examples) (tocando agora, clima, gráfico de CPU, lista de janelas, modo foco, relógio, bateria); guia para quem escreve plugins em [docs/plugins](docs/plugins/README.md).
+Oito exemplos em [`plugins/examples`](plugins/examples) (tocando agora, clima, gráfico de CPU, lista de janelas, bandeja compacta, modo foco, relógio, bateria); guia para quem escreve plugins em [docs/plugins](docs/plugins/README.md).
 
 ### Compilar
 
@@ -158,7 +158,7 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 
 The planning documents (in Portuguese) are in [docs/](docs/README.md).
 
-### Use (command line, v0.4)
+### Use (command line, v0.5)
 
 A rice is a folder with a `rice.toml` (example above) and its files.
 
@@ -184,9 +184,9 @@ rmw settings reload            # re-read settings.toml
 
 If the app stops unexpectedly 3 starts in a row (or `Shift` is held at sign-in), it opens in **safe mode**: nothing is applied automatically and "Restore original Windows" is at hand.
 
-**A taskbar of your own** — as many as you like, on any edge and monitor, any size: see the `[[bar]]` example above (widgets: `start`, `windows`, `desktops`, `clock`, `media`, `cpu`, `memory`, `network`, `volume`, `battery`, `notifications`). Saving `rice.toml` updates it live. If anything goes wrong, **Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back (`rmw action bar.on` turns it on again); if the bar hangs or crashes, Windows' taskbar is back in under a second.
+**A taskbar of your own** — as many as you like, on any edge and monitor, any size: see the `[[bar]]` example above (widgets: `start`, `windows`, `desktops`, `tray` — the system tray, with the apps' icons, clicks, menus and tips —, `clock`, `media`, `cpu`, `memory`, `network`, `volume`, `battery`, `notifications`). Saving `rice.toml` updates it live. If anything goes wrong, **Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back (`rmw action bar.on` turns it on again); if the bar hangs or crashes, Windows' taskbar is back in under a second.
 
-**Plugins** — bar widgets, skins, tweaks, actions and rules made by the community. Luau scripts run isolated in a process of their own, with only the permissions you approved; the bar and the core never run plugin code. `rmw plugin install <folder>` shows what a plugin asks for and asks you; `rmw plugin new widget <folder>` starts one (with the API's types for your editor) and `rmw plugin dev <folder>` runs it from the folder, reloading on save. A rice asks for plugins in `[plugins] requires` and puts widgets in a `[[bar]]` by their id. Seven examples are in [`plugins/examples`](plugins/examples); the plugin author's guide (in Portuguese) is in [docs/plugins](docs/plugins/README.md).
+**Plugins** — bar widgets, skins, tweaks, actions and rules made by the community. Luau scripts run isolated in a process of their own, with only the permissions you approved; the bar and the core never run plugin code. `rmw plugin install <folder>` shows what a plugin asks for and asks you; `rmw plugin new widget <folder>` starts one (with the API's types for your editor) and `rmw plugin dev <folder>` runs it from the folder, reloading on save. A rice asks for plugins in `[plugins] requires` and puts widgets in a `[[bar]]` by their id. Eight examples are in [`plugins/examples`](plugins/examples); the plugin author's guide (in Portuguese) is in [docs/plugins](docs/plugins/README.md).
 
 ### Build
 

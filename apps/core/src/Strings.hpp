@@ -38,6 +38,9 @@ struct UiStrings
     std::wstring_view barOffText;
     std::wstring_view barDisabledText;
 
+    std::wstring_view pluginStoppedTitle;
+    std::wstring_view pluginStoppedText; // {0} = the plugin's name, {1} = its id
+
     std::wstring_view appearance;
     std::wstring_view cursors;
     std::wstring_view wallpaper;
@@ -69,6 +72,9 @@ inline constexpr UiStrings kEnglish{
     .barOffTitle = L"The bar is off",
     .barOffText = L"Windows' taskbar is back. Turn the bar on again from this menu.",
     .barDisabledText = L"The bar stopped several times and was turned off; Windows' taskbar is back.",
+    .pluginStoppedTitle = L"A plugin was stopped",
+    .pluginStoppedText = L"{0} failed several times and was turned off; the rest keeps working. "
+                         L"Why: rmw plugin status. On again: rmw plugin enable {1}",
     .appearance = L"Appearance",
     .cursors = L"Cursors",
     .wallpaper = L"Wallpaper",
@@ -100,6 +106,9 @@ inline constexpr UiStrings kPortuguese{
     .barOffTitle = L"A barra foi desligada",
     .barOffText = L"A barra do Windows voltou. Ligue a barra de novo por este menu.",
     .barDisabledText = L"A barra parou várias vezes e foi desligada; a barra do Windows voltou.",
+    .pluginStoppedTitle = L"Um plugin foi parado",
+    .pluginStoppedText = L"{0} falhou várias vezes e foi desligado; o resto continua funcionando. "
+                         L"Por quê: rmw plugin status. Religar: rmw plugin enable {1}",
     .appearance = L"A aparência",
     .cursors = L"Os cursores",
     .wallpaper = L"O wallpaper",
