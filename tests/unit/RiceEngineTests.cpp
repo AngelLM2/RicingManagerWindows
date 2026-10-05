@@ -324,6 +324,48 @@ TEST_F(RiceEngineTest, PackageLinksCannotEscapeTheRiceFolder)
     EXPECT_EQ(report.error().code(), rmw::ErrorCode::AccessDenied) << report.error().toString();
 }
 
+TEST_F(RiceEngineTest, AutomaticChangesLeaveNoHistory)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    const auto report = m_engine->applyAutomatic(m_rice, package(), "Schedule: dark");
+    ASSERT_TRUE(report.has_value()) << report.error().toString();
+    EXPECT_EQ(report->historyId, 0);
+    EXPECT_EQ(m_appearance.fields()["dark"], true);
+    EXPECT_TRUE(m_state->history().value().empty());
+    EXPECT_EQ(m_state->applied("appearance").value(), (Json{{"dark", true}}));
+    // The original is still known, so a restore works after automatic changes only.
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+}
+
+TEST_F(RiceEngineTest, DriftIsDetectedAndDetachedFieldsAreLeftAlone)
+{
+    m_appearance.desired = wants({{"dark", true}, {"accent", "#ff0000"}});
+    m_wallpaper.desired = wants({{"monitor:A", "rice-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    EXPECT_TRUE(m_engine->driftedFields("appearance").value().empty());
+
+    m_wallpaper.fields()["monitor:A"] = "chosen-in-settings.jpg"; // the user, through Windows Settings
+    const auto drifted = m_engine->driftedFields("wallpaper");
+    ASSERT_TRUE(drifted.has_value());
+    EXPECT_EQ(*drifted, (std::vector<std::string>{"monitor:A"}));
+    ASSERT_TRUE(m_engine->detach("wallpaper", *drifted));
+    EXPECT_TRUE(m_state->applied("wallpaper").value().empty());
+
+    // Explorer restarts: only what is still ours comes back; the user's wallpaper stays.
+    m_appearance.fields()["dark"] = false; // Windows lost it in the restart
+    const auto reapplied = m_engine->reapplyManaged();
+    ASSERT_TRUE(reapplied.has_value()) << reapplied.error().toString();
+    EXPECT_EQ(reapplied->historyId, 0);
+    EXPECT_EQ(m_appearance.fields()["dark"], true);
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "chosen-in-settings.jpg");
+    EXPECT_EQ(m_state->history().value().size(), 1u);
+
+    EXPECT_FALSE(m_engine->driftedFields("nope").has_value());
+}
+
 TEST(ModuleCatalog, OrdersByDependencyAndRejectsBadGraphs)
 {
     FakeWorld world;

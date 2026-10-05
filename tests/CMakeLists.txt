@@ -21,6 +21,7 @@ add_executable(rmw_unit_tests
     unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
+    unit/SettingsTests.cpp
     unit/StatementTests.cpp
     unit/UtfTests.cpp
     unit/WallpaperModuleTests.cpp
