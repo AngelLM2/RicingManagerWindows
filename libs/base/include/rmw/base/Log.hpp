@@ -111,7 +111,7 @@ void write(Level level, FormatAt<std::type_identity_t<Args>...> fmt, Args&&... a
     }
     catch (...)
     {
-        // Out of memory while formatting: drop the line.
+        // Logging never throws: out of memory while formatting drops the line.
     }
 }
 

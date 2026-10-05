@@ -30,7 +30,7 @@ private:
 
 std::string readFile(const std::filesystem::path& path)
 {
-    std::ifstream in(path, std::ios::binary);
+    const std::ifstream in(path, std::ios::binary);
     std::ostringstream content;
     content << in.rdbuf();
     return content.str();
@@ -100,7 +100,7 @@ TEST_F(LogTest, TruncatesHugeMessagesAtACharacterBoundary)
 
 TEST(RotatingFileSink, WritesUtf8AndRotates)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     const auto logPath = dir.path() / "logs" / "core.log";
 
     auto sink = rmw::log::makeRotatingFileSink({.path = logPath, .maxBytes = 200, .maxFiles = 3});

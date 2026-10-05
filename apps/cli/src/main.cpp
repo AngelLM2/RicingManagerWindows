@@ -42,7 +42,7 @@ int run(std::span<const std::string> args)
 
 } // namespace
 
-int wmain(int argc, wchar_t** argv)
+int wmain(int argc, wchar_t** argv) // NOLINT(misc-use-internal-linkage): process entry point
 {
     // Process boundary: nothing may escape as an exception (docs/08 §3 rule 5).
     try

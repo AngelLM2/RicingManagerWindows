@@ -1,0 +1,10 @@
+---
+# Tests: same rules, minus checks that misread GoogleTest idioms.
+#  - unchecked-optional-access: does not see ASSERT_TRUE(x.has_value()) as a guard.
+#  - avoid-c-arrays: table-driven cases read best as plain arrays.
+#  - exception-escape: test doubles may terminate on out-of-memory; that is fine in a test.
+InheritParentConfig: true
+Checks: >
+  -bugprone-unchecked-optional-access,
+  -modernize-avoid-c-arrays,
+  -bugprone-exception-escape

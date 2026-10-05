@@ -23,7 +23,9 @@ Checks: >
   modernize-*,
   -modernize-use-trailing-return-type,
   -modernize-use-nodiscard,
+  -modernize-use-designated-initializers,
   performance-*,
+  -performance-enum-size,
   readability-container-size-empty,
   readability-duplicate-include,
   readability-else-after-return,
@@ -39,4 +41,7 @@ CheckOptions:
     value: true
   - key: readability-implicit-bool-conversion.AllowPointerConditions
     value: true
+  # noexcept boundaries (logging) swallow on purpose; the comment must say so.
+  - key: bugprone-empty-catch.IgnoreCatchWithKeywords
+    value: '@TODO;@FIXME;never throws'
 ...

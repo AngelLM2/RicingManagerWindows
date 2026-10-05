@@ -62,6 +62,7 @@ public:
         }
         catch (...)
         {
+            // Logging never throws.
         }
     }
 

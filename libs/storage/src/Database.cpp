@@ -181,22 +181,23 @@ const DatabaseOptions& Database::options() const noexcept
 
 Result<void> Database::configure()
 {
-    if (int rc = sqlite3_extended_result_codes(m_db, 1); rc != SQLITE_OK)
+    if (const int rc = sqlite3_extended_result_codes(m_db, 1); rc != SQLITE_OK)
     {
         return std::unexpected(lastError("enable extended result codes", rc));
     }
-    if (int rc = sqlite3_busy_timeout(m_db, static_cast<int>(m_options.busyTimeout.count())); rc != SQLITE_OK)
+    if (const int rc = sqlite3_busy_timeout(m_db, static_cast<int>(m_options.busyTimeout.count()));
+        rc != SQLITE_OK)
     {
         return std::unexpected(lastError("set busy timeout", rc));
     }
 
     // Hardening: SQL cannot corrupt the file on purpose, and the schema is not trusted to run
     // functions with side effects. Extension loading stays disabled (SQLite default).
-    if (int rc = sqlite3_db_config(m_db, SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr); rc != SQLITE_OK)
+    if (const int rc = sqlite3_db_config(m_db, SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr); rc != SQLITE_OK)
     {
         return std::unexpected(lastError("enable defensive mode", rc));
     }
-    if (int rc = sqlite3_db_config(m_db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, nullptr); rc != SQLITE_OK)
+    if (const int rc = sqlite3_db_config(m_db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, nullptr); rc != SQLITE_OK)
     {
         return std::unexpected(lastError("disable trusted schema", rc));
     }

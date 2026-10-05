@@ -22,7 +22,8 @@ bool writeAll(HANDLE handle, std::string_view utf8) noexcept
             std::size_t offset = 0;
             while (offset < wide.size())
             {
-                const auto chunk = static_cast<DWORD>(std::min<std::size_t>(wide.size() - offset, 16 * 1024));
+                const auto chunk =
+                    static_cast<DWORD>(std::min<std::size_t>(wide.size() - offset, 16uz * 1024));
                 DWORD written = 0;
                 if (WriteConsoleW(handle, wide.data() + offset, chunk, &written, nullptr) == FALSE ||
                     written == 0)
@@ -42,7 +43,7 @@ bool writeAll(HANDLE handle, std::string_view utf8) noexcept
     std::size_t offset = 0;
     while (offset < utf8.size())
     {
-        const auto chunk = static_cast<DWORD>(std::min<std::size_t>(utf8.size() - offset, 64 * 1024));
+        const auto chunk = static_cast<DWORD>(std::min<std::size_t>(utf8.size() - offset, 64uz * 1024));
         DWORD written = 0;
         if (WriteFile(handle, utf8.data() + offset, chunk, &written, nullptr) == FALSE || written == 0)
         {
@@ -66,7 +67,7 @@ public:
 
 bool writeLine(Stream stream, std::string_view utf8) noexcept
 {
-    const HANDLE handle = GetStdHandle(stream == Stream::Out ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
+    const auto handle = GetStdHandle(stream == Stream::Out ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
     if (handle == nullptr || handle == INVALID_HANDLE_VALUE)
     {
         return false;
