@@ -5,8 +5,9 @@
     C:\rmw\out    = results (read-write, visible on the host)
 #>
 param(
-    [ValidateSet('unit', 'system')]
+    [ValidateSet('unit', 'system', 'spike')]
     [string] $Suite = 'unit',
+    [string] $Spike,
     [switch] $Shutdown
 )
 
@@ -29,6 +30,14 @@ try {
             # System tests (real registry, cursors, wallpaper, theme) arrive with milestone M1.
             'No system tests yet.' | Out-File $log -Encoding utf8
             $exitCode = 0
+        }
+        'spike' {
+            $work = 'C:\rmw\work'
+            $exe = Join-Path $work (Split-Path $Spike -Leaf)
+            New-Item -ItemType Directory -Force $work | Out-Null
+            Copy-Item (Join-Path 'C:\rmw\build' $Spike) $exe -Force
+            & $exe *> $log
+            $exitCode = $LASTEXITCODE
         }
     }
 }

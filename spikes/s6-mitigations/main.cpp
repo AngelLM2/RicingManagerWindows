@@ -10,15 +10,16 @@
 #include "rmw/platform/Console.hpp"
 #include "rmw/platform/WinError.hpp"
 
-#include <format>
-#include <string>
-#include <vector>
-
 #include <windows.h>
+
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <wil/com.h>
 #include <wil/resource.h>
+
+#include <format>
+#include <string>
+#include <vector>
 
 namespace
 {
@@ -109,9 +110,9 @@ void checkDesktopWallpaper()
 void checkRegistryRead()
 {
     wil::unique_hkey key;
-    const LSTATUS status = RegOpenKeyExW(HKEY_CURRENT_USER,
-                                         L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0,
-                                         KEY_READ, key.put());
+    const LSTATUS status =
+        RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                      0, KEY_READ, key.put());
     DWORD value = 0;
     DWORD size = sizeof(value);
     const LSTATUS read = status == ERROR_SUCCESS
@@ -130,8 +131,8 @@ void checkWindowAndPump()
                    .hInstance = instance,
                    .lpszClassName = L"RmwSpikeS6"};
     const ATOM atom = RegisterClassExW(&wc);
-    wil::unique_hwnd window(CreateWindowExW(WS_EX_TOOLWINDOW, L"RmwSpikeS6", L"", WS_POPUP, 0, 0, 1, 1, nullptr,
-                                            nullptr, instance, nullptr));
+    wil::unique_hwnd window(CreateWindowExW(WS_EX_TOOLWINDOW, L"RmwSpikeS6", L"", WS_POPUP, 0, 0, 1, 1,
+                                            nullptr, nullptr, instance, nullptr));
     MSG msg{};
     int pumped = 0;
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE) && pumped < 100)
