@@ -8,6 +8,7 @@
   "supports": "windows & x64",
   "dependencies": [
     "gtest",
+    "luau",
     "nlohmann-json",
     "sqlite3",
     "tomlplusplus",
