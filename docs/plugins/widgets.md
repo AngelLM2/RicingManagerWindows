@@ -54,7 +54,7 @@ export component Cpu inherits Rectangle {
 | `length` | `length` | número (pixels lógicos) |
 | `bool` | `bool` | `true`/`false` |
 | `color` | `color` | `"#RRGGBB"` ou `"#RRGGBBAA"` |
-| `image` | `image` | `""` (nenhuma), um caminho **na pasta do plugin** (`"icons/sol.svg"`, png/jpg/svg), ou `"window:<id>"` — o ícone de uma janela de `windows.list` (exige essa permissão) |
+| `image` | `image` | `""` (nenhuma), um caminho **na pasta do plugin** (`"icons/sol.svg"`, png/jpg/svg), `"window:<id>"` — o ícone de uma janela de `windows.list` — ou `"tray:<id>"` — um ícone da bandeja de `tray` (cada um exige a permissão do seu provedor) |
 | `Nome` (struct) | `export struct Nome { ... }` com os mesmos campos | tabela `{ campo = valor }` |
 | `[T]` | `[T]` | lista (até 256 itens) |
 
