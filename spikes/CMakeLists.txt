@@ -1,4 +1,5 @@
 add_subdirectory(s1-video)
+add_subdirectory(s2-ui)
 add_subdirectory(s3-taskbar)
 add_subdirectory(s4-appearance)
 add_subdirectory(s5-monitors-snapshot)
