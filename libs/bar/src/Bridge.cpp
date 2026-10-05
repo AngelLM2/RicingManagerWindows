@@ -130,8 +130,8 @@ Result<Message> decode(std::string_view input)
         auto callback = text(root, "callback", kMaxNameBytes);
         auto arguments = value(root, "args");
         const auto* list = arguments ? std::get_if<domain::Value::Array>(&arguments->data) : nullptr;
-        const bool none =
-            arguments && (arguments->isNull() || (arguments->table() && arguments->table()->empty()));
+        const bool none = arguments && (arguments->isNull() ||
+                                        (arguments->table() != nullptr && arguments->table()->empty()));
         if (!key || !callback || (list == nullptr && !none) ||
             (list != nullptr && list->size() > kMaxArguments))
         {

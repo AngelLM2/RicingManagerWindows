@@ -158,8 +158,8 @@ TEST(WidgetSource, WhatWouldHurtTheBarIsRejected)
              "rmw_thing := Rectangle { }",
              "@children-of-something",
              "Text { text: @tr(\"x\"); } @unknown",
-             "Text { text: \"\\{ \"nested\" }\"; }",
-             "Text { text: \"\\{ {a: 1}.a }\"; }",
+             R"(Text { text: "\{ "nested" }"; })",
+             R"(Text { text: "\{ {a: 1}.a }"; })",
              "Text { text: \"line\nbreak\"; }",
              "x: 1 ⟶ 2;",
          })

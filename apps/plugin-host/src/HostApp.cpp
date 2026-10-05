@@ -12,6 +12,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <format>
 #include <thread>
@@ -34,9 +35,10 @@ constexpr std::uint64_t kPlanMaxBytes = 1u << 20;
 constexpr int kMaxRequests = 8;
 constexpr std::size_t kMaxDevWatches = 32;
 
-constexpr std::string_view kWindowActions[] = {"window.activate", "window.focus", "window.minimize",
-                                               "window.close"};
-constexpr std::string_view kMediaCommands[] = {"toggle", "play", "pause", "next", "previous"};
+constexpr auto kWindowActions =
+    std::to_array<std::string_view>({"window.activate", "window.focus", "window.minimize", "window.close"});
+constexpr auto kMediaCommands =
+    std::to_array<std::string_view>({"toggle", "play", "pause", "next", "previous"});
 
 Result<std::string> readText(const std::filesystem::path& file, std::uint64_t maxBytes)
 {
@@ -189,7 +191,7 @@ int HostApp::run()
                                         QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         if (signaled > WAIT_OBJECT_0 && signaled < WAIT_OBJECT_0 + handles.size())
         {
-            const HANDLE handle = handles[signaled - WAIT_OBJECT_0];
+            void* const handle = handles[signaled - WAIT_OBJECT_0];
             for (const auto& watch : m_watches)
             {
                 if (watch->handle != handle)
@@ -425,6 +427,7 @@ void HostApp::onBridge(const std::string& text)
     {
         m_instances = std::move(instances->list);
         std::vector<scripting::InstanceSpec> specs;
+        specs.reserve(m_instances.size());
         for (const auto& instance : m_instances)
         {
             specs.push_back({instance.key, instance.plugin, instance.config});
@@ -452,7 +455,7 @@ void HostApp::watchProviders(std::span<const std::string> names)
 void HostApp::action(const std::string& plugin, const std::string& name, const domain::Value& args,
                      bool byUser)
 {
-    if (std::ranges::find(kWindowActions, name) != std::end(kWindowActions))
+    if (std::ranges::find(kWindowActions, name) != kWindowActions.end())
     {
         if (!m_bridge)
         {
@@ -466,7 +469,7 @@ void HostApp::action(const std::string& plugin, const std::string& name, const d
     {
         const auto* command = args.find("command");
         const auto* text = command != nullptr ? std::get_if<std::string>(&command->data) : nullptr;
-        if (text == nullptr || std::ranges::find(kMediaCommands, *text) == std::end(kMediaCommands))
+        if (text == nullptr || std::ranges::find(kMediaCommands, *text) == kMediaCommands.end())
         {
             rmw::log::warn(
                 "plugin host: {}: media.control takes {{ command = \"toggle\" | \"play\" | \"pause\" | "
@@ -554,8 +557,8 @@ void HostApp::entering(const std::string& plugin)
 {
     if (m_blame != nullptr)
     {
-        const std::size_t length = std::min(plugin.size(), sizeof(m_blame->plugin) - 1);
-        std::memcpy(m_blame->plugin, plugin.data(), length);
+        const std::size_t length = std::min(plugin.size(), m_blame->plugin.size() - 1);
+        std::memcpy(m_blame->plugin.data(), plugin.data(), length);
         m_blame->plugin[length] = '\0';
     }
 }

@@ -171,7 +171,7 @@ private:
     std::vector<std::unique_ptr<Plugin>> m_plugins;
     std::vector<InstanceSpec> m_instances; // what the bars show (also for plugins loaded later)
     std::vector<std::string> m_watched;
-    Clock::time_point m_now{};
+    Clock::time_point m_now;
 };
 
 // Compiles a script without running it (rmw plugin validate): its syntax errors, with lines.

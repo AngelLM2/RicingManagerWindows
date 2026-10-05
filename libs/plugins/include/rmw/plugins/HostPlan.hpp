@@ -5,6 +5,7 @@
 #include "rmw/domain/Value.hpp"
 #include "rmw/json/Json.hpp"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -42,7 +43,7 @@ struct HostPlan
 struct BlameRecord
 {
     std::uint32_t version = 1;
-    char plugin[128] = {};
+    std::array<char, 128> plugin{};
 };
 
 [[nodiscard]] std::string toJson(const HostPlan& plan);

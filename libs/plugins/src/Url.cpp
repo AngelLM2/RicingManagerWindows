@@ -58,7 +58,7 @@ Result<HttpsUrl> parseHttpsUrl(std::string_view url)
         return fail(ErrorCode::InvalidArgument,
                     "the address has spaces, backslashes or non-ASCII characters");
     }
-    std::string_view rest = url.substr(kScheme.size());
+    const std::string_view rest = url.substr(kScheme.size());
     const std::size_t end = std::min(rest.find_first_of("/?#"), rest.size());
     const std::string_view authority = rest.substr(0, end);
     std::string_view target = rest.substr(end);

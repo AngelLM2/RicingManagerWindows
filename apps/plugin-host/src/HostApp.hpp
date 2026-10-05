@@ -84,8 +84,8 @@ private:
     std::optional<Clock::time_point> m_planDue;
     std::map<std::string, Clock::time_point, std::less<>> m_devDue;
     std::vector<std::unique_ptr<Watch>> m_watches; // plan folder first, then dev plugin folders
-    Clock::time_point m_nextBridgeTry{};
-    Clock::time_point m_nextSave{};
+    Clock::time_point m_nextBridgeTry;
+    Clock::time_point m_nextSave;
     std::atomic<int> m_requests{0}; // HTTP requests in flight
     bool m_stop = false;
     std::filesystem::path m_folder; // our executable's folder (where rmw-bar and rmw-core live)

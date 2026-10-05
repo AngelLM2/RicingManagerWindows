@@ -55,7 +55,7 @@ private:
     struct Polled
     {
         std::chrono::milliseconds every{0};
-        Clock::time_point due{};
+        Clock::time_point due;
     };
 
     void publish(std::string_view name, domain::Value value);

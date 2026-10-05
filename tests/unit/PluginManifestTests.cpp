@@ -522,7 +522,7 @@ TEST(PluginSkin, MustSetSomething)
 TEST(PluginPermissions, ApprovalCoversOnlyWhatWasShown)
 {
     PluginPermissions asked{{"system.cpu", "media"}, {"media.control"}, {"api.example.com"}, true};
-    PluginPermissions granted{{"system.cpu", "media"}, {"media.control"}, {"api.example.com"}, true};
+    const PluginPermissions granted{{"system.cpu", "media"}, {"media.control"}, {"api.example.com"}, true};
     EXPECT_TRUE(asked.isWithin(granted));
     asked.providers.emplace_back("windows.list"); // an update asks for more
     EXPECT_FALSE(asked.isWithin(granted));

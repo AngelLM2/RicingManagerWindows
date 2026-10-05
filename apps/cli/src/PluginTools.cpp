@@ -420,7 +420,7 @@ Result<void> newPlugin(std::string_view kind, const std::filesystem::path& folde
     {
         return fail(ErrorCode::AlreadyExists, std::format("'{}' exists already", text(folder)));
     }
-    std::string name = text(folder.filename());
+    const std::string name = text(folder.filename());
     std::string pluginId(id);
     if (pluginId.empty())
     {

@@ -532,8 +532,8 @@ void followLogs(const std::filesystem::path& dataDirectory, const std::string& i
         std::uint64_t at = 0;
         std::string partial;
     };
-    std::array<Tail, 2> tails{Tail{dataDirectory / L"logs" / L"plugins.log"},
-                              Tail{dataDirectory / L"logs" / L"bar.log"}};
+    std::array<Tail, 2> tails{Tail{dataDirectory / L"logs" / L"plugins.log", 0, {}},
+                              Tail{dataDirectory / L"logs" / L"bar.log", 0, {}}};
     for (auto& tail : tails)
     {
         std::error_code ec;
@@ -636,7 +636,7 @@ int pluginCommand(const Options& options)
             printPermissions(manifest.permissions);
             return Ok;
         }
-        std::filesystem::path target =
+        const std::filesystem::path target =
             options.out.empty()
                 ? folder->parent_path() /
                       utf8To16Lossy(std::format("{}-{}.rmwp", manifest.id, manifest.version.toString()))

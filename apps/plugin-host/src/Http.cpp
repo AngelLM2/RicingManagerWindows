@@ -157,7 +157,7 @@ scripting::HttpResponse fetch(const scripting::HttpRequest& request)
     {
         response.contentType = utf16To8Lossy(std::wstring_view(type.data(), typeSize / sizeof(wchar_t)));
     }
-    std::array<char, 16 * 1024> buffer{};
+    std::array<char, std::size_t{16} * 1024> buffer{};
     while (true)
     {
         DWORD read = 0;
