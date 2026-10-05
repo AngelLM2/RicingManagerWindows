@@ -109,7 +109,7 @@ TEST(Supervisor, LeakingWorkerIsEndedRestartedThenDisabled)
 #if defined(__SANITIZE_ADDRESS__)
     GTEST_SKIP() << "no memory limits under ASan";
 #endif
-    Running run(L"leak");
+    const Running run(L"leak");
     ASSERT_TRUE(run.supervisor);
     ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Disabled));
     EXPECT_EQ(run.events->count(WorkerEventKind::Started), 3);
@@ -123,7 +123,7 @@ TEST(Supervisor, LeakingWorkerIsEndedRestartedThenDisabled)
 
 TEST(Supervisor, HungWorkerIsEndedAndRestarted)
 {
-    Running run(L"hang");
+    const Running run(L"hang");
     ASSERT_TRUE(run.supervisor);
     ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Started, 2));
     EXPECT_EQ(run.events->count(WorkerEventKind::Failed, WorkerFailure::Hung), 1);
@@ -133,7 +133,7 @@ TEST(Supervisor, HungWorkerIsEndedAndRestarted)
 
 TEST(Supervisor, CrashedWorkerIsRestarted)
 {
-    Running run(L"crash");
+    const Running run(L"crash");
     ASSERT_TRUE(run.supervisor);
     ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Started, 2));
     const auto events = run.events->all();
@@ -146,7 +146,7 @@ TEST(Supervisor, CrashedWorkerIsRestarted)
 
 TEST(Supervisor, CleanExitIsNotRestarted)
 {
-    Running run(L"exit");
+    const Running run(L"exit");
     ASSERT_TRUE(run.supervisor);
     ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Exited));
     std::this_thread::sleep_for(300ms);
@@ -156,7 +156,7 @@ TEST(Supervisor, CleanExitIsNotRestarted)
 
 TEST(Supervisor, HealthyWorkerRunsUntilStopped)
 {
-    Running run(L"ok");
+    const Running run(L"ok");
     ASSERT_TRUE(run.supervisor);
     std::this_thread::sleep_for(1500ms); // well past hangAfter
     EXPECT_EQ(run.events->count(WorkerEventKind::Failed), 0);

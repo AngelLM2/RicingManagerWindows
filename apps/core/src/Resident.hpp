@@ -71,6 +71,9 @@ private:
     void onScheduleTimer();
     [[nodiscard]] bool due(const std::string& key, domain::TimeOfDay at, std::int32_t now);
     void armSchedule();
+    void syncPages();
+    void armPages();
+    void onPagesTimer();
     void applySettings(LoadedSettings loaded);
     void queueAction(domain::ActionCall action, Origin origin);
     void queueScheduleSync();
@@ -96,6 +99,12 @@ private:
     std::chrono::steady_clock::time_point m_started;
     std::chrono::system_clock::time_point m_lastWallClock;
     std::map<std::string, std::chrono::steady_clock::time_point> m_lastFired;
+    struct Pages
+    {
+        std::chrono::steady_clock::time_point due;
+        std::chrono::milliseconds interval{0};
+    };
+    std::map<std::string, Pages> m_pages; // slideshows the core turns, per monitor field
 
     mutable std::mutex m_statusMutex;
     ipc::Json m_status;

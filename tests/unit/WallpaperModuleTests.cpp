@@ -124,11 +124,54 @@ TEST_F(WallpaperTest, SlideshowFolderBecomesTheNativeSlideshow)
     EXPECT_TRUE(slideshow["shuffle"].get<bool>());
     EXPECT_FALSE(fields->contains("monitor:AAA-1"));
 
-    m_rice.wallpaper->monitors = {rule("primary", rmw::domain::WallpaperKind::Slideshow, "assets/slides"),
-                                  rule("all", rmw::domain::WallpaperKind::Image, "assets/a.jpg")};
-    const auto mixed = desired();
-    ASSERT_FALSE(mixed.has_value());
-    EXPECT_EQ(mixed.error().code(), rmw::ErrorCode::Unsupported);
+    rmw::engine::StoreAssetSink sink(m_store, package());
+    const auto monitors = m_topology.monitors().value();
+    EXPECT_TRUE(wallpaperRotation(*m_rice.wallpaper, monitors, sink).value().empty()); // Windows does it
+}
+
+TEST_F(WallpaperTest, ASlideshowNextToSomethingElseIsTurnedByTheCore)
+{
+    auto slides = rule("primary", rmw::domain::WallpaperKind::Slideshow, "assets/slides");
+    slides.intervalSeconds = 90;
+    m_rice.wallpaper->monitors = {slides, rule("all", rmw::domain::WallpaperKind::Image, "assets/a.jpg")};
+    const auto fields = desired();
+    ASSERT_TRUE(fields.has_value()) << fields.error().toString();
+    EXPECT_EQ((*fields)["slideshow"], nullptr);
+    EXPECT_EQ((*fields)["backgroundType"], 0);
+
+    rmw::engine::StoreAssetSink sink(m_store, package());
+    const auto monitors = m_topology.monitors().value();
+    const auto plan = wallpaperRotation(*m_rice.wallpaper, monitors, sink);
+    ASSERT_TRUE(plan.has_value()) << plan.error().toString();
+    ASSERT_EQ(plan->size(), 1u); // only the primary monitor turns pages
+    const Json& primary = (*plan)["monitor:AAA-1"];
+    ASSERT_EQ(primary["items"].size(), 2u);
+    EXPECT_EQ(primary["intervalMs"], 90'000);
+    EXPECT_FALSE(primary["shuffle"].get<bool>());
+    // The first page is what the apply shows now.
+    EXPECT_EQ((*fields)["monitor:AAA-1"]["file"], primary["items"][0]);
+
+    // A folder without images is still an error.
+    std::filesystem::create_directories(package() / "assets" / "empty");
+    m_rice.wallpaper->monitors[0].source = "assets/empty";
+    EXPECT_FALSE(desired().has_value());
+}
+
+TEST(WallpaperPages, NextPageWrapsAndShuffleNeverRepeats)
+{
+    EXPECT_EQ(nextPage(3, 0, false, 0), 1u);
+    EXPECT_EQ(nextPage(3, 2, false, 0), 0u); // wraps
+    EXPECT_EQ(nextPage(3, 3, false, 7), 0u); // not one of the pages: start over
+    EXPECT_EQ(nextPage(0, 0, true, 7), 0u);
+    for (std::uint64_t random = 0; random < 50; ++random)
+    {
+        for (std::size_t current = 0; current < 4; ++current)
+        {
+            const auto next = nextPage(4, current, true, random);
+            EXPECT_LT(next, 4u);
+            EXPECT_NE(next, current);
+        }
+    }
 }
 
 TEST_F(WallpaperTest, SpanAndVideoFallbacks)

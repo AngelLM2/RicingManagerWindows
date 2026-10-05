@@ -7,6 +7,7 @@
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
+#include "rmw/json/Json.hpp"
 #include "rmw/platform/FileSystem.hpp"
 
 #include <windows.h>
@@ -33,6 +34,7 @@ enum TimerId : std::uint32_t
     kDisplayTimer,
     kExplorerTimer,
     kSettingsTimer,
+    kPagesTimer,
 };
 
 enum TrayId : std::uint32_t
@@ -279,6 +281,9 @@ void Resident::onTimer(std::uint32_t id)
                 log::warn("reapply after the Explorer restart: {}", reapplied.error().toString());
             }
         });
+        return;
+    case kPagesTimer:
+        onPagesTimer();
         return;
     case kSettingsTimer:
         if (stampOf(settingsFile(m_core->dataDirectory())) != m_settingsStamp)
@@ -621,7 +626,8 @@ void Resident::applySettings(LoadedSettings loaded)
 
 void Resident::refresh()
 {
-    const bool resident = safe() || m_loaded.settings.needsResidency() || m_core->schedule().has_value();
+    const bool resident = safe() || m_loaded.settings.needsResidency() || m_core->schedule().has_value() ||
+                          !m_core->rotation().empty();
     if (resident != m_resident)
     {
         log::info("{}", resident ? "resident" : "not resident: exits when idle");
@@ -638,7 +644,59 @@ void Resident::refresh()
         m_window->setTimer(kIdleTimer, kIdleCheck);
     }
     armSchedule();
+    syncPages();
     publishStatus();
+}
+
+void Resident::syncPages()
+{
+    const Json plan = safe() ? Json::object() : m_core->rotation();
+    std::erase_if(m_pages, [&](const auto& entry) { return !plan.contains(entry.first); });
+    const auto now = Clock::now();
+    for (const auto& [field, entry] : plan.items())
+    {
+        const std::chrono::milliseconds interval{
+            std::max<std::int64_t>(json::intOr(entry, "intervalMs", 0), 10'000)};
+        auto& pages = m_pages[field];
+        if (pages.interval != interval)
+        {
+            pages = {now + interval, interval}; // new, or another interval: start counting now
+        }
+    }
+    armPages();
+}
+
+void Resident::armPages()
+{
+    m_window->killTimer(kPagesTimer);
+    if (m_pages.empty())
+    {
+        return;
+    }
+    const auto next =
+        std::ranges::min_element(m_pages, {}, [](const auto& entry) { return entry.second.due; });
+    const auto wait = std::chrono::ceil<std::chrono::milliseconds>(next->second.due - Clock::now());
+    m_window->setTimer(kPagesTimer, std::max<std::chrono::milliseconds>(wait, 0ms));
+}
+
+void Resident::onPagesTimer()
+{
+    const auto now = Clock::now();
+    for (auto& [field, pages] : m_pages)
+    {
+        if (pages.due > now + 50ms)
+        {
+            continue;
+        }
+        pages.due = now + pages.interval;
+        m_work->push([this, name = field] {
+            if (auto turned = m_core->turnPage(name); !turned)
+            {
+                log::warn("slideshow {}: {}", name, turned.error().toString());
+            }
+        });
+    }
+    armPages();
 }
 
 void Resident::showTray()

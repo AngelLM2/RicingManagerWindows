@@ -451,7 +451,7 @@ Heartbeat& Heartbeat::operator=(Heartbeat&& other) noexcept
 {
     if (this != &other)
     {
-        Heartbeat old(std::move(*this));
+        const Heartbeat old(std::move(*this));
         m_mapping = std::exchange(other.m_mapping, nullptr);
         m_counter = std::exchange(other.m_counter, nullptr);
     }

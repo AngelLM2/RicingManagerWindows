@@ -82,6 +82,11 @@ public:
                                                          const std::filesystem::path& packageRoot,
                                                          const std::string& label);
 
+    // A few fields of one module chosen by the core itself (a slideshow turning a page): an
+    // automatic change like applyAutomatic().
+    [[nodiscard]] Result<OperationReport> applyFields(std::string_view moduleId, const Json& fields,
+                                                      const std::string& label);
+
     // Fields of a module that Windows no longer shows as we set them: someone changed them by
     // other means (docs/03 §5.2). Read-only.
     [[nodiscard]] Result<std::vector<std::string>> driftedFields(std::string_view moduleId);

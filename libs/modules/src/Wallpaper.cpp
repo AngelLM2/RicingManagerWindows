@@ -96,7 +96,142 @@ bool isImageFile(std::string_view name)
     return domain::hasExtension(name, {"jpg", "jpeg", "png", "bmp"});
 }
 
+using Matched = std::vector<std::pair<const ports::MonitorInfo*, const domain::MonitorWallpaper*>>;
+
+// Which rule each connected monitor gets (first match; "all" takes the rest).
+Matched matchMonitors(const domain::WallpaperConfig& config, std::span<const ports::MonitorInfo> monitors)
+{
+    std::vector<domain::MonitorSelector> selectors;
+    selectors.reserve(config.monitors.size());
+    for (const auto& rule : config.monitors)
+    {
+        selectors.push_back(rule.match);
+    }
+    std::vector<domain::MonitorFacts> facts;
+    facts.reserve(monitors.size());
+    for (const auto& monitor : monitors)
+    {
+        facts.push_back(
+            {monitor.identityKey, monitor.primary, monitor.left, monitor.top, monitor.right, monitor.bottom});
+    }
+    const std::vector<int> owners = domain::resolveMonitorRules(selectors, facts);
+    Matched matched;
+    for (std::size_t i = 0; i < monitors.size(); ++i)
+    {
+        if (owners[i] >= 0)
+        {
+            matched.emplace_back(&monitors[i], &config.monitors[static_cast<std::size_t>(owners[i])]);
+        }
+    }
+    return matched;
+}
+
+// Windows has one slideshow for every monitor: it can play a rice's slideshow only when every
+// monitor shows the same folder.
+bool nativeSlideshow(const Matched& matched)
+{
+    if (matched.empty())
+    {
+        return false;
+    }
+    const domain::MonitorWallpaper& first = *matched.front().second;
+    return std::ranges::all_of(matched, [&](const auto& entry) {
+        return entry.second->kind == domain::WallpaperKind::Slideshow && entry.second->source == first.source;
+    });
+}
+
+// The images of a slideshow folder, stored, in name order.
+Result<std::vector<std::string>> slideshowImages(const domain::MonitorWallpaper& rule,
+                                                 engine::IAssetSink& assets)
+{
+    auto names = assets.listPackageFolder(rule.source);
+    if (!names)
+    {
+        return std::unexpected(std::move(names.error()));
+    }
+    std::ranges::sort(*names);
+    std::vector<std::string> images;
+    for (const auto& name : *names)
+    {
+        if (!isImageFile(name))
+        {
+            continue;
+        }
+        auto stored = assets.fromPackage(rule.source + "/" + name);
+        if (!stored)
+        {
+            return std::unexpected(std::move(stored.error()));
+        }
+        images.push_back(utf8Path(*stored));
+    }
+    if (images.empty())
+    {
+        return fail(ErrorCode::InvalidData, std::format("slideshow folder '{}' has no images", rule.source));
+    }
+    return images;
+}
+
 } // namespace
+
+std::size_t nextPage(std::size_t count, std::size_t current, bool shuffle, std::uint64_t random) noexcept
+{
+    if (count == 0)
+    {
+        return 0;
+    }
+    if (current >= count)
+    {
+        return shuffle ? static_cast<std::size_t>(random % count) : 0;
+    }
+    if (!shuffle || count < 2)
+    {
+        return (current + 1) % count;
+    }
+    const auto pick = static_cast<std::size_t>(random % (count - 1));
+    return pick >= current ? pick + 1 : pick; // never the page shown now
+}
+
+Result<Json> wallpaperRotation(const domain::WallpaperConfig& config,
+                               std::span<const ports::MonitorInfo> monitors, engine::IAssetSink& assets)
+{
+    Json plan = Json::object();
+    if (config.layout == domain::WallpaperLayout::Span)
+    {
+        return plan;
+    }
+    const Matched matched = matchMonitors(config, monitors);
+    if (nativeSlideshow(matched))
+    {
+        return plan; // Windows turns the pages itself
+    }
+    std::map<std::string, std::vector<std::string>> bySource;
+    for (const auto& [monitor, rule] : matched)
+    {
+        if (rule->kind != domain::WallpaperKind::Slideshow)
+        {
+            continue;
+        }
+        auto known = bySource.find(rule->source);
+        if (known == bySource.end())
+        {
+            auto images = slideshowImages(*rule, assets);
+            if (!images)
+            {
+                return std::unexpected(std::move(images.error()));
+            }
+            known = bySource.emplace(rule->source, std::move(*images)).first;
+        }
+        if (known->second.size() < 2)
+        {
+            continue; // one image: nothing to turn
+        }
+        plan[monitorField(*monitor)] =
+            Json{{"items", known->second},
+                 {"intervalMs", std::int64_t{rule->intervalSeconds.value_or(kDefaultSlideSeconds)} * 1000},
+                 {"shuffle", rule->shuffle.value_or(false)}};
+    }
+    return plan;
+}
 
 std::span<const std::string_view> WallpaperLogic::dependsOn() const noexcept
 {
@@ -143,29 +278,7 @@ Result<Json> WallpaperLogic::desiredFromRice(const domain::Rice& rice, engine::I
         return desired; // background color only
     }
 
-    // Which rule each monitor gets (first match; "all" takes the rest).
-    std::vector<domain::MonitorSelector> selectors;
-    selectors.reserve(config.monitors.size());
-    for (const auto& rule : config.monitors)
-    {
-        selectors.push_back(rule.match);
-    }
-    std::vector<domain::MonitorFacts> facts;
-    facts.reserve(monitors->size());
-    for (const auto& monitor : *monitors)
-    {
-        facts.push_back(
-            {monitor.identityKey, monitor.primary, monitor.left, monitor.top, monitor.right, monitor.bottom});
-    }
-    const std::vector<int> owners = domain::resolveMonitorRules(selectors, facts);
-    std::vector<std::pair<const ports::MonitorInfo*, const domain::MonitorWallpaper*>> matched;
-    for (std::size_t i = 0; i < monitors->size(); ++i)
-    {
-        if (owners[i] >= 0)
-        {
-            matched.emplace_back(&(*monitors)[i], &config.monitors[static_cast<std::size_t>(owners[i])]);
-        }
-    }
+    const Matched matched = matchMonitors(config, *monitors);
     if (matched.empty())
     {
         return desired; // no connected monitor matches: keep what they show
@@ -175,46 +288,17 @@ Result<Json> WallpaperLogic::desiredFromRice(const domain::Rice& rice, engine::I
         return [kind](const auto& entry) { return entry.second->kind == kind; };
     };
 
-    // Native slideshow: one playlist for every monitor.
-    if (std::ranges::any_of(matched, isKind(domain::WallpaperKind::Slideshow)))
+    // The same slideshow everywhere: Windows' own.
+    if (nativeSlideshow(matched))
     {
         const domain::MonitorWallpaper& first = *matched.front().second;
-        const bool oneSlideshow = std::ranges::all_of(matched, [&](const auto& entry) {
-            return entry.second->kind == domain::WallpaperKind::Slideshow &&
-                   entry.second->source == first.source;
-        });
-        if (!oneSlideshow)
+        auto items = slideshowImages(first, assets);
+        if (!items)
         {
-            return fail(ErrorCode::Unsupported,
-                        "a slideshow on some monitors and something else on others needs the scheduler "
-                        "(coming in a later version); use one slideshow for every monitor for now");
-        }
-        auto names = assets.listPackageFolder(first.source);
-        if (!names)
-        {
-            return std::unexpected(std::move(names.error()));
-        }
-        Json items = Json::array();
-        for (const auto& name : *names)
-        {
-            if (!isImageFile(name))
-            {
-                continue;
-            }
-            auto stored = assets.fromPackage(first.source + "/" + name);
-            if (!stored)
-            {
-                return std::unexpected(std::move(stored.error()));
-            }
-            items.push_back(utf8Path(*stored));
-        }
-        if (items.empty())
-        {
-            return fail(ErrorCode::InvalidData,
-                        std::format("slideshow folder '{}' has no images", first.source));
+            return std::unexpected(std::move(items.error()));
         }
         desired["slideshow"] =
-            Json{{"items", std::move(items)},
+            Json{{"items", std::move(*items)},
                  {"shuffle", first.shuffle.value_or(false)},
                  {"intervalMs", first.intervalSeconds.value_or(kDefaultSlideSeconds) * 1000}};
         desired["position"] = static_cast<std::uint32_t>(positionOf(first.fit));
@@ -249,7 +333,18 @@ Result<Json> WallpaperLogic::desiredFromRice(const domain::Rice& rice, engine::I
     for (const auto& [monitor, rule] : matched)
     {
         std::string file;
-        if (rule->kind == domain::WallpaperKind::Color)
+        if (rule->kind == domain::WallpaperKind::Slideshow)
+        {
+            // Not the same slideshow everywhere: the first image now, and the core turns the
+            // pages (wallpaperRotation).
+            auto images = slideshowImages(*rule, assets);
+            if (!images)
+            {
+                return std::unexpected(std::move(images.error()));
+            }
+            file = images->front();
+        }
+        else if (rule->kind == domain::WallpaperKind::Color)
         {
             const auto size = fit == domain::WallpaperFit::Center
                                   ? domain::Size{static_cast<std::uint32_t>(monitor->width()),

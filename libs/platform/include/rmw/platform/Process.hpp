@@ -16,6 +16,11 @@ struct ChildOptions
 {
     // Hard ceiling on committed memory (0 = none). Disabled under ASan, which reserves terabytes.
     std::uint64_t memoryLimitBytes = 0;
+    // Start outside any job the parent belongs to (the core must outlive the terminal that
+    // started it, docs/03 §2.1).
+    bool breakawayFromJob = false;
+    // Put the child in a job of its own that kills it when the handle closes (workers).
+    bool ownJob = true;
     // The job reports JOB_OBJECT_MSG_NOTIFICATION_LIMIT once committed memory passes this (0 =
     // none): the hard ceiling only makes allocations fail, it never ends the process (docs/03 §2.4).
     std::uint64_t memoryNotifyBytes = 0;
@@ -24,11 +29,6 @@ struct ChildOptions
     std::uintptr_t completionKey = 0;
     // The only handles the child inherits (each must be inheritable). Empty = none.
     std::vector<void*> inheritHandles;
-    // Start outside any job the parent belongs to (the core must outlive the terminal that
-    // started it, docs/03 §2.1).
-    bool breakawayFromJob = false;
-    // Put the child in a job of its own that kills it when the handle closes (workers).
-    bool ownJob = true;
 };
 
 // A child process (RAII). With ownJob, destroying the object ends the child: workers never

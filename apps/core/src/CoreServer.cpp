@@ -10,6 +10,7 @@
 #include "rmw/base/Version.hpp"
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/modules/Export.hpp"
+#include "rmw/modules/Wallpaper.hpp"
 #include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/Customizers.hpp"
 #include "rmw/platform/FileSystem.hpp"
@@ -41,6 +42,7 @@ constexpr std::array<std::string_view, 14> kMethods = {
     "rice.export",      "settings.reload", "autostart.get", "autostart.set",
 };
 constexpr std::string_view kScheduleMeta = "appearance_schedule";
+constexpr std::string_view kRotationMeta = "wallpaper_rotation";
 // Outside state.db on purpose: a damaged database must not hide a crash loop.
 constexpr std::wstring_view kStartupAttemptsFile = L"startup-attempts";
 
@@ -270,6 +272,14 @@ Result<void> CoreServer::initialize()
     {
         m_schedule = parseScheduleText(**saved);
     }
+    if (auto saved = m_state->meta(kRotationMeta); saved && *saved)
+    {
+        auto plan = json::parse(**saved);
+        if (plan && plan->is_object())
+        {
+            m_rotation = std::move(*plan);
+        }
+    }
 
     if (m_safeMode != SafeModeReason::None)
     {
@@ -291,7 +301,7 @@ Result<void> CoreServer::initialize()
 
 bool CoreServer::wantsResidency() const
 {
-    if (m_safeMode != SafeModeReason::None || schedule())
+    if (m_safeMode != SafeModeReason::None || schedule() || !rotation().empty())
     {
         return true;
     }
@@ -416,6 +426,33 @@ void CoreServer::setSchedule(std::optional<domain::AppearanceSchedule> schedule)
     notifyResident();
 }
 
+Json CoreServer::rotation() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_rotation;
+}
+
+void CoreServer::setRotation(const Json& plan)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_rotation == plan)
+        {
+            return;
+        }
+        m_rotation = plan;
+    }
+    // The pages live in the store: the plan in meta keeps them from garbage collection.
+    if (auto saved = m_state->setMeta(
+            kRotationMeta, plan.empty() ? std::nullopt : std::optional<std::string>(json::dump(plan)));
+        !saved)
+    {
+        log::warn("cannot save the slideshow plan: {}", saved.error().toString());
+    }
+    log::info("slideshows turned by the core: {}", plan.size());
+    notifyResident();
+}
+
 void CoreServer::notifyResident()
 {
     if (m_window != nullptr && m_resident != nullptr)
@@ -537,14 +574,18 @@ void CoreServer::handleClient(platform::PipeConnection connection)
     done();
 }
 
-Result<Json> CoreServer::exclusive(const std::function<Result<Json>()>& operation)
+Result<Json> CoreServer::exclusive(const std::function<Result<Json>()>& operation, bool changesWindows)
 {
     const std::unique_lock lock(m_operation, std::try_to_lock);
     if (!lock.owns_lock())
     {
         return fail(ErrorCode::Busy, "another operation is running; try again when it finishes");
     }
-    const OperationMark mark(*this);
+    std::optional<OperationMark> mark;
+    if (changesWindows)
+    {
+        mark.emplace(*this);
+    }
     if (m_options.testOperationDelay.count() > 0)
     {
         std::this_thread::sleep_for(m_options.testOperationDelay);
@@ -631,6 +672,49 @@ Result<bool> CoreServer::syncSchedule()
     return !report->modules.empty();
 }
 
+Result<void> CoreServer::turnPage(const std::string& field)
+{
+    const std::scoped_lock lock(m_operation);
+    Json plan = rotation();
+    const auto entry = plan.find(field);
+    if (entry == plan.end())
+    {
+        return {};
+    }
+    auto applied = m_state->applied("wallpaper");
+    if (!applied)
+    {
+        return std::unexpected(std::move(applied.error()));
+    }
+    const auto shown = applied->find(field);
+    if (shown == applied->end())
+    {
+        // The user chose another wallpaper there (drift): this slideshow stops for good.
+        log::info("{}: changed outside; its slideshow stops", field);
+        plan.erase(field);
+        setRotation(plan);
+        return {};
+    }
+    const Json items = json::memberOr(*entry, "items", Json::array());
+    if (!items.is_array() || items.size() < 2 ||
+        !std::ranges::all_of(items, [](const Json& item) { return item.is_string(); }))
+    {
+        return fail(ErrorCode::InvalidData, std::format("{}: the slideshow plan is damaged", field));
+    }
+    const std::string current = json::stringOr(*shown, "file", "");
+    const auto at = std::ranges::find(items, Json(current));
+    const auto index = static_cast<std::size_t>(at - items.begin()); // == size when not found
+    const std::size_t next =
+        modules::nextPage(items.size(), index, json::boolOr(*entry, "shuffle", false), m_random());
+    const OperationMark mark(*this);
+    auto report = m_engine->applyFields("wallpaper", Json{{field, Json{{"file", items[next]}}}}, "Slideshow");
+    if (!report)
+    {
+        return std::unexpected(std::move(report.error()));
+    }
+    return {};
+}
+
 Result<std::vector<std::string>> CoreServer::monitorKeys()
 {
     const std::scoped_lock lock(m_operation);
@@ -694,11 +778,11 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     }
     if (method == "module.inspect")
     {
-        return exclusive([&] { return inspect(request.params); });
+        return exclusive([&] { return inspect(request.params); }, false);
     }
     if (method == "rice.export")
     {
-        return exclusive([&] { return exportRice(request.params); });
+        return exclusive([&] { return exportRice(request.params); }, false);
     }
     if (method == "settings.reload")
     {
@@ -738,6 +822,7 @@ Result<Json> CoreServer::status()
         safeMode = m_safeMode == SafeModeReason::Requested ? "requested" : "crashes";
     }
     Json schedule = nullptr;
+    const std::size_t slideshows = rotation().size();
     if (const auto current = this->schedule())
     {
         schedule = {{"lightAt", timeText(current->lightAt)}, {"darkAt", timeText(current->darkAt)}};
@@ -751,6 +836,7 @@ Result<Json> CoreServer::status()
                 {"busy", !probe.owns_lock()},
                 {"safeMode", std::move(safeMode)},
                 {"schedule", std::move(schedule)},
+                {"slideshows", slideshows},
                 {"resident", m_resident != nullptr ? m_resident->status() : Json(nullptr)},
                 {"otherTools", platform::detectOtherCustomizers()},
                 {"history", std::move(lastOperations)}};
@@ -803,12 +889,32 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     const std::vector<std::string> others =
         firstApply ? platform::detectOtherCustomizers() : std::vector<std::string>{};
 
+    // Slideshows Windows cannot play are turned by the core. The plan is saved first: the
+    // apply's garbage collection must already see the pages it keeps in the store.
+    const Json previousRotation = rotation();
+    if (rice.wallpaper)
+    {
+        auto monitors = m_logic->topology.monitors();
+        if (!monitors)
+        {
+            return std::unexpected(std::move(monitors.error()));
+        }
+        engine::StoreAssetSink pages(*m_store, loaded->folder);
+        auto plan = modules::wallpaperRotation(*rice.wallpaper, *monitors, pages);
+        if (!plan)
+        {
+            return std::unexpected(std::move(plan.error()));
+        }
+        setRotation(*plan);
+    }
+
     auto report =
         origin == Origin::User
             ? m_engine->apply(rice, loaded->folder)
             : m_engine->applyAutomatic(rice, loaded->folder, std::format("Automatic: {}", rice.meta.name));
     if (!report)
     {
+        setRotation(previousRotation);
         return std::unexpected(std::move(report.error()));
     }
     if (rice.appearance)
@@ -872,7 +978,8 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     {
         return std::unexpected(std::move(report.error()));
     }
-    setSchedule(std::nullopt); // going back ends any schedule
+    setSchedule(std::nullopt); // going back ends any schedule and slideshow
+    setRotation(Json::object());
     return reportJson(*report);
 }
 

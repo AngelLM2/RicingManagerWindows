@@ -369,7 +369,8 @@ Result<bool> StateDb::referencesAsset(std::string_view sha256)
         single<bool>(query(m_db,
                            "SELECT EXISTS (SELECT 1 FROM snapshots WHERE instr(modules_json, ?1) > 0) "
                            "OR EXISTS (SELECT 1 FROM applied WHERE instr(fields_json, ?1) > 0) "
-                           "OR EXISTS (SELECT 1 FROM journal WHERE instr(desired_json, ?1) > 0);",
+                           "OR EXISTS (SELECT 1 FROM journal WHERE instr(desired_json, ?1) > 0) "
+                           "OR EXISTS (SELECT 1 FROM meta WHERE instr(value, ?1) > 0);",
                            sha256),
                      [](const Statement& row) -> Result<bool> { return row.columnInt(0) != 0; });
     if (!found)

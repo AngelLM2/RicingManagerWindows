@@ -203,8 +203,8 @@ private:
                 arguments = L"--data-dir \"" + m_dataDirectory.native() + L"\"";
             }
             // Outside the terminal's job: closing the terminal must not kill the core.
-            auto core = platform::ChildProcess::spawn(m_coreExe, arguments,
-                                                      {.breakawayFromJob = true, .ownJob = false});
+            auto core = platform::ChildProcess::spawn(
+                m_coreExe, arguments, {.breakawayFromJob = true, .ownJob = false, .inheritHandles = {}});
             if (!core)
             {
                 return std::unexpected(std::move(core.error()).withContext("start rmw-core"));
@@ -537,6 +537,10 @@ int run(std::span<const std::string> args)
             out(std::format("Appearance schedule: light at {}, dark at {}",
                             json::stringOr(schedule, "lightAt", "?"),
                             json::stringOr(schedule, "darkAt", "?")));
+        }
+        if (const auto slideshows = json::intOr(*status, "slideshows", 0); slideshows > 0)
+        {
+            out(std::format("Slideshow turned by Ricing Manager on {} monitor(s)", slideshows));
         }
         const Json resident = json::memberOr(*status, "resident", Json());
         if (resident.is_object())

@@ -76,8 +76,9 @@ Result<void> HelperModuleRunner::start()
     {
         return std::unexpected(std::move(server.error()));
     }
-    auto child = platform::ChildProcess::spawn(m_executable, L"--apply-helper --pipe " + name,
-                                               {.memoryLimitBytes = kHelperMemoryLimit});
+    auto child =
+        platform::ChildProcess::spawn(m_executable, L"--apply-helper --pipe " + name,
+                                      {.memoryLimitBytes = kHelperMemoryLimit, .inheritHandles = {}});
     if (!child)
     {
         return std::unexpected(std::move(child.error()));
