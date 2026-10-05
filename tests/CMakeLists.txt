@@ -20,6 +20,7 @@ add_executable(rmw_unit_tests
     unit/MonitorSelectorTests.cpp
     unit/PathRulesTests.cpp
     unit/PluginManifestTests.cpp
+    unit/PluginRuntimeTests.cpp
     unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
@@ -42,6 +43,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::json
     rmw::modules
     rmw::platform
+    rmw::plugins
     rmw::storage
     GTest::gtest
     GTest::gtest_main

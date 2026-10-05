@@ -222,6 +222,17 @@ struct PluginParseOptions
 [[nodiscard]] Result<PluginManifest> parsePluginManifest(std::string_view text, Diagnostics& diagnostics,
                                                          const PluginParseOptions& options);
 
+// What a script may send a widget (values from the plugin host are input to the bar, docs/06 §4).
+inline constexpr std::size_t kWidgetTextMaxBytes = 4'096;
+inline constexpr std::size_t kWidgetListMaxItems = 256;
+
+// Whether `value` fits a property of `type`: String a string; Int an integer; Float and Length a
+// number; Bool a boolean; Color "#RRGGBB" or "#RRGGBBAA"; Image "" (none), a file of the plugin
+// ("icons/play.svg") or "window:<id>" (that window's icon); a struct a table with some of its
+// fields; a list an array of at most kWidgetListMaxItems.
+[[nodiscard]] Result<void> checkWidgetValue(const PluginWidget& widget, const WidgetTypeRef& type,
+                                            const Value& value);
+
 // A plugin's settings: the schema's defaults, then each layer in order (the user's settings, the
 // rice's [plugins."id"], a bar item's own keys). A value of the wrong type, out of range or for an
 // unknown key is left out with a warning (key "<where>.<key>"): a rice written for an older

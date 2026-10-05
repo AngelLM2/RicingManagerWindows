@@ -16,6 +16,7 @@ constexpr auto kProviders = std::to_array<PluginCapability>({
     {"battery", false, "read the battery level and whether the PC is plugged in"},
     {"audio.volume", false, "read the speaker volume"},
     {"monitors", false, "read the list of monitors"},
+    {"virtual-desktops", false, "read how many virtual desktops there are and which one is shown"},
     {"media", true, "see what is playing (title, artist, app)"},
     {"windows.list", true, "see the titles of your open windows"},
 });

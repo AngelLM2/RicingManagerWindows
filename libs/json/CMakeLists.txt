@@ -6,7 +6,9 @@ find_package(nlohmann_json CONFIG REQUIRED)
 rmw_add_library(json
     SOURCES
         src/Json.cpp
+        src/Value.cpp
     PUBLIC_DEPS
         rmw::base
+        rmw::domain
         nlohmann_json::nlohmann_json
 )

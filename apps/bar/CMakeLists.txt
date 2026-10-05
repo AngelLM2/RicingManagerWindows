@@ -24,6 +24,7 @@ target_link_libraries(rmw_bar_ui PUBLIC
     rmw::base
     rmw::domain
     rmw::platform
+    rmw::providers
     Slint::Slint
     dwmapi
     gdi32
