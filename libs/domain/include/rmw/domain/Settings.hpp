@@ -74,6 +74,14 @@ struct Settings
     }
 };
 
+// Daily times on the local clock, in seconds of the day (0..86399).
+inline constexpr std::int32_t kSecondsPerDay = 86'400;
+// Until the clock next reads `at`:00 — 1..86400: a time that is exactly now counts as tomorrow, so
+// a timer that fires on time is never armed again for the same minute.
+[[nodiscard]] std::int32_t secondsUntil(TimeOfDay at, std::int32_t now) noexcept;
+// Since the clock last read `at`:00 — 0..86399.
+[[nodiscard]] std::int32_t secondsSince(TimeOfDay at, std::int32_t now) noexcept;
+
 // Parses settings.toml (untrusted text like any manifest: same limits and diagnostics).
 // `knownActions` lists valid action names.
 [[nodiscard]] Result<Settings> parseSettings(std::string_view text, Diagnostics& diagnostics,

@@ -366,6 +366,35 @@ TEST_F(RiceEngineTest, DriftIsDetectedAndDetachedFieldsAreLeftAlone)
     EXPECT_FALSE(m_engine->driftedFields("nope").has_value());
 }
 
+TEST_F(RiceEngineTest, AutomaticWorkLeavesWhatIsAlreadySoAlone)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "rice-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->applyAutomatic(m_rice, package(), "Schedule: dark").has_value());
+    const int appearanceApplies = m_appearance.applyCount;
+    const int wallpaperApplies = m_wallpaper.applyCount;
+
+    // After resume the schedule checks again: Windows is already dark, nothing is touched.
+    const auto again = m_engine->applyAutomatic(m_rice, package(), "Schedule: dark");
+    ASSERT_TRUE(again.has_value()) << again.error().toString();
+    EXPECT_TRUE(again->modules.empty());
+    EXPECT_EQ(m_appearance.applyCount, appearanceApplies);
+    EXPECT_EQ(m_wallpaper.applyCount, wallpaperApplies);
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+
+    // A monitor came back with another wallpaper: only the wallpaper module is reapplied.
+    m_wallpaper.fields()["monitor:A"] = "windows-default.jpg";
+    m_appearance.fields()["dark"] = false;
+    const std::vector<std::string> onlyWallpaper{"wallpaper"};
+    const auto reapplied = m_engine->reapplyManaged(onlyWallpaper);
+    ASSERT_TRUE(reapplied.has_value()) << reapplied.error().toString();
+    EXPECT_EQ(reapplied->modules, onlyWallpaper);
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], m_state->applied("wallpaper").value()["monitor:A"]);
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+    EXPECT_EQ(m_appearance.applyCount, appearanceApplies);
+}
+
 TEST(ModuleCatalog, OrdersByDependencyAndRejectsBadGraphs)
 {
     FakeWorld world;

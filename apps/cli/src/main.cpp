@@ -9,9 +9,14 @@
 #include "rmw/platform/Process.hpp"
 #include "rmw/platform/ProcessHardening.hpp"
 
+#include <windows.h>
+
+#include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <optional>
@@ -41,7 +46,10 @@ Commands:
   inspect <module>                      What Windows has now for a module (appearance,
                                         taskbar, cursors, wallpaper), as JSON
   action <name> [--path <folder>]       Run an action: rice.apply, restore.original,
-                                        appearance.toggle
+                                        appearance.toggle, appearance.dark, appearance.light
+  settings reload                       Re-read config\settings.toml (hotkeys, rules, tray)
+  autostart on|off|status               Start with Windows (a per-user Run entry; off until
+                                        you turn it on)
   shutdown                              Stop the background core
   --version, --help
 
@@ -111,7 +119,11 @@ public:
             auto hello = call("hello", ipc::helloParams(kVersion), 10s);
             if (hello)
             {
-                return ipc::checkHello(*hello);
+                if (auto compatible = ipc::checkHello(*hello); !compatible)
+                {
+                    return compatible;
+                }
+                return checkDataDirectory(*hello);
             }
             if (hello.error().code() != ErrorCode::Unsupported)
             {
@@ -150,6 +162,36 @@ public:
     }
 
 private:
+    // There is one core per user session, whatever folder it keeps its data in.
+    Result<void> checkDataDirectory(const Json& hello) const
+    {
+        if (m_dataDirectory.empty())
+        {
+            return {};
+        }
+        const auto normalized = [](const std::filesystem::path& path) {
+            std::error_code ec;
+            auto text = std::filesystem::absolute(path, ec).lexically_normal().native();
+            while (text.size() > 3 && (text.back() == L'\\' || text.back() == L'/'))
+            {
+                text.pop_back();
+            }
+            return text;
+        };
+        const std::filesystem::path serving(utf8To16Lossy(json::stringOr(hello, "dataDirectory", "")));
+        const auto mine = normalized(m_dataDirectory);
+        const auto theirs = normalized(serving);
+        if (CompareStringOrdinal(mine.c_str(), static_cast<int>(mine.size()), theirs.c_str(),
+                                 static_cast<int>(theirs.size()), TRUE) != CSTR_EQUAL)
+        {
+            return fail(ErrorCode::AlreadyExists,
+                        std::format("a core for another data folder is running ({}); stop it first with `rmw "
+                                    "shutdown`",
+                                    utf16To8Lossy(theirs)));
+        }
+        return {};
+    }
+
     Result<void> connectOrStart()
     {
         auto connection = platform::connectPipe(m_pipe, 2s, m_coreExe);
@@ -383,6 +425,16 @@ int run(std::span<const std::string> args)
         return Usage;
     }
     const std::string& command = args[0];
+    constexpr std::array<std::string_view, 12> kCommands = {
+        "apply",    "validate", "status", "history",  "restore",   "export",
+        "monitors", "inspect",  "action", "settings", "autostart", "shutdown",
+    };
+    if (std::ranges::find(kCommands, command) == kCommands.end())
+    {
+        // Before connecting: a typo must not start the core.
+        err(std::format("rmw: unknown command '{}'\n\n{}", command, kUsage));
+        return Usage;
+    }
     const auto needsFolder = command == "apply" || command == "validate" || command == "export";
     if (needsFolder && options->positional.size() != 1)
     {
@@ -471,6 +523,44 @@ int run(std::span<const std::string> args)
         if (json::boolOr(*status, "busy", false))
         {
             out("An operation is running right now.");
+        }
+        const Json safeMode = json::memberOr(*status, "safeMode", Json());
+        if (safeMode.is_string())
+        {
+            out(std::format("SAFE MODE ({}): nothing runs automatically; restore still works.",
+                            safeMode.get<std::string>() == "crashes" ? "the last starts crashed"
+                                                                     : "requested"));
+        }
+        const Json schedule = json::memberOr(*status, "schedule", Json());
+        if (schedule.is_object())
+        {
+            out(std::format("Appearance schedule: light at {}, dark at {}",
+                            json::stringOr(schedule, "lightAt", "?"),
+                            json::stringOr(schedule, "darkAt", "?")));
+        }
+        const Json resident = json::memberOr(*status, "resident", Json());
+        if (resident.is_object())
+        {
+            const auto hotkeys = json::memberOr(resident, "hotkeys", Json::array());
+            out(std::format("{}: {} hotkey(s), {} rule(s)",
+                            json::boolOr(resident, "resident", false) ? "Resident (tray icon)"
+                                                                      : "Not resident (exits when idle)",
+                            hotkeys.size(), json::intOr(resident, "rules", 0)));
+            for (const auto& hotkey : hotkeys)
+            {
+                const std::string error = json::stringOr(hotkey, "error", "");
+                out(std::format("  {} -> {}{}", json::stringOr(hotkey, "keys", "?"),
+                                json::stringOr(hotkey, "action", "?"),
+                                json::boolOr(hotkey, "registered", false)
+                                    ? ""
+                                    : " (not active" + (error.empty() ? std::string() : ": " + error) + ")"));
+            }
+            const Json settings = json::memberOr(resident, "settings", Json::object());
+            if (!json::boolOr(settings, "valid", true))
+            {
+                out("settings.toml is not used: " + json::stringOr(settings, "error", "?"));
+                printDiagnostics(json::memberOr(settings, "diagnostics", Json::array()));
+            }
         }
         std::string others;
         for (const auto& tool : json::memberOr(*status, "otherTools", Json::array()))
@@ -584,6 +674,62 @@ int run(std::span<const std::string> args)
             return failure(done.error());
         }
         printReport(*done, std::format("Done ({})", options->positional[0]));
+        return Ok;
+    }
+    if (command == "settings")
+    {
+        if (options->positional.size() != 1 || options->positional[0] != "reload")
+        {
+            err("rmw: usage: rmw settings reload");
+            return Usage;
+        }
+        auto reloaded = client.call("settings.reload", Json::object(), 30s);
+        if (!reloaded)
+        {
+            return failure(reloaded.error());
+        }
+        printDiagnostics(json::memberOr(*reloaded, "diagnostics", Json::array()));
+        if (!json::boolOr(*reloaded, "valid", false))
+        {
+            err("rmw: settings.toml was not used (the previous settings stay): " +
+                json::stringOr(*reloaded, "error", "?"));
+            return Failed;
+        }
+        out(json::boolOr(*reloaded, "present", false) ? "Settings reloaded."
+                                                      : "There is no settings.toml: nothing configured.");
+        return Ok;
+    }
+    if (command == "autostart")
+    {
+        const std::string choice = options->positional.size() == 1 ? options->positional[0] : std::string();
+        if (choice != "on" && choice != "off" && choice != "status")
+        {
+            err("rmw: usage: rmw autostart on|off|status");
+            return Usage;
+        }
+        auto state = choice == "status"
+                         ? client.call("autostart.get", Json::object(), 30s)
+                         : client.call("autostart.set", Json{{"enabled", choice == "on"}}, 30s);
+        if (!state)
+        {
+            return failure(state.error());
+        }
+        if (json::boolOr(*state, "enabled", false))
+        {
+            out("Ricing Manager starts with Windows.");
+        }
+        else if (json::boolOr(*state, "registered", false))
+        {
+            out("A start entry exists but points elsewhere: " + json::stringOr(*state, "command", "?"));
+        }
+        else
+        {
+            out("Ricing Manager does not start with Windows.");
+        }
+        if (json::boolOr(*state, "registered", false) && json::boolOr(*state, "disabledByUser", false))
+        {
+            out("It is switched off in Task Manager (Startup apps); turn it on there if you want it.");
+        }
         return Ok;
     }
     if (command == "shutdown")

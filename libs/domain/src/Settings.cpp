@@ -121,7 +121,7 @@ std::string keyName(std::uint32_t vk)
 {
     if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9'))
     {
-        return std::string(1, static_cast<char>(vk));
+        return {static_cast<char>(vk)};
     }
     if (vk >= 0x70 && vk <= 0x87)
     {
@@ -409,6 +409,19 @@ Result<Settings> parseSettings(std::string_view text, Diagnostics& diagnostics,
                     std::format("settings.toml is invalid: {}", diagnostics.errorSummary("settings.toml")));
     }
     return settings;
+}
+
+std::int32_t secondsUntil(TimeOfDay at, std::int32_t now) noexcept
+{
+    const std::int32_t target = (at.hour * 3600) + (at.minute * 60);
+    const std::int32_t delta = (((target - now) % kSecondsPerDay) + kSecondsPerDay) % kSecondsPerDay;
+    return delta == 0 ? kSecondsPerDay : delta;
+}
+
+std::int32_t secondsSince(TimeOfDay at, std::int32_t now) noexcept
+{
+    const std::int32_t target = (at.hour * 3600) + (at.minute * 60);
+    return (((now - target) % kSecondsPerDay) + kSecondsPerDay) % kSecondsPerDay;
 }
 
 } // namespace rmw::domain
