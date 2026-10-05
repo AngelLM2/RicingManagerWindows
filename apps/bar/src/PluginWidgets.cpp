@@ -88,17 +88,17 @@ Value defaultOf(domain::WidgetType type)
     switch (type)
     {
     case domain::WidgetType::String:
-        return Value(slint::SharedString());
+        return {slint::SharedString()};
     case domain::WidgetType::Int:
     case domain::WidgetType::Float:
     case domain::WidgetType::Length:
-        return Value(0.0);
+        return {0.0};
     case domain::WidgetType::Bool:
-        return Value(false);
+        return {false};
     case domain::WidgetType::Color:
-        return Value(slint::Brush(slint::Color::from_argb_uint8(0, 0, 0, 0)));
+        return {slint::Brush(slint::Color::from_argb_uint8(0, 0, 0, 0))};
     case domain::WidgetType::Image:
-        return Value(slint::Image());
+        return {slint::Image()};
     }
     return {};
 }
@@ -300,7 +300,7 @@ Result<Value> PluginWidgets::convert(const PluginWidget& widget, const domain::W
             {
                 return std::unexpected(std::move(converted.error()));
             }
-            model->push_back(std::move(*converted));
+            model->push_back(*converted);
         }
     }
     return Value(std::shared_ptr<slint::Model<Value>>(model));
@@ -332,7 +332,7 @@ Result<Value> PluginWidgets::convertItem(const PluginWidget& widget, const domai
         {
             return std::unexpected(std::move(converted.error()));
         }
-        item.set_field(field.name, std::move(*converted));
+        item.set_field(field.name, *converted);
     }
     return Value(item);
 }

@@ -645,7 +645,7 @@ Result<bar::Plan> PluginManager::barPlan(const domain::Rice& rice)
             continue;
         }
         const PluginEntry* skin = entryOf(config.skin);
-        if (skin == nullptr || !skin->manifest->skin)
+        if (skin == nullptr || !skin->manifest || !skin->manifest->skin)
         {
             log::warn("bar: skin '{}' is not installed; the bar uses its own settings", config.skin);
             continue;
@@ -669,7 +669,7 @@ Result<bar::Plan> PluginManager::barPlan(const domain::Rice& rice)
                     continue;
                 }
                 const PluginEntry* entry = entryOf(item.id);
-                if (entry == nullptr || !entry->manifest->widget)
+                if (entry == nullptr || !entry->manifest || !entry->manifest->widget)
                 {
                     log::warn("bar: plugin widget '{}' is not installed", item.id);
                     continue;
@@ -694,37 +694,39 @@ std::vector<domain::Tweak> PluginManager::tweaksFor(const domain::Rice& rice, st
     const auto entries = listLocked();
     for (const auto& requirement : rice.pluginRequirements)
     {
-        const auto entry = std::ranges::find(entries, requirement.id, &PluginEntry::id);
-        if (entry == entries.end() || !entry->manifest)
+        const auto found = std::ranges::find(entries, requirement.id, &PluginEntry::id);
+        if (found == entries.end() || !found->manifest)
         {
             continue; // not a tweak, or not installed: the bar and the host say so for their kinds
         }
-        if (!entry->manifest->hasKind(domain::PluginKind::Tweak))
+        const PluginEntry& entry = *found;
+        const domain::PluginManifest& manifest = *entry.manifest;
+        if (!manifest.hasKind(domain::PluginKind::Tweak))
         {
             continue;
         }
-        if (!requirement.version.matches(entry->manifest->version))
+        if (!requirement.version.matches(manifest.version))
         {
             notes.push_back(std::format("tweak plugin {} is version {}, the rice asks for {}: left out",
-                                        entry->id, entry->manifest->version.toString(),
+                                        entry.id, manifest.version.toString(),
                                         requirement.version.toString()));
             continue;
         }
-        if (!entry->disabled.empty())
+        if (!entry.disabled.empty())
         {
-            notes.push_back(std::format("tweak plugin {} is off ({})", entry->id, entry->disabled));
+            notes.push_back(std::format("tweak plugin {} is off ({})", entry.id, entry.disabled));
             continue;
         }
         bool restart = false;
-        for (const auto& tweak : entry->manifest->tweaks)
+        for (const auto& tweak : manifest.tweaks)
         {
             tweaks.push_back(tweak);
             restart = restart || tweak.needsExplorerRestart;
         }
         if (restart)
         {
-            notes.push_back(std::format("{}: restart Explorer (or sign out and in) to see all of it",
-                                        entry->manifest->name));
+            notes.push_back(
+                std::format("{}: restart Explorer (or sign out and in) to see all of it", manifest.name));
         }
     }
     return tweaks;

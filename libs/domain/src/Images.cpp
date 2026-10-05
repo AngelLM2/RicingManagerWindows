@@ -3,6 +3,7 @@
 #include "rmw/base/Limits.hpp"
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <numeric>
 
@@ -87,9 +88,9 @@ std::optional<Size> rasterImageSize(std::span<const std::byte> head) noexcept
     const auto byte = [&](std::size_t i) { return static_cast<std::uint32_t>(head[i]); };
     const auto big16 = [&](std::size_t i) { return (byte(i) << 8) | byte(i + 1); };
     const auto big32 = [&](std::size_t i) { return (big16(i) << 16) | big16(i + 2); };
-    constexpr std::uint8_t kPng[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    constexpr std::array<std::uint8_t, 8> kPng = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
     if (head.size() >= 24 &&
-        std::equal(std::begin(kPng), std::end(kPng), head.begin(),
+        std::equal(kPng.begin(), kPng.end(), head.begin(),
                    [](std::uint8_t a, std::byte b) { return a == static_cast<std::uint8_t>(b); }))
     {
         // The IHDR chunk comes first: length, "IHDR", width, height (big-endian).

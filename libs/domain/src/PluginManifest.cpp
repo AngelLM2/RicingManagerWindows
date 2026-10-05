@@ -1064,7 +1064,7 @@ private:
             if (m.hasKind(kind) && !m.hasScript())
             {
                 m_diagnostics.error("entry.script",
-                                    std::format("kind \"{}\" needs a script: [entry] script = \"main.luau\"",
+                                    std::format(R"(kind "{}" needs a script: [entry] script = "main.luau")",
                                                 enumToName<PluginKind>(kKindNames, kind)));
             }
         }

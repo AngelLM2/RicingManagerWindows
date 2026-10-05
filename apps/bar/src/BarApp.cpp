@@ -51,7 +51,7 @@ domain::Value::Array argumentsOf(std::span<const Value> arguments)
         }
         else
         {
-            list.push_back(domain::Value{});
+            list.emplace_back();
         }
     }
     return list;
@@ -200,11 +200,17 @@ BarApp::BarApp(Win32Platform& loop, std::filesystem::path planFile, std::wstring
 
 BarApp::~BarApp()
 {
-    m_bridge.reset();
-    watchDevPlugins({});
-    if (m_windowSubscription != 0)
+    try
     {
-        WindowTracker::instance().unsubscribe(m_windowSubscription);
+        m_bridge.reset(); // joins its threads
+        watchDevPlugins({});
+        if (m_windowSubscription != 0)
+        {
+            WindowTracker::instance().unsubscribe(m_windowSubscription);
+        }
+    }
+    catch (...) // NOLINT(bugprone-empty-catch): the native taskbar must still come back below
+    {
     }
     if (m_planWatch != nullptr)
     {

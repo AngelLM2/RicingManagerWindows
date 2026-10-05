@@ -303,7 +303,7 @@ rmw.onaction("focus", function(args) rmw.log("focus " .. tostring(args.level)) e
     EXPECT_NE(loaded.error().message().find("permission denied"), std::string::npos);
 
     // A declared action runs with its arguments.
-    domain::Value args{domain::Value::Table{{"level", domain::Value{std::int64_t{2}}}}};
+    const domain::Value args{domain::Value::Table{{"level", domain::Value{std::int64_t{2}}}}};
     ASSERT_TRUE(runtime.runAction("io.github.test.probe", "focus", args, true, now).has_value())
         << host.allLogs();
     EXPECT_TRUE(host.logged("focus 2"));

@@ -1835,7 +1835,7 @@ void CoreServer::onPluginHostFailure(const platform::WorkerEvent& event)
     if (auto* record = static_cast<plugins::BlameRecord*>(
             MapViewOfFile(m_blame, FILE_MAP_WRITE, 0, 0, sizeof(plugins::BlameRecord))))
     {
-        blamed.assign(record->plugin, strnlen(record->plugin, sizeof(record->plugin)));
+        blamed.assign(record->plugin.data(), strnlen(record->plugin.data(), record->plugin.size()));
         record->plugin[0] = '\0';
         UnmapViewOfFile(record);
     }

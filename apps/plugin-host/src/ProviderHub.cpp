@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <ctime>
@@ -27,7 +28,7 @@ struct Poll
     std::chrono::milliseconds every;
 };
 
-constexpr Poll kPolled[] = {
+constexpr auto kPolled = std::to_array<Poll>({
     {"time", 1000ms},
     {"system.cpu", 1000ms},
     {"system.memory", 2000ms},
@@ -37,7 +38,7 @@ constexpr Poll kPolled[] = {
     {"virtual-desktops", 1000ms},
     // Also event-driven; polled too because window events were seen to arrive seconds late.
     {"windows.list", 1000ms},
-};
+});
 
 Value number(double value)
 {
@@ -331,15 +332,17 @@ void ProviderHub::startWatchers(std::string_view name)
     {
         m_media =
             std::make_unique<providers::MediaWatcher>([post = m_post](const providers::MediaState& state) {
-                post([state] {
+                // Built here (a pool thread): only the finished value goes to the main thread.
+                Value media = table({{"session", Value{state.session}},
+                                     {"playing", Value{state.playing}},
+                                     {"title", Value{state.title}},
+                                     {"artist", Value{state.artist}},
+                                     {"album", Value{state.album}},
+                                     {"app", Value{state.app}}});
+                post([media = std::move(media)] {
                     if (auto* hub = g_hub.load())
                     {
-                        hub->publish("media", table({{"session", Value{state.session}},
-                                                     {"playing", Value{state.playing}},
-                                                     {"title", Value{state.title}},
-                                                     {"artist", Value{state.artist}},
-                                                     {"album", Value{state.album}},
-                                                     {"app", Value{state.app}}}));
+                        hub->publish("media", media);
                     }
                 });
             });

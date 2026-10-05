@@ -11,11 +11,13 @@
 #include <luau/lualib.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <deque>
 #include <format>
 #include <functional>
+#include <utility>
 
 namespace rmw::scripting
 {
@@ -49,7 +51,7 @@ struct Vm
     std::size_t limit = limits::kPluginVmMaxBytes;
     bool capHit = false;
     bool timedOut = false;
-    Clock::time_point deadline{};
+    Clock::time_point deadline;
     lua_State* L = nullptr;
     lua_State* T = nullptr; // the script's own thread (its globals live there)
 
@@ -107,7 +109,7 @@ void interrupt(lua_State* L, int gc)
 struct Timer
 {
     std::uint64_t id = 0;
-    Clock::time_point due{};
+    Clock::time_point due;
     std::chrono::milliseconds period{0}; // 0: once
     int function = LUA_NOREF;
     std::string instance; // empty: the plugin's own
@@ -248,7 +250,7 @@ domain::Value toValue(lua_State* L, int index, int depth, std::size_t& budget)
         }
         if (keyed)
         {
-            if (entries != static_cast<int>(members.size()))
+            if (std::cmp_not_equal(entries, members.size()))
             {
                 luaL_error(L, "a table mixes a list and named fields");
             }
@@ -316,7 +318,7 @@ struct Runtime::Instance
     std::vector<std::pair<std::string, int>> handlers;
     int onClose = LUA_NOREF;
     domain::Value::Table pending;
-    Clock::time_point lastFlush{};
+    Clock::time_point lastFlush;
     bool urgent = false;
     bool closed = false;
 };
@@ -489,7 +491,7 @@ struct Api
 
     static int provider(lua_State* L)
     {
-        Plugin& plugin = self(L);
+        const Plugin& plugin = self(L);
         const std::string name = checkedProvider(L, plugin);
         pushValue(L, plugin.runtime->m_host.provider(name));
         return 1;
@@ -511,7 +513,7 @@ struct Api
 
     static int action(lua_State* L)
     {
-        Plugin& plugin = self(L);
+        const Plugin& plugin = self(L);
         const std::string name(checkedString(L, 1));
         if (domain::findPluginAction(name) == nullptr)
         {
@@ -692,6 +694,10 @@ struct Api
         Runtime::Instance* instance = instanceOf(L, plugin);
         const std::string name(checkedString(L, 2));
         luaL_checktype(L, 3, LUA_TFUNCTION);
+        if (!plugin.spec.manifest.widget)
+        {
+            luaL_error(L, "w:on is for bar.widget plugins");
+        }
         const auto& callbacks = plugin.spec.manifest.widget->callbacks;
         if (std::ranges::find(callbacks, name, &domain::WidgetCallback::name) == callbacks.end())
         {
@@ -749,10 +755,13 @@ struct Api
         lua_setfield(L, -2, "id");
         pushValue(L, instance.config.isNull() ? domain::Value{domain::Value::Table{}} : instance.config);
         lua_setfield(L, -2, "config");
-        const std::pair<lua_CFunction, const char*> methods[] = {
-            {widgetSet, "set"},     {widgetOn, "on"},           {widgetEvery, "every"},
-            {widgetAfter, "after"}, {widgetOnClose, "onclose"},
-        };
+        const auto methods = std::to_array<std::pair<lua_CFunction, const char*>>({
+            {widgetSet, "set"},
+            {widgetOn, "on"},
+            {widgetEvery, "every"},
+            {widgetAfter, "after"},
+            {widgetOnClose, "onclose"},
+        });
         for (const auto& [function, name] : methods)
         {
             lua_pushlightuserdata(L, &plugin);
@@ -1149,6 +1158,7 @@ void Runtime::unload(std::string_view id)
 std::vector<PluginStatus> Runtime::status() const
 {
     std::vector<PluginStatus> list;
+    list.reserve(m_plugins.size());
     for (const auto& plugin : m_plugins)
     {
         list.push_back({plugin->id, plugin->failed, plugin->vm ? plugin->vm->bytes : 0,

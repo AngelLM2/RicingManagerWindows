@@ -55,7 +55,7 @@ PluginBridge::PluginBridge(std::wstring pipe, std::filesystem::path hostImage, H
             const std::weak_ptr<State> weak = state;
             auto channel = std::make_unique<platform::MessageChannel>(
                 std::move(*connection),
-                [weak](std::string text) {
+                [weak](const std::string& text) {
                     auto message = bar::bridge::decode(text);
                     auto owner = weak.lock();
                     if (!owner)

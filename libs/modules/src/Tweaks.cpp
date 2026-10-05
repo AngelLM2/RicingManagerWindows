@@ -16,7 +16,7 @@ constexpr std::size_t kMaxBinaryBytes = 4096;
 
 std::string hex(const std::vector<std::byte>& bytes)
 {
-    static constexpr char kDigits[] = "0123456789abcdef";
+    static constexpr std::string_view kDigits = "0123456789abcdef";
     std::string text;
     text.reserve(bytes.size() * 2);
     for (const std::byte b : bytes)
