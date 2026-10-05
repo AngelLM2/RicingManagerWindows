@@ -131,7 +131,13 @@ TEST(RiceParser, ReadsTheDocumentedExample)
 {
     const auto [result, diagnostics] = parse(kFullRice);
     ASSERT_TRUE(result.has_value()) << dump(diagnostics);
-    EXPECT_TRUE(diagnostics.all().empty()) << dump(diagnostics);
+    // Only the notes about what this version cannot do yet: video, and a fit per monitor.
+    ASSERT_EQ(diagnostics.all().size(), 2u) << dump(diagnostics);
+    for (const auto& d : diagnostics.all())
+    {
+        EXPECT_EQ(d.severity, Severity::Warning);
+        EXPECT_EQ(d.key, "wallpaper.monitor");
+    }
     const Rice& r = *result;
 
     EXPECT_EQ(r.meta.name, "Tokyo Night");

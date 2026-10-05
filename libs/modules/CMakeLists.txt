@@ -6,6 +6,7 @@ rmw_add_library(modules
         src/Cursors.cpp
         src/RegistryFields.cpp
         src/Taskbar.cpp
+        src/Wallpaper.cpp
     PUBLIC_DEPS
         rmw::base
         rmw::domain
