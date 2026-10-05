@@ -358,7 +358,6 @@ RicingManagerWindows/
 ├─ plugins/            plugins oficiais de exemplo (Luau)
 ├─ tests/
 │  ├─ unit/  contract/  integration/  system/ (Windows Sandbox)  fuzz/
-├─ legacy/             código antigo, fora do build, apagado ao fim do M1
 ├─ docs/               planejamento, ADRs, QA
 ├─ cmake/              Warnings.cmake, Hardening.cmake, triplets/
 ├─ CMakeLists.txt  CMakePresets.json  vcpkg.json
