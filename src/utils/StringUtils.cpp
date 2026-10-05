@@ -4,7 +4,7 @@
 #include <cctype>
 
 
-std::string toLower(std::string text)
+std::string StringUtils::toLower(std::string text)
     {
         for(char& c : text)
         {
