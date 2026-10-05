@@ -2,9 +2,9 @@
 -- A bar graph of the CPU use: one sample a second, the newest on the right.
 
 local history: { number } = {}
-local widgets = {}
+local widgets: { [string]: RmwWidget } = {}
 
-local function draw(w)
+local function draw(w: RmwWidget)
     local samples = {}
     local first = math.max(1, #history - w.config.count + 1)
     for i = first, #history do
@@ -27,7 +27,7 @@ rmw.widget(function(w)
     end)
 end)
 
-rmw.on("system.cpu", function(cpu)
+rmw.on("system.cpu", function(cpu: RmwCpu)
     table.insert(history, cpu.usage)
     if #history > 60 then
         table.remove(history, 1)

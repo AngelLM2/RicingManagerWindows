@@ -6,6 +6,7 @@ vcpkg_installed/
 # IDE / local settings
 .vs/
 .vscode/
+!plugins/template/.vscode/
 *.user
 CMakeUserPresets.json
 

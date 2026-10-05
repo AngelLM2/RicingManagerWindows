@@ -19,9 +19,12 @@ local function sky(code: number): string
     end
 end
 
-local widgets = {}
+-- The last reading, kept in rmw.storage.
+type Reading = { temperature: number, code: number, at: number }
 
-local function show(w, reading)
+local widgets: { [string]: RmwWidget } = {}
+
+local function show(w: RmwWidget, reading: Reading?)
     if not reading then
         w:set({ text = "…", tip = w.config.place })
         return
@@ -33,28 +36,28 @@ local function show(w, reading)
     })
 end
 
-local function key(w): string
+local function key(w: RmwWidget): string
     return string.format("%.2f,%.2f,%s", w.config.latitude, w.config.longitude, w.config.unit)
 end
 
-local function refresh(w)
+local function refresh(w: RmwWidget)
     local url = string.format(
         "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code&temperature_unit=%s",
         w.config.latitude,
         w.config.longitude,
         w.config.unit
     )
-    rmw.http.get(url, function(response)
+    rmw.http.get(url, function(response: RmwHttpResponse)
         if not response.ok then
             rmw.warn("weather: " .. (response.error or ("HTTP " .. response.status)))
             return
         end
-        local data = rmw.json.decode(response.body)
+        local data: any = rmw.json.decode(response.body)
         if not data or not data.current then
             rmw.warn("weather: unexpected answer")
             return
         end
-        local reading = {
+        local reading: Reading = {
             temperature = data.current.temperature_2m,
             code = data.current.weather_code,
             at = os.time(),

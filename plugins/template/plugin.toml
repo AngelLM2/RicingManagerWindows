@@ -1,0 +1,30 @@
+schema = 1
+
+[plugin]
+id          = "io.github.you.my-widget"
+name        = "My widget"
+version     = "0.1.0"
+api         = "^1.0"
+authors     = ["you"]
+license     = "MIT"
+description = "A widget for the Ricing Manager bar."
+kind        = ["bar.widget"]
+
+[permissions]
+providers = ["system.cpu"]
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui        = "widget.slint"
+component = "MyWidget"
+
+[widget.properties]
+text = "string"
+
+[widget.callbacks]
+clicked = []
+
+[config]
+prefix = { type = "string", default = "CPU ", label = "Text before the number" }
