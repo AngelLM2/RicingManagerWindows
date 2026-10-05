@@ -125,6 +125,8 @@ int HostApp::run()
 {
     std::filesystem::create_directories(m_options.planFile.parent_path());
     std::filesystem::create_directories(m_options.dataDirectory / L"plugin-data");
+    // Watched before the first read: a plan written in between is seen.
+    m_watches.push_back(std::make_unique<Watch>(std::string(), m_options.planFile.parent_path(), false));
     reloadPlan();
     while (!m_stop)
     {
@@ -336,8 +338,13 @@ void HostApp::load(const plugins::HostPlugin& plugin)
 
 void HostApp::watchDevFolders()
 {
-    m_watches.clear();
-    m_watches.push_back(std::make_unique<Watch>(std::string(), m_options.planFile.parent_path(), false));
+    // The plan's watch stays open: closed and opened again here, a plan the core writes meanwhile
+    // went unseen (and with it a plugin just turned on, until the next change of plan).
+    std::erase_if(m_watches, [](const auto& watch) { return !watch->plugin.empty(); });
+    if (m_watches.empty())
+    {
+        m_watches.push_back(std::make_unique<Watch>(std::string(), m_options.planFile.parent_path(), false));
+    }
     for (const auto& plugin : m_plan.plugins)
     {
         if (plugin.dev && m_watches.size() <= kMaxDevWatches)
