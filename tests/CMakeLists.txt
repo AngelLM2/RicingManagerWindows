@@ -19,6 +19,7 @@ add_executable(rmw_unit_tests
     unit/LogTests.cpp
     unit/MonitorSelectorTests.cpp
     unit/PathRulesTests.cpp
+    unit/PluginManifestTests.cpp
     unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
@@ -27,6 +28,7 @@ add_executable(rmw_unit_tests
     unit/SupervisorTests.cpp
     unit/UtfTests.cpp
     unit/WallpaperModuleTests.cpp
+    unit/WidgetSourceTests.cpp
     unit/Win32PortsTests.cpp
     unit/WinErrorTests.cpp
 )

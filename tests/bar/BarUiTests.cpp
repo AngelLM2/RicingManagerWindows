@@ -2,11 +2,14 @@
 #include "Widgets.hpp"
 
 #include "rmw/bar/Source.hpp"
+#include "rmw/bar/WidgetSource.hpp"
 
 #include <gtest/gtest.h>
 #include <slint-interpreter.h>
 #include <slint-platform.h>
 
+#include <filesystem>
+#include <fstream>
 #include <regex>
 
 // The bar's drawing without windows: a platform whose windows are only a renderer and a size.
@@ -201,6 +204,52 @@ TEST(BarSurface, TheStartZoneNeverRunsIntoTheCenter)
     const auto centerStart = instance->get_property("layout-center-start")->to_number().value();
     EXPECT_LE(startEnd, centerStart) << "the window list runs under the clock";
     EXPECT_GT(startEnd, 300.0); // and it still uses the room it has
+}
+
+TEST(PluginWidgetSource, WhatTheCheckerWritesCompiles)
+{
+    // The checker re-writes the source token by token: the result must still be Slint.
+    const auto folder = std::filesystem::temp_directory_path() / "rmw-widget-source-test";
+    std::filesystem::create_directories(folder / "icons");
+    {
+        std::ofstream(folder / "icons" / "play.svg")
+            << R"(<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>)";
+    }
+    constexpr std::string_view kWidget = R"slint(
+import { Button } from "std-widgets.slint";
+export struct Line { text: string, bold: bool }
+component Icon inherits Image { width: 16px; height: 16px; }
+export component NowPlaying inherits HorizontalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <string> title: "?";
+    in property <[Line]> lines;
+    callback toggle();
+    spacing: 6px;
+    Icon { source: @image-url("icons/play.svg"); }
+    Text { text: "\{root.title} (\{root.lines.length})"; color: root.foreground; }
+    for line[i] in root.lines: Text { text: line.text; font-weight: line.bold ? 700 : 400; }
+    for i in 3: Rectangle { width: 2px; background: #ff000080; }
+    Button { text: "x"; clicked => { root.toggle(); } }
+}
+)slint";
+    rmw::bar::WidgetSourceOptions options;
+    options.prefix = "Rmwp1";
+    options.component = "NowPlaying";
+    options.resolveImage = [&folder](std::string_view path) -> rmw::Result<std::string> {
+        return (folder / std::filesystem::path(path)).generic_string();
+    };
+    const auto checked = rmw::bar::checkWidgetSource(kWidget, "widget.slint", options);
+    ASSERT_TRUE(checked.has_value()) << checked.error().message();
+    std::string source = "import { Button } from \"std-widgets.slint\";\n" + checked->source;
+    source += std::format("export component Test inherits Window {{ width: 300px; height: 40px; {} {{ title: "
+                          "\"playing\"; lines: [{{ text: \"a\", bold: true }}]; }} }}\n",
+                          checked->component);
+    auto instance = compile(source);
+    HeadlessPlatform::last->resize(300, 40);
+    Surface surface;
+    HeadlessPlatform::last->draw(surface, false, [](bool) {});
+    std::filesystem::remove_all(folder);
 }
 
 TEST(BarClock, FormatsSafely)

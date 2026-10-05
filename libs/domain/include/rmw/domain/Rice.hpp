@@ -270,7 +270,14 @@ struct BarConfig
     std::vector<BarItem> left;
     std::vector<BarItem> center;
     std::vector<BarItem> right;
+    // A bar.skin plugin this bar starts from: the skin fills every key the bar leaves out.
+    std::string skin;
+    // The keys written in rice.toml (or in the skin's [skin]): "thickness", "left"...
+    std::vector<std::string> keys;
 };
+
+// The bar with what `skin` (a plugin's [skin]) writes and `bar` leaves out.
+[[nodiscard]] BarConfig applySkin(const BarConfig& bar, const BarConfig& skin);
 
 // ---- plugins ----------------------------------------------------------------------------------
 

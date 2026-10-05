@@ -7,6 +7,7 @@ rmw_add_library(bar
         src/Geometry.cpp
         src/Plan.cpp
         src/Source.cpp
+        src/WidgetSource.cpp
     PUBLIC_DEPS
         rmw::base
         rmw::domain

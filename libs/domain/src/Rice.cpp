@@ -2,6 +2,7 @@
 
 #include "EnumNames.hpp"
 
+#include <algorithm>
 #include <format>
 
 namespace rmw::domain
@@ -60,6 +61,76 @@ bool BarItem::isPlugin() const noexcept
 {
     // Built-in widgets never contain a dot; plugin ids are reverse-DNS.
     return id.find('.') != std::string::npos;
+}
+
+BarConfig applySkin(const BarConfig& bar, const BarConfig& skin)
+{
+    BarConfig merged = bar;
+    for (const std::string& key : skin.keys)
+    {
+        if (std::ranges::find(bar.keys, key) != bar.keys.end())
+        {
+            continue; // the rice's own choice wins
+        }
+        if (key == "position")
+        {
+            merged.position = skin.position;
+        }
+        else if (key == "mode")
+        {
+            merged.mode = skin.mode;
+        }
+        else if (key == "thickness")
+        {
+            merged.thickness = skin.thickness;
+        }
+        else if (key == "length")
+        {
+            merged.length = skin.length;
+        }
+        else if (key == "margin")
+        {
+            merged.margin = skin.margin;
+        }
+        else if (key == "radius")
+        {
+            merged.radius = skin.radius;
+        }
+        else if (key == "background")
+        {
+            merged.background = skin.background;
+        }
+        else if (key == "foreground")
+        {
+            merged.foreground = skin.foreground;
+        }
+        else if (key == "autohide")
+        {
+            merged.autohide = skin.autohide;
+        }
+        else if (key == "hide_native_taskbar")
+        {
+            merged.hideNativeTaskbar = skin.hideNativeTaskbar;
+        }
+        else if (key == "left")
+        {
+            merged.left = skin.left;
+        }
+        else if (key == "center")
+        {
+            merged.center = skin.center;
+        }
+        else if (key == "right")
+        {
+            merged.right = skin.right;
+        }
+        else
+        {
+            continue;
+        }
+        merged.keys.push_back(key);
+    }
+    return merged;
 }
 
 const PaletteEntry* Rice::findPalette(std::string_view name) const noexcept
