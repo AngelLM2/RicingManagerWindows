@@ -30,7 +30,12 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | Fase 0 — F0.6 testes + Windows Sandbox | ✅ GoogleTest (47 testes), `scripts/sandbox.ps1` |
 | Fase 0 — F0.7 CI | ✅ workflows prontos (rodam só após push) |
 | Fase 0 — F0.8/F0.9 comunidade + ADR-0001 | ✅ |
-| Spikes S0–S8 | 🔄 próximo: S6 |
+| S6 — mitigações | ✅ ADR-0002: ACG + extension points + carga de imagens + MicrosoftSignedOnly compatíveis |
+| S3 — barra nativa | ✅ ADR-0003: ajustes ao vivo (exceto alinhamento: reinício do Explorer); esconder/restaurar ok |
+| S5 — monitores/snapshot | ✅ ADR-0004: chave de identidade em níveis; restaurar wallpaper/slideshow ok |
+| S4 — aparência | ✅ ADR-0005: 199/200 alternâncias, ~200 ms; compatível com mitigações |
+| Spikes S1, S2, S7, S8 | 🔄 próximo: S1 (vídeo) |
+| S0 (CI) | ⏸ precisa de push |
 
 ## Registro
 
@@ -39,6 +44,10 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | 2026-10-05 | 0 — planejamento versionado | `plan/mvp` | docs 01–13 + este diário |
 | 2026-10-05 | F0.1 — build verde | `fix/green-build` | protótipo compila e linka |
 | 2026-10-05 | F0.2–F0.9 — fundação | `chore/build-system` | build moderno, libs base/platform/storage, CLI, 47 testes, CI, docs de comunidade, ADR-0001; binário com ASLR/DEP/CFG/CET/EH-continuation e só `KERNEL32.dll` importada |
+| 2026-10-05 | S6 | `spike/s6-mitigations` | ADR-0002 |
+| 2026-10-05 | S3 (Sandbox) | `spike/s3-taskbar` | ADR-0003 |
+| 2026-10-05 | S5 (host + Sandbox) | `spike/s5-monitors-snapshot` | ADR-0004 |
+| 2026-10-05 | S4 (Sandbox) | `spike/s4-appearance` | ADR-0005 |
 
 ## Pendências conhecidas
 
