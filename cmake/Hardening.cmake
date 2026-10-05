@@ -32,8 +32,15 @@ function(rmw_harden target)
         target_link_options(${target} PRIVATE /guard:cf /guard:ehcont /CETCOMPAT)
     endif()
     if(type STREQUAL "EXECUTABLE")
-        # Static imports resolve only from System32 (docs/06 §5).
-        target_link_options(${target} PRIVATE /DEPENDENTLOADFLAG:0x800)
+        # Static imports resolve only from System32 (docs/06 §5). Executables that ship a DLL
+        # next to them (rmw-settings with slint_cpp.dll) set RMW_APP_DIR_DLLS to also allow
+        # the application directory.
+        get_target_property(app_dir_dlls ${target} RMW_APP_DIR_DLLS)
+        if(app_dir_dlls)
+            target_link_options(${target} PRIVATE /DEPENDENTLOADFLAG:0xA00)
+        else()
+            target_link_options(${target} PRIVATE /DEPENDENTLOADFLAG:0x800)
+        endif()
     endif()
 
     if(RMW_SPECTRE)

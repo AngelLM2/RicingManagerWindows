@@ -17,22 +17,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'vsdev.ps1')
+. (Join-Path $PSScriptRoot 'env.ps1')
 
-$root = Split-Path $PSScriptRoot -Parent
-
-# Some vcpkg ports (meson-based ones such as tomlplusplus) break when vcpkg's default cache
-# folders under %LOCALAPPDATA% contain an apostrophe or a space (e.g. C:\Users\o'neil).
-# In that case keep vcpkg's downloads, binary cache and registry cache inside build\.vcpkg.
-if ($env:LOCALAPPDATA -match "['\s]") {
-    $vcpkgCache = Join-Path $root 'build\.vcpkg'
-    foreach ($name in 'downloads', 'archives', 'registries') {
-        New-Item -ItemType Directory -Force (Join-Path $vcpkgCache $name) | Out-Null
-    }
-    if (-not $env:VCPKG_DOWNLOADS) { $env:VCPKG_DOWNLOADS = Join-Path $vcpkgCache 'downloads' }
-    if (-not $env:VCPKG_DEFAULT_BINARY_CACHE) { $env:VCPKG_DEFAULT_BINARY_CACHE = Join-Path $vcpkgCache 'archives' }
-    if (-not $env:X_VCPKG_REGISTRIES_CACHE) { $env:X_VCPKG_REGISTRIES_CACHE = Join-Path $vcpkgCache 'registries' }
-}
+$root = $script:RepoRoot
 Push-Location $root
 try {
     $configureArgs = @('--preset', $Preset) + $CMakeArgs
