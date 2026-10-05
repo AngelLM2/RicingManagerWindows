@@ -232,11 +232,8 @@ BarApp::~BarApp()
 
 bool BarApp::start()
 {
-    if (!rebuild())
-    {
-        return false;
-    }
-    // The core rewrites the plan (atomically) when the rice changes: follow it.
+    // The core rewrites the plan (atomically) when the rice changes: follow it. Watched before the
+    // first read, so a plan written in between is seen.
     void* watch = FindFirstChangeNotificationW(m_planFile.parent_path().c_str(), FALSE,
                                                FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
     if (watch != INVALID_HANDLE_VALUE)
@@ -247,7 +244,7 @@ bool BarApp::start()
             scheduleRebuild();
         });
     }
-    return true;
+    return rebuild();
 }
 
 void BarApp::scheduleRebuild()

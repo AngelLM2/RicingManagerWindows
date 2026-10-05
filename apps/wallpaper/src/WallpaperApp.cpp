@@ -260,13 +260,17 @@ int WallpaperApp::run()
         log::error("wallpaper: no event window");
         return 1;
     }
-    if (!loadPlan())
-    {
-        return 0;
-    }
-    rebuild();
+    // Watched before the first read: a plan the core writes in between is seen.
     HANDLE watch = FindFirstChangeNotificationW(m_planFile.parent_path().c_str(), FALSE,
                                                 FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME);
+    if (!loadPlan())
+    {
+        m_quit = true;
+    }
+    else
+    {
+        rebuild();
+    }
     while (!m_quit)
     {
         const DWORD count = watch != INVALID_HANDLE_VALUE ? 1 : 0;

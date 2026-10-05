@@ -179,13 +179,15 @@ Check 'bar:status' ($status -match 'Bar: running') $status
 # Click: it comes to the front; again: it minimizes; again: it is back.
 $buttonX = 6 + 40 + 4 + 30 + 4 + 90
 $buttonY = $screen.Bottom - 22
+# Each click is asked of Windows, which animates: wait for each state (up to 2 s).
 Click $buttonX $buttonY
+Start-Sleep -Milliseconds 500
 $first = [Rmw.Win]::GetForegroundWindow()
 $firstTitle = Title $first
 Click $buttonX $buttonY
-$minimized = [Rmw.Win]::IsIconic($first)
+$minimized = Wait-Until { [Rmw.Win]::IsIconic($first) } 2
 Click $buttonX $buttonY
-$restored = -not [Rmw.Win]::IsIconic($first) -and [Rmw.Win]::GetForegroundWindow() -eq $first
+$restored = Wait-Until { -not [Rmw.Win]::IsIconic($first) -and [Rmw.Win]::GetForegroundWindow() -eq $first } 2
 Check 'bar:window-button-toggles' ($minimized -and $restored) "window='$firstTitle' minimized=$minimized restored=$restored"
 Shot 'bar-1b-window-list'
 
