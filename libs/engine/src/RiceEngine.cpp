@@ -307,6 +307,31 @@ Result<OperationReport> RiceEngine::applyAutomatic(const domain::Rice& rice,
     return run("automatic", label, std::move(*steps), AppliedUpdate::Merge, {}, true);
 }
 
+Result<OperationReport> RiceEngine::applyFields(std::string_view moduleId, const Json& fields,
+                                                const std::string& label)
+{
+    const IModuleLogic* module = m_catalog.find(moduleId);
+    if (module == nullptr)
+    {
+        return fail(ErrorCode::NotFound, std::format("unknown module '{}'", moduleId));
+    }
+    if (!fields.is_object() || fields.empty())
+    {
+        return fail(ErrorCode::InvalidArgument, "no fields to apply");
+    }
+    if (auto clean = undoOpenJournalIfAny(); !clean)
+    {
+        return propagate(clean);
+    }
+    if (auto base = ensureBaseSnapshot(); !base)
+    {
+        return propagate(base);
+    }
+    std::vector<Step> steps;
+    steps.push_back({module, fields, std::nullopt});
+    return run("automatic", label, std::move(steps), AppliedUpdate::Merge, {}, true);
+}
+
 Result<std::vector<std::string>> RiceEngine::driftedFields(std::string_view moduleId)
 {
     const IModuleLogic* module = m_catalog.find(moduleId);

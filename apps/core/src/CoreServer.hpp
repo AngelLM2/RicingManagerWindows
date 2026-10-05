@@ -17,6 +17,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -101,10 +102,14 @@ public:
     [[nodiscard]] Result<void> reapply(const std::vector<std::string>& modules);
     // Light or dark as the schedule says now. True when it changed something.
     [[nodiscard]] Result<bool> syncSchedule();
+    // The next page of the slideshow the core turns on one monitor ("monitor:<key>").
+    [[nodiscard]] Result<void> turnPage(const std::string& field);
     [[nodiscard]] Result<std::vector<std::string>> monitorKeys();
 
     // ---- any thread ----
     [[nodiscard]] std::optional<domain::AppearanceSchedule> schedule() const;
+    // Slideshows the core turns: {"monitor:<key>": {"items", "intervalMs", "shuffle"}}.
+    [[nodiscard]] ipc::Json rotation() const;
     [[nodiscard]] SafeModeReason safeMode() const noexcept { return m_safeMode; }
     // An operation is running or ended moments ago: change events are probably our own.
     [[nodiscard]] bool ownChangesSettling() const noexcept;
@@ -120,7 +125,9 @@ private:
     void acceptLoop(platform::PipeServer& server, const std::stop_token& stop);
     void handleClient(platform::PipeConnection connection);
     [[nodiscard]] Result<ipc::Json> dispatch(const ipc::Request& request);
-    [[nodiscard]] Result<ipc::Json> exclusive(const std::function<Result<ipc::Json>()>& operation);
+    // `changesWindows`: false for reads (inspect, export), which must not hide change events.
+    [[nodiscard]] Result<ipc::Json> exclusive(const std::function<Result<ipc::Json>()>& operation,
+                                              bool changesWindows = true);
     [[nodiscard]] Result<ipc::Json> onWindow(const std::function<ipc::Json()>& task);
     void notifyResident();
 
@@ -136,6 +143,7 @@ private:
     [[nodiscard]] Result<ipc::Json> autostart(const ipc::Json& params, bool change);
     [[nodiscard]] engine::IModuleRunner& runner() noexcept;
     void setSchedule(std::optional<domain::AppearanceSchedule> schedule);
+    void setRotation(const ipc::Json& plan);
 
     CoreOptions m_options;
     SafeModeReason m_safeMode = SafeModeReason::None;
@@ -152,6 +160,8 @@ private:
 
     mutable std::mutex m_scheduleMutex;
     std::optional<domain::AppearanceSchedule> m_schedule; // mirrors meta "appearance_schedule"
+    ipc::Json m_rotation = ipc::Json::object();           // mirrors meta "wallpaper_rotation"
+    std::mt19937 m_random{std::random_device{}()};        // shuffled slideshows (operation lock)
 
     // Set before the accept thread starts and cleared after every client thread is joined.
     platform::MessageWindow* m_window = nullptr;

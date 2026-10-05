@@ -128,8 +128,8 @@ Result<ChildProcess> ChildProcess::spawn(const std::filesystem::path& executable
             return std::unexpected(lastError("InitializeProcThreadAttributeList"));
         }
         if (UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-                                      inherit.data(), inherit.size() * sizeof(HANDLE), nullptr,
-                                      nullptr) == FALSE)
+                                      static_cast<void*>(inherit.data()), inherit.size() * sizeof(HANDLE),
+                                      nullptr, nullptr) == FALSE)
         {
             Error error = lastError("UpdateProcThreadAttribute");
             DeleteProcThreadAttributeList(startup.lpAttributeList);

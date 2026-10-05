@@ -203,6 +203,175 @@ Check 'crash:undone' ($diff.Count -eq 0) ($diff -join '; ')
 
 Invoke-Rmw @('shutdown') | Out-Null
 Start-Sleep -Seconds 2
+
+# ==== M2: resident =================================================================================
+Add-Type -Namespace Rmw -Name Input -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+public static extern bool SystemParametersInfoW(uint action, uint uiParam, string pvParam, uint winIni);
+'@
+$config = Join-Path $data 'config'
+$settings = Join-Path $config 'settings.toml'
+$hotkeySettings = @'
+[[hotkey]]
+keys = "F13"
+action = "appearance.toggle"
+'@
+
+function Wait-Until([scriptblock] $Condition, [int] $Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        if (& $Condition) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    return [bool](& $Condition)
+}
+
+function Stop-Core {
+    Invoke-Rmw @('shutdown') | Out-Null
+    for ($i = 0; $i -lt 100 -and (Get-Process rmw-core -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 }
+}
+
+function Get-Managed([string] $Module) {
+    $r = Invoke-Rmw @('inspect', $Module)
+    if ($r.code -ne 0) { return $null }
+    return @(($r.output | ConvertFrom-Json).managed)
+}
+
+# ---- 4. a global hotkey runs its action; settings.toml is picked up while the core runs ----------
+Remove-Item $settings -ErrorAction SilentlyContinue
+$r = Invoke-Rmw @('status') # a core with nothing to do
+Check 'resident:not-resident-without-settings' ($r.output -match 'Not resident') $r.output
+New-Item -ItemType Directory -Force $config | Out-Null
+$hotkeySettings | Out-File $settings -Encoding ascii
+$picked = Wait-Until { $s = Invoke-Rmw @('status'); $s.output -match 'F13 -> appearance.toggle' -and $s.output -notmatch 'not active' } 10
+$status = (Invoke-Rmw @('status')).output
+Check 'hotkey:settings-picked-up' $picked $status
+Check 'hotkey:resident' ($status -match 'Resident \(tray icon\)') $status
+$historyBefore = @((Invoke-Rmw @('history')).output -split "`n" | Where-Object { $_ -match '^#' }).Count
+$lightBefore = (Read-State).AppsLight
+[Rmw.Input]::keybd_event(0x7C, 0, 0, [UIntPtr]::Zero) # VK_F13 down
+[Rmw.Input]::keybd_event(0x7C, 0, 2, [UIntPtr]::Zero) # up
+$flipped = Wait-Until { "$((Read-State).AppsLight)" -ne "$lightBefore" } 15
+Check 'hotkey:toggled-appearance' $flipped "before=$lightBefore after=$((Read-State).AppsLight)"
+Start-Sleep -Seconds 1
+$historyAfter = @((Invoke-Rmw @('history')).output -split "`n" | Where-Object { $_ -match '^#' }).Count
+Check 'hotkey:recorded-in-history' ($historyAfter -eq $historyBefore + 1) "before=$historyBefore after=$historyAfter"
+$r = Invoke-Rmw @('restore', '--original', '--wait')
+Check 'hotkey:restore' ($r.code -eq 0) $r.output
+
+# ---- 5. dark mode switches by itself on schedule -------------------------------------------------
+while ((Get-Date).Second -gt 40) { Start-Sleep -Seconds 1 } # not right before a minute turns
+$now = Get-Date
+$lightAt = $now.AddMinutes(-2).ToString('HH:mm')
+$darkAt = $now.AddMinutes(1).ToString('HH:mm')
+$scheduled = Join-Path $Work 'scheduled'
+New-Item -ItemType Directory -Force $scheduled | Out-Null
+@"
+schema = 1
+
+[meta]
+name = "Scheduled"
+
+[appearance]
+mode = "schedule"
+
+[appearance.schedule]
+light_at = "$lightAt"
+dark_at = "$darkAt"
+"@ | Out-File (Join-Path $scheduled 'rice.toml') -Encoding ascii
+$r = Invoke-Rmw @('apply', $scheduled, '--wait')
+Check 'schedule:apply' ($r.code -eq 0) $r.output
+$state = Read-State
+Check 'schedule:light-now' ($state.AppsLight -eq 1 -and $state.SystemLight -eq 1) "apps=$($state.AppsLight) system=$($state.SystemLight) light=$lightAt dark=$darkAt"
+$status = (Invoke-Rmw @('status')).output
+Check 'schedule:in-status' ($status -match "light at $lightAt, dark at $darkAt") $status
+$historyBefore = @((Invoke-Rmw @('history')).output -split "`n" | Where-Object { $_ -match '^#' }).Count
+$started = Get-Date
+$dark = Wait-Until { $s = Read-State; $s.AppsLight -eq 0 -and $s.SystemLight -eq 0 } 100
+Check 'schedule:dark-on-time' $dark ("switched {0:N0} s after the apply (dark at {1})" -f ((Get-Date) - $started).TotalSeconds, $darkAt)
+$historyAfter = @((Invoke-Rmw @('history')).output -split "`n" | Where-Object { $_ -match '^#' }).Count
+Check 'schedule:no-history-entry' ($historyAfter -eq $historyBefore) "before=$historyBefore after=$historyAfter"
+$r = Invoke-Rmw @('restore', '--original', '--wait')
+$status = (Invoke-Rmw @('status')).output
+Check 'schedule:restore-ends-it' ($r.code -eq 0 -and $status -notmatch 'Appearance schedule') $status
+
+# ---- 6. changing the wallpaper in Windows detaches that field, without a fight -------------------
+$r = Invoke-Rmw @('apply', $rice, '--wait')
+Check 'drift:apply' ($r.code -eq 0) $r.output
+Start-Sleep -Seconds 6 # past the moment where changes are our own
+$managed = Get-Managed 'wallpaper'
+Check 'drift:wallpaper-managed-after-apply' (@($managed | Where-Object { $_ -like 'monitor:*' }).Count -gt 0) ($managed -join ', ')
+$outside = Join-Path $Work 'outside.bmp'
+[byte[]] $green = 0x42,0x4D,70,0,0,0,0,0,0,0,54,0,0,0,40,0,0,0,2,0,0,0,2,0,0,0,1,0,24,0,0,0,0,0,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,0
+[IO.File]::WriteAllBytes($outside, $green)
+$set = [Rmw.Input]::SystemParametersInfoW(0x14, 0, $outside, 3) # SPI_SETDESKWALLPAPER, update + broadcast
+$detached = Wait-Until { $m = Get-Managed 'wallpaper'; $null -ne $m -and @($m | Where-Object { $_ -like 'monitor:*' }).Count -eq 0 } 20
+Check 'drift:wallpaper-detached' $detached "set=$set managed=$((Get-Managed 'wallpaper') -join ', ')"
+Start-Sleep -Seconds 3
+$shownNow = (Invoke-Rmw @('inspect', 'wallpaper')).output
+Check 'drift:user-wallpaper-stays' ($shownNow -notmatch '\\\\store\\\\') $shownNow
+$cursorsManaged = Get-Managed 'cursors'
+Check 'drift:other-modules-still-managed' (@($cursorsManaged).Count -gt 0) ($cursorsManaged -join ', ')
+$r = Invoke-Rmw @('restore', '--original', '--wait')
+Check 'drift:restore' ($r.code -eq 0) $r.output
+
+# ---- 7. start with Windows only when asked ------------------------------------------------------
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$r = Invoke-Rmw @('autostart', 'on')
+$entry = (Get-ItemProperty $runKey -ErrorAction SilentlyContinue).RicingManagerWindows
+Check 'autostart:on' ($r.code -eq 0 -and "$entry" -like '*rmw-core.exe*--startup') "$($r.output) entry=$entry"
+$r = Invoke-Rmw @('autostart', 'status')
+Check 'autostart:status' ($r.output -match 'starts with Windows') $r.output
+$r = Invoke-Rmw @('autostart', 'off')
+$entry = (Get-ItemProperty $runKey -ErrorAction SilentlyContinue).RicingManagerWindows
+Check 'autostart:off' ($r.code -eq 0 -and $null -eq $entry) "$($r.output) entry=$entry"
+
+# ---- 8. --startup stays only when something needs it -------------------------------------------
+Stop-Core
+Remove-Item $settings -ErrorAction SilentlyContinue
+$p = Start-Process -FilePath $core -ArgumentList @('--data-dir', "`"$data`"", '--startup') -PassThru -WindowStyle Hidden
+$exited = $p.WaitForExit(15000)
+Check 'startup:exits-when-not-needed' ($exited -and $p.ExitCode -eq 0) "exited=$exited code=$($p.ExitCode)"
+$hotkeySettings | Out-File $settings -Encoding ascii
+$p = Start-Process -FilePath $core -ArgumentList @('--data-dir', "`"$data`"", '--startup') -PassThru -WindowStyle Hidden
+$stayed = -not $p.WaitForExit(4000)
+$status = (Invoke-Rmw @('status')).output
+Check 'startup:stays-when-needed' ($stayed -and $status -match 'Resident') $status
+Stop-Core
+
+# ---- 9. three starts that crash open safe mode ---------------------------------------------------
+foreach ($i in 1..3) {
+    $p = Start-Process -FilePath $core -ArgumentList @('--data-dir', "`"$data`"", '--startup', '--test-exit-unclean') -PassThru -WindowStyle Hidden
+    [void]$p.WaitForExit(20000)
+}
+$attempts = Get-Content (Join-Path $data 'startup-attempts') -ErrorAction SilentlyContinue
+Check 'safe-mode:crashes-counted' ("$attempts" -eq '3') "startup-attempts=$attempts"
+$p = Start-Process -FilePath $core -ArgumentList @('--data-dir', "`"$data`"", '--startup') -PassThru -WindowStyle Hidden
+Start-Sleep -Seconds 2
+$status = (Invoke-Rmw @('status')).output
+Check 'safe-mode:opens-after-3-crashes' ($status -match 'SAFE MODE \(the last starts crashed\)') $status
+Check 'safe-mode:no-hotkeys' ($status -match 'not active') $status
+Stop-Core
+Check 'safe-mode:clean-exit-resets' (-not (Test-Path (Join-Path $data 'startup-attempts'))) ''
+$status = (Invoke-Rmw @('status')).output
+Check 'safe-mode:next-start-is-normal' ($status -notmatch 'SAFE MODE') $status
+
+# ---- 10. Explorer restarts: what is ours is reapplied (diagnostic) -------------------------------
+$r = Invoke-Rmw @('apply', $rice, '--wait')
+Start-Sleep -Seconds 5
+Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+if (-not (Wait-Until { Get-Process explorer -ErrorAction SilentlyContinue } 20)) { Start-Process explorer.exe }
+Start-Sleep -Seconds 10
+$coreLog = Get-Content (Join-Path $data 'logs\core.log') -ErrorAction SilentlyContinue | Out-String
+$results.Add([pscustomobject]@{ name = 'diag:explorer-restart-seen'; ok = $true; detail = "seen=$($coreLog -match 'Explorer restarted')" })
+$r = Invoke-Rmw @('restore', '--original', '--wait')
+Check 'explorer:restore' ($r.code -eq 0) $r.output
+
+Remove-Item $settings -ErrorAction SilentlyContinue
+Stop-Core
+Start-Sleep -Seconds 1
 if (Test-Path (Join-Path $data 'logs')) { Copy-Item (Join-Path $data 'logs') (Join-Path $Out 'logs') -Recurse -Force }
 
 # ---- report -----------------------------------------------------------------------------------------

@@ -395,6 +395,30 @@ TEST_F(RiceEngineTest, AutomaticWorkLeavesWhatIsAlreadySoAlone)
     EXPECT_EQ(m_appearance.applyCount, appearanceApplies);
 }
 
+TEST_F(RiceEngineTest, FieldsChosenByTheCoreAreAnAutomaticChange)
+{
+    m_wallpaper.desired = wants({{"monitor:A", "rice-a.jpg"}, {"monitor:B", "rice-b.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    const auto historyBefore = m_state->history().value().size();
+
+    // The slideshow on monitor A turns a page; B and the history stay as they were.
+    const auto turned = m_engine->applyFields("wallpaper", Json{{"monitor:A", "page-2.jpg"}}, "Slideshow");
+    ASSERT_TRUE(turned.has_value()) << turned.error().toString();
+    EXPECT_EQ(turned->historyId, 0);
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "page-2.jpg");
+    EXPECT_EQ(m_wallpaper.fields()["monitor:B"], "rice-b.jpg");
+    EXPECT_EQ(m_state->applied("wallpaper").value()["monitor:A"], "page-2.jpg");
+    EXPECT_EQ(m_state->history().value().size(), historyBefore);
+
+    // Restoring the original still knows what monitor A had before the rice.
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_NE(m_wallpaper.fields()["monitor:A"], "page-2.jpg");
+
+    EXPECT_FALSE(m_engine->applyFields("nope", Json{{"x", 1}}, "x").has_value());
+    EXPECT_FALSE(m_engine->applyFields("wallpaper", Json::object(), "x").has_value());
+}
+
 TEST(ModuleCatalog, OrdersByDependencyAndRejectsBadGraphs)
 {
     FakeWorld world;

@@ -39,8 +39,9 @@ public:
             m_stream.put('\n');
             m_size += needed;
 
-            // Flush everything from Warn up immediately: those lines matter after a crash.
-            if (level >= Level::Warn)
+            // Flush everything from Info up at once: those lines matter after a crash, and the
+            // resident core logs rarely but runs for days (its log must be current while it runs).
+            if (level >= Level::Info)
             {
                 m_stream.flush();
             }
