@@ -1,0 +1,252 @@
+import { Button, ComboBox, LineEdit, ScrollView, SpinBox, Switch, Palette } from "std-widgets.slint";
+import { Api, PluginRow, ConfigField } from "../api.slint";
+import { Card, Chip, Hint, PageHeader, Problem, SettingRow, Metrics } from "../common.slint";
+import { Words } from "../words.slint";
+
+component PluginCard inherits Rectangle {
+    in property <PluginRow> plugin;
+    in property <int> index;
+    in property <bool> selected;
+    background: Palette.alternate-background;
+    border-radius: Metrics.radius;
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? Palette.accent-background : Palette.border;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: root.plugin.name;
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 8px;
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    Text {
+                        text: root.plugin.name;
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Palette.foreground;
+                        vertical-alignment: center;
+                    }
+
+                    Chip {
+                        text: Words.state(root.plugin.state);
+                        strong: root.plugin.state == "running";
+                        warn: root.plugin.state == "stopped" || root.plugin.state == "broken" || root.plugin.state == "needs-approval";
+                    }
+
+                    if root.plugin.dev: Chip {
+                        text: @tr("from its folder");
+                    }
+                }
+
+                Hint {
+                    text: root.plugin.id + " · " + root.plugin.version + (root.plugin.author != "" ? " · " + root.plugin.author : "");
+                }
+
+                if root.plugin.description != "": Text {
+                    text: root.plugin.description;
+                    wrap: word-wrap;
+                    color: Palette.foreground;
+                    font-size: Metrics.small-text;
+                }
+            }
+        }
+
+        if root.plugin.detail != "": Problem {
+            error: root.plugin.state != "needs-approval";
+            text: root.plugin.detail;
+        }
+
+        if root.plugin.permissions.length > 0: VerticalLayout {
+            spacing: 4px;
+            Hint {
+                text: @tr("It can:");
+            }
+
+            for permission in root.plugin.permissions: HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Chip {
+                    text: permission.sensitive ? @tr("sensitive") : @tr("ok");
+                    warn: permission.sensitive;
+                }
+
+                Text {
+                    text: permission.description;
+                    color: Palette.foreground;
+                    font-size: Metrics.small-text;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            if root.plugin.state == "needs-approval": Button {
+                text: @tr("Approve");
+                primary: true;
+                accessible-label: @tr("Approve what {} asks for", root.plugin.name);
+                clicked => {
+                    Api.plugin-approve(root.plugin.id);
+                }
+            }
+
+            if root.plugin.can-enable && (root.plugin.state == "off" || root.plugin.state == "stopped"): Button {
+                text: @tr("Turn on");
+                accessible-label: @tr("Turn on {}", root.plugin.name);
+                clicked => {
+                    Api.plugin-enable(root.plugin.id, true);
+                }
+            }
+
+            if root.plugin.can-enable && (root.plugin.state == "running" || root.plugin.state == "enabled"): Button {
+                text: @tr("Turn off");
+                accessible-label: @tr("Turn off {}", root.plugin.name);
+                clicked => {
+                    Api.plugin-enable(root.plugin.id, false);
+                }
+            }
+
+            if Api.editing: Button {
+                text: root.plugin.in-rice ? @tr("Remove from this rice") : @tr("Use in this rice");
+                accessible-label: root.plugin.in-rice ? @tr("Remove {} from this rice", root.plugin.name) : @tr("Use {} in this rice", root.plugin.name);
+                clicked => {
+                    Api.plugin-use(root.plugin.id, !root.plugin.in-rice);
+                }
+            }
+
+            if root.plugin.has-config && Api.editing: Button {
+                text: @tr("Settings");
+                accessible-label: @tr("Settings of {}", root.plugin.name);
+                clicked => {
+                    Api.plugin-selected(root.index);
+                }
+            }
+
+            Button {
+                text: @tr("Uninstall");
+                accessible-label: @tr("Uninstall {}", root.plugin.name);
+                clicked => {
+                    Api.confirm-what = "remove-plugin";
+                    Api.confirm-arg = root.plugin.id;
+                }
+            }
+        }
+    }
+}
+
+component FieldEditor inherits SettingRow {
+    in property <ConfigField> field;
+    label: root.field.label;
+    description: root.field.help;
+
+    if root.field.kind == 0 || root.field.kind == 5: LineEdit {
+        width: 220px;
+        text: root.field.value;
+        accessible-label: root.field.label;
+        accepted(text) => {
+            Api.plugin-config-edited(root.field.key, text);
+        }
+    }
+
+    if root.field.kind == 1 || root.field.kind == 2: LineEdit {
+        width: 120px;
+        text: root.field.value;
+        input-type: decimal;
+        accessible-label: root.field.label;
+        accepted(text) => {
+            Api.plugin-config-edited(root.field.key, text);
+        }
+    }
+
+    if root.field.kind == 3: Switch {
+        checked: root.field.value == "true";
+        accessible-label: root.field.label;
+        toggled => {
+            Api.plugin-config-edited(root.field.key, self.checked ? "true" : "false");
+        }
+    }
+
+    if root.field.kind == 4: ComboBox {
+        width: 220px;
+        model: root.field.choices;
+        current-value: root.field.value;
+        accessible-label: root.field.label;
+        selected(value) => {
+            Api.plugin-config-edited(root.field.key, value);
+        }
+    }
+}
+
+export component PluginsPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Plugins");
+            subtitle: @tr("Widgets, skins, tweaks, actions and rules made by the community. Scripts run apart, with only what you approve.");
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            Button {
+                text: @tr("Install from a folder…");
+                clicked => {
+                    Api.plugin-install();
+                }
+            }
+
+            Button {
+                text: @tr("Refresh");
+                clicked => {
+                    Api.plugins-refresh();
+                }
+            }
+        }
+
+        if Api.plugins.length == 0: Hint {
+            text: @tr("No plugins installed. Examples come in the plugins folder of Ricing Manager.");
+        }
+
+        if Api.selected-plugin >= 0 && Api.selected-plugin < Api.plugins.length && Api.editing: Card {
+            title: @tr("Settings of {} in “{}”", Api.plugins[Api.selected-plugin].name, Api.edit-name);
+            subtitle: @tr("Saved in the rice: each rice can set its plugins differently. Press Enter in a text box to save it.");
+
+            for field in Api.plugin-config: FieldEditor {
+                field: field;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                Button {
+                    text: @tr("Close");
+                    clicked => {
+                        Api.selected-plugin = -1;
+                    }
+                }
+            }
+        }
+
+        for plugin[index] in Api.plugins: PluginCard {
+            plugin: plugin;
+            index: index;
+            selected: index == Api.selected-plugin;
+        }
+    }
+}

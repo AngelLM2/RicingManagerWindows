@@ -1,0 +1,201 @@
+import { Button, ComboBox, LineEdit, ScrollView, Palette } from "std-widgets.slint";
+import { Api, HotkeyRow, RuleRow } from "../api.slint";
+import { Card, Hint, PageHeader, Problem, SettingRow, Metrics } from "../common.slint";
+import { Words } from "../words.slint";
+
+// The action of a hotkey or rule: picked from the list (plugins' actions too); rice.apply also
+// needs the rice.
+component ActionPicker inherits HorizontalLayout {
+    in property <string> action;
+    in property <string> rice;
+    in property <string> app-name;
+    callback picked(string /* action */);
+    callback pick-rice;
+    callback pick-app;
+    spacing: 8px;
+
+    ComboBox {
+        width: 260px;
+        model: Api.action-labels;
+        current-index: Api.action-index(root.action);
+        accessible-label: @tr("Action");
+        selected => {
+            root.picked(Api.actions[self.current-index].name);
+        }
+    }
+
+    if root.action == "rice.apply": Button {
+        text: root.rice == "" ? @tr("Choose the rice…") : @tr("Rice: {}", root.rice);
+        accessible-label: @tr("Choose the rice to apply");
+        clicked => {
+            root.pick-rice();
+        }
+    }
+
+    if root.action == "launch.app": Button {
+        text: root.app-name == "" ? @tr("Choose the app…") : @tr("App: {}", root.app-name);
+        accessible-label: @tr("Choose the app to open");
+        clicked => {
+            root.pick-app();
+        }
+    }
+}
+
+export component ShortcutsPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Hotkeys and rules");
+            subtitle: @tr("Keys that run an action anywhere in Windows, and actions that run by themselves.");
+        }
+
+        if Api.settings-problem != "": Problem {
+            text: @tr("settings.toml has a problem, so it is not changed from here until it is fixed: {}", Api.settings-problem);
+        }
+
+        Card {
+            title: @tr("Hotkeys");
+            subtitle: @tr("Like Win+Alt+D or Ctrl+Alt+N. Press Enter in the box to save it.");
+
+            for hotkey[index] in Api.hotkeys: VerticalLayout {
+                spacing: 4px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    LineEdit {
+                        width: 180px;
+                        text: hotkey.keys;
+                        placeholder-text: "Win+Alt+D";
+                        accessible-label: @tr("Keys");
+                        accepted(text) => {
+                            Api.hotkey-edited(index, { keys: text, action: hotkey.action, rice: hotkey.rice, app: hotkey.app, app-name: hotkey.app-name, problem: "" });
+                        }
+                    }
+
+                    ActionPicker {
+                        action: hotkey.action;
+                        rice: hotkey.rice;
+                        app-name: hotkey.app-name;
+                        picked(name) => {
+                            Api.hotkey-edited(index, { keys: hotkey.keys, action: name, rice: hotkey.rice, app: hotkey.app, app-name: hotkey.app-name, problem: "" });
+                        }
+                        pick-rice => {
+                            Api.pick-rice-for(0, index);
+                        }
+                        pick-app => {
+                            Api.pick-app-for(0, index);
+                        }
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+
+                    Button {
+                        text: @tr("Remove");
+                        accessible-label: @tr("Remove the hotkey {}", hotkey.keys);
+                        clicked => {
+                            Api.hotkey-remove(index);
+                        }
+                    }
+                }
+
+                if hotkey.problem != "": Problem {
+                    text: hotkey.problem;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: @tr("Add a hotkey");
+                    enabled: Api.settings-problem == "";
+                    clicked => {
+                        Api.hotkey-add();
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("Rules");
+            subtitle: @tr("At a time of day, on battery, when plugged in, or when a monitor is connected.");
+
+            for rule[index] in Api.rules-list: HorizontalLayout {
+                spacing: 8px;
+
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("At a time"), @tr("On battery"), @tr("Plugged in"), @tr("Monitor connected")];
+                    current-index: rule.when;
+                    accessible-label: @tr("When");
+                    selected => {
+                        Api.rule-list-edited(index, { when: self.current-index, at: rule.at == "" ? "19:00" : rule.at, monitor: rule.monitor == "" ? "all" : rule.monitor, action: rule.action, rice: rule.rice, app: rule.app, app-name: rule.app-name });
+                    }
+                }
+
+                if rule.when == 0: LineEdit {
+                    width: 90px;
+                    text: rule.at;
+                    placeholder-text: "19:00";
+                    accessible-label: @tr("Time");
+                    accepted(text) => {
+                        Api.rule-list-edited(index, { when: rule.when, at: text, monitor: rule.monitor, action: rule.action, rice: rule.rice, app: rule.app, app-name: rule.app-name });
+                    }
+                }
+
+                if rule.when == 3: ComboBox {
+                    width: 200px;
+                    model: Api.match-labels;
+                    current-index: Api.match-index(rule.monitor);
+                    accessible-label: @tr("Which monitor");
+                    selected => {
+                        Api.rule-list-edited(index, { when: rule.when, at: rule.at, monitor: Api.match-choices[self.current-index], action: rule.action, rice: rule.rice, app: rule.app, app-name: rule.app-name });
+                    }
+                }
+
+                ActionPicker {
+                    action: rule.action;
+                    rice: rule.rice;
+                    app-name: rule.app-name;
+                    picked(name) => {
+                        Api.rule-list-edited(index, { when: rule.when, at: rule.at, monitor: rule.monitor, action: name, rice: rule.rice, app: rule.app, app-name: rule.app-name });
+                    }
+                    pick-rice => {
+                        Api.pick-rice-for(1, index);
+                    }
+                    pick-app => {
+                        Api.pick-app-for(1, index);
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                Button {
+                    text: @tr("Remove");
+                    accessible-label: @tr("Remove this rule");
+                    clicked => {
+                        Api.rule-list-remove(index);
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: @tr("Add a rule");
+                    enabled: Api.settings-problem == "";
+                    clicked => {
+                        Api.rule-list-add();
+                    }
+                }
+            }
+        }
+    }
+}

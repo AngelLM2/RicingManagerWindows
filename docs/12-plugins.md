@@ -102,7 +102,7 @@ Declaradas no manifesto, **mostradas na instalação** e verificadas pelo host e
 | `network`: lista de domínios públicos (sem IPs nem nomes locais) | clima | **sim** — requisição feita pelo host, com limite de tamanho e frequência |
 | `storage` | lembrar preferências | não (cota de 1 MB) |
 
-Atualização que **aumenta** permissões exige nova aprovação; sem aprovação, o plugin fica instalado e o script não roda. Adiados: `system.gpu` (precisa de um provedor de sensores, Fase 3) e `launch.app` (só apps instalados, por ID — com a interface, M7).
+Atualização que **aumenta** permissões exige nova aprovação; sem aprovação, o plugin fica instalado e o script não roda. Adiado: `system.gpu` (precisa de um provedor de sensores, Fase 3). O `launch.app` chegou no M7: só apps instalados, pelo id da lista "Todos os apps" do Iniciar, sem argumentos.
 
 ## 6. Orçamentos por plugin (impostos pelo host)
 

@@ -26,6 +26,8 @@ add_executable(rmw_unit_tests
     unit/PluginTypesTests.cpp
     unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
+    unit/RiceWriterTests.cpp
+    unit/SettingsModelTests.cpp
     unit/ScopeExitTests.cpp
     unit/SettingsTests.cpp
     unit/StatementTests.cpp
@@ -43,6 +45,7 @@ target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/s
 target_link_libraries(rmw_unit_tests PRIVATE
     rmw::bar
     rmw::base
+    rmw::settings_model
     rmw::domain
     rmw::engine
     rmw::ipc

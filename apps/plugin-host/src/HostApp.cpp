@@ -539,6 +539,18 @@ void HostApp::action(const std::string& plugin, const std::string& name, const d
         }
         params["path"] = utf16To8Lossy(final->native());
     }
+    if (name == "launch.app")
+    {
+        // An installed app, by its id (the core checks it is one): never a path or arguments.
+        const auto* app = args.find("app");
+        const auto* id = app != nullptr ? std::get_if<std::string>(&app->data) : nullptr;
+        if (id == nullptr || id->empty())
+        {
+            rmw::log::warn("plugin host: {}: launch.app takes {{ app = \"<id of the app>\" }}", plugin);
+            return;
+        }
+        params["app"] = *id;
+    }
     rmw::log::info("plugin host: {} asks for {}", plugin, name);
     m_core->call("action.run",
                  Json{{"name", name}, {"params", std::move(params)}, {"plugin", plugin}, {"byUser", byUser}});

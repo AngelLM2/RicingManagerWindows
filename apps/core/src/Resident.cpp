@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <format>
 #include <utility>
 
@@ -319,17 +320,18 @@ void Resident::onTray(std::uint32_t id)
     switch (id)
     {
     case kTrayToggle:
-        queueAction({.name = "appearance.toggle", .ricePath = {}}, Origin::User);
+        queueAction({.name = "appearance.toggle", .ricePath = {}, .app = {}}, Origin::User);
         return;
     case kTrayRestore:
-        queueAction({.name = "restore.original", .ricePath = {}}, Origin::User);
+        queueAction({.name = "restore.original", .ricePath = {}, .app = {}}, Origin::User);
         return;
     case kTrayReload: {
         [[maybe_unused]] const Json reloaded = reloadSettings();
         return;
     }
     case kTrayBar:
-        queueAction({.name = m_core->barOff() ? "bar.on" : "bar.off", .ricePath = {}}, Origin::User);
+        queueAction({.name = m_core->barOff() ? "bar.on" : "bar.off", .ricePath = {}, .app = {}},
+                    Origin::User);
         return;
     case kTrayExit:
         log::info("exit from the tray");
@@ -625,6 +627,7 @@ void Resident::applySettings(LoadedSettings loaded)
     m_window->unregisterHotkeys();
     m_emergencyKey = false; // gone with the others; syncBar puts it back
     m_loaded = std::move(loaded);
+    setUiLanguage(m_loaded.settings.language);
     m_lastFired.clear(); // rule numbers may have changed
     m_hotkeyErrors.assign(m_loaded.settings.hotkeys.size(), std::string());
     std::vector<std::string> taken;
@@ -776,7 +779,7 @@ void Resident::emergency()
     m_core->stopBar();
     m_barStartedFor.reset();
     platform::showNativeTaskbars();
-    queueAction({.name = "bar.off", .ricePath = {}}, Origin::User);
+    queueAction({.name = "bar.off", .ricePath = {}, .app = {}}, Origin::User);
     const UiStrings& text = uiStrings();
     notify(text.barOffTitle, std::wstring(text.barOffText));
 }
@@ -938,11 +941,22 @@ Json Resident::status() const
     return m_status;
 }
 
+namespace
+{
+// 0 Windows' own, 1 English, 2 Portuguese. NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<int> g_uiLanguage{0};
+} // namespace
+
+void setUiLanguage(std::string_view language) noexcept
+{
+    g_uiLanguage = language == domain::kLanguageEnglish ? 1 : language == domain::kLanguagePortuguese ? 2 : 0;
+}
+
 const UiStrings& uiStrings() noexcept
 {
-    static const UiStrings& chosen =
-        PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_PORTUGUESE ? kPortuguese : kEnglish;
-    return chosen;
+    static const bool windowsPortuguese = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_PORTUGUESE;
+    const int chosen = g_uiLanguage.load();
+    return chosen == 1 ? kEnglish : chosen == 2 || windowsPortuguese ? kPortuguese : kEnglish;
 }
 
 } // namespace rmw::core

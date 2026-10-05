@@ -1,0 +1,337 @@
+import { Button, ComboBox, LineEdit, ScrollView, SpinBox, Switch, CheckBox, Palette } from "std-widgets.slint";
+import { Api, MonitorBox, WallRule } from "../api.slint";
+import { Card, Chip, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
+import { EditingBanner } from "editing.slint";
+import { Words } from "../words.slint";
+
+// The monitors as they sit, each with what it shows; clicking one picks its rule.
+component MonitorMap inherits Rectangle {
+    height: 190px;
+    border-radius: Metrics.radius;
+    background: Palette.foreground.transparentize(95%);
+
+    for box in Api.monitors: Rectangle {
+        x: 12px + box.x * (parent.width - 24px);
+        y: 12px + box.y * (parent.height - 24px);
+        width: box.w * (parent.width - 24px) - 6px;
+        height: box.h * (parent.height - 24px) - 6px;
+        border-radius: 6px;
+        clip: true;
+        background: Palette.alternate-background;
+        border-width: box.rule >= 0 && box.rule == Api.selected-rule ? 3px : 1px;
+        border-color: box.rule >= 0 && box.rule == Api.selected-rule ? Palette.accent-background : Palette.border;
+        accessible-role: AccessibleRole.button;
+        accessible-label: box.label;
+        accessible-action-default => {
+            area.clicked();
+        }
+
+        if box.has-preview: Image {
+            width: parent.width;
+            height: parent.height;
+            source: box.preview;
+            image-fit: cover;
+        }
+
+        Rectangle {
+            y: parent.height - 24px;
+            height: 24px;
+            background: #000000a0;
+
+            Text {
+                text: box.primary ? @tr("{} (main)", box.label) : box.label;
+                color: white;
+                font-size: Metrics.small-text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => {
+                if (box.rule >= 0) {
+                    Api.selected-rule = box.rule;
+                } else {
+                    Api.rule-add("edid:" + box.key);
+                }
+            }
+        }
+    }
+}
+
+component RuleEditor inherits VerticalLayout {
+    in property <int> index;
+    in property <WallRule> rule;
+    spacing: 10px;
+
+    SettingRow {
+        label: @tr("Monitor");
+        description: @tr("When several rules fit a monitor, the first one counts; “Every monitor” takes the rest.");
+        ComboBox {
+            width: 260px;
+            model: Api.match-labels;
+            current-index: root.rule.match-index;
+            accessible-label: @tr("Monitor");
+            selected => {
+                Api.rule-field(root.index, "match", Api.match-choices[self.current-index]);
+            }
+        }
+    }
+
+    SettingRow {
+        label: @tr("Kind");
+        ComboBox {
+            width: 260px;
+            model: [@tr("Image"), @tr("Slideshow (a folder)"), @tr("Video"), @tr("Solid color")];
+            current-index: root.rule.kind;
+            accessible-label: @tr("Kind of wallpaper");
+            selected => {
+                Api.rule-field(root.index, "kind", self.current-index);
+            }
+        }
+    }
+
+    if root.rule.kind != 3: SettingRow {
+        label: root.rule.kind == 1 ? @tr("Folder") : root.rule.kind == 2 ? @tr("Video file") : @tr("Image file");
+        description: root.rule.source == "" ? @tr("Nothing chosen yet. It is copied into the rice.") : root.rule.source;
+        Button {
+            text: @tr("Choose…");
+            accessible-label: @tr("Choose the wallpaper");
+            clicked => {
+                Api.rule-pick(root.index, 0);
+            }
+        }
+    }
+
+    if root.rule.kind == 2: SettingRow {
+        label: @tr("Image under the video");
+        description: root.rule.fallback == "" ? @tr("Shown while the video is paused or cannot play. Recommended.") : root.rule.fallback;
+        Button {
+            text: @tr("Choose…");
+            accessible-label: @tr("Choose the image under the video");
+            clicked => {
+                Api.rule-pick(root.index, 1);
+            }
+        }
+    }
+
+    if root.rule.kind != 3: SettingRow {
+        label: @tr("Fit");
+        ComboBox {
+            width: 260px;
+            model: root.rule.kind == 2 ? [@tr("Fill"), @tr("Fit"), @tr("Stretch"), @tr("Center")]
+                : [@tr("Fill"), @tr("Fit"), @tr("Stretch"), @tr("Center"), @tr("Tile")];
+            current-index: root.rule.fit;
+            accessible-label: @tr("Fit");
+            selected => {
+                Api.rule-field(root.index, "fit", self.current-index);
+            }
+        }
+    }
+
+    if root.rule.kind == 3: SettingRow {
+        label: @tr("Color");
+        description: @tr("#RRGGBB, then Enter.");
+        LineEdit {
+            width: 120px;
+            text: root.rule.color;
+            accessible-label: @tr("Wallpaper color");
+            accepted(text) => {
+                Api.rule-field(root.index, "color", text);
+            }
+        }
+    }
+
+    if root.rule.kind == 1: SettingRow {
+        label: @tr("Change every (minutes)");
+        SpinBox {
+            width: 140px;
+            minimum: 1;
+            maximum: 1440;
+            value: root.rule.interval;
+            accessible-label: @tr("Minutes between pictures");
+            edited(value) => {
+                Api.rule-field(root.index, "interval", value);
+            }
+        }
+    }
+
+    if root.rule.kind == 1: SettingRow {
+        label: @tr("Shuffle");
+        Switch {
+            checked: root.rule.shuffle;
+            accessible-label: @tr("Shuffle");
+            toggled => {
+                Api.rule-field(root.index, "shuffle", self.checked ? "true" : "false");
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: end;
+        Button {
+            text: @tr("Remove this rule");
+            accessible-label: @tr("Remove this wallpaper rule");
+            clicked => {
+                Api.rule-remove(root.index);
+            }
+        }
+    }
+}
+
+export component WallpapersPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Wallpapers");
+            subtitle: @tr("An image, a slideshow, a video or a color on each monitor.");
+        }
+
+        EditingBanner { }
+
+        if Api.editing: Card {
+            title: @tr("Monitors");
+            subtitle: @tr("Click a monitor to change what it shows.");
+
+            MonitorMap { }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Button {
+                    text: @tr("Add a rule for every monitor");
+                    clicked => {
+                        Api.rule-add("all");
+                    }
+                }
+
+                Button {
+                    text: @tr("Add a rule for the main monitor");
+                    clicked => {
+                        Api.rule-add("primary");
+                    }
+                }
+            }
+        }
+
+        if Api.editing && Api.rules.length > 0: Card {
+            title: @tr("Rules");
+
+            for rule[index] in Api.rules: Rectangle {
+                height: 54px;
+                border-radius: 6px;
+                background: index == Api.selected-rule ? Palette.accent-background.transparentize(85%)
+                    : touch.has-hover ? Palette.foreground.transparentize(95%) : transparent;
+                accessible-role: AccessibleRole.button;
+                accessible-label: rule.match-label;
+                accessible-action-default => {
+                    Api.selected-rule = index;
+                }
+
+                touch := TouchArea {
+                    clicked => {
+                        Api.selected-rule = index;
+                    }
+                }
+
+                HorizontalLayout {
+                    padding: 6px;
+                    spacing: 12px;
+
+                    Rectangle {
+                        width: 72px;
+                        border-radius: 4px;
+                        clip: true;
+                        background: rule.kind == 3 ? Palette.foreground.transparentize(80%) : Palette.foreground.transparentize(92%);
+
+                        if rule.has-preview: Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: rule.preview;
+                            image-fit: cover;
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: rule.match-label;
+                            color: Palette.foreground;
+                        }
+
+                        Hint {
+                            text: (rule.kind == 0 ? @tr("Image") : rule.kind == 1 ? @tr("Slideshow") : rule.kind == 2 ? @tr("Video") : @tr("Color"))
+                                + (rule.source != "" ? " · " + rule.source : rule.kind == 3 ? " · " + rule.color : "");
+                        }
+                    }
+                }
+            }
+        }
+
+        if Api.editing && Api.selected-rule >= 0 && Api.selected-rule < Api.rules.length: Card {
+            title: @tr("Rule for {}", Api.rules[Api.selected-rule].match-label);
+
+            RuleEditor {
+                index: Api.selected-rule;
+                rule: Api.rules[Api.selected-rule];
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("Videos");
+            subtitle: @tr("A video pauses when nobody would see it, and frees its memory after 2 minutes paused.");
+
+            SettingRow {
+                label: @tr("Pause while a game or video is fullscreen");
+                Switch {
+                    checked <=> Api.pause-fullscreen;
+                    accessible-label: @tr("Pause while a game or video is fullscreen");
+                    toggled => {
+                        Api.policy-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Pause on battery and energy saver");
+                Switch {
+                    checked <=> Api.pause-battery;
+                    accessible-label: @tr("Pause on battery and energy saver");
+                    toggled => {
+                        Api.policy-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Pause when a window covers the desktop");
+                Switch {
+                    checked <=> Api.pause-covered;
+                    accessible-label: @tr("Pause when a window covers the desktop");
+                    toggled => {
+                        Api.policy-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Frames per second, at most");
+                description: @tr("Fewer frames, less GPU. 30 is smooth for most videos.");
+                SpinBox {
+                    width: 140px;
+                    minimum: 1;
+                    maximum: 240;
+                    value <=> Api.fps-limit;
+                    accessible-label: @tr("Frames per second, at most");
+                    edited => {
+                        Api.policy-edited();
+                    }
+                }
+            }
+        }
+    }
+}

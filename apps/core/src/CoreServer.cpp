@@ -13,6 +13,7 @@
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/modules/Export.hpp"
 #include "rmw/modules/Wallpaper.hpp"
+#include "rmw/platform/Apps.hpp"
 #include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/Customizers.hpp"
 #include "rmw/platform/FileSystem.hpp"
@@ -41,12 +42,12 @@ constexpr auto kSendTimeout = 10s;
 // Windows keeps broadcasting our own change for a moment after an operation (docs/03 §5.2).
 constexpr auto kOwnChangesGrace = 4s;
 constexpr auto kWindowAnswer = 10s;
-constexpr std::array<std::string_view, 23> kMethods = {
+constexpr std::array<std::string_view, 24> kMethods = {
     "status.get",       "rice.validate",   "rice.apply",     "restore.original", "snapshot.list",
     "snapshot.restore", "monitors.list",   "action.run",     "action.list",      "module.inspect",
     "rice.export",      "settings.reload", "autostart.get",  "autostart.set",    "plugin.list",
     "plugin.approve",   "plugin.enable",   "plugin.disable", "plugin.dev",       "plugin.install",
-    "plugin.remove",    "plugin.status",   "plugin.report",
+    "plugin.remove",    "plugin.status",   "plugin.report",  "apps.list",
 };
 constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
@@ -1078,6 +1079,14 @@ Result<Json> CoreServer::perform(const domain::ActionCall& action, Origin origin
     {
         params["path"] = action.ricePath;
     }
+    if (!action.app.empty())
+    {
+        params["app"] = action.app;
+    }
+    if (action.name == "launch.app")
+    {
+        return runAction(action.name, params, origin); // changes nothing of ours: no lock
+    }
     const std::scoped_lock lock(m_operation); // automatic work waits its turn
     const OperationMark mark(*this);
     return runAction(action.name, params, origin);
@@ -1259,6 +1268,20 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     {
         return Json(kActions);
     }
+    if (method == "apps.list")
+    {
+        auto apps = platform::installedApps();
+        if (!apps)
+        {
+            return std::unexpected(std::move(apps.error()));
+        }
+        Json list = Json::array();
+        for (const auto& app : *apps)
+        {
+            list.push_back({{"id", app.id}, {"name", app.name}});
+        }
+        return list;
+    }
     if (method == "module.inspect")
     {
         return exclusive([&] { return inspect(request.params); }, false);
@@ -1334,11 +1357,18 @@ Result<Json> CoreServer::status()
     {
         schedule = {{"lightAt", timeText(current->lightAt)}, {"darkAt", timeText(current->darkAt)}};
     }
+    // The folders of the rice applied last and of the one before it (what rice.undo goes back to).
+    const auto metaText = [this](std::string_view key) -> Json {
+        auto value = m_state->meta(key);
+        return value && *value && !(*value)->empty() ? Json(**value) : Json(nullptr);
+    };
+    Json rice{{"current", metaText(kRiceCurrentMeta)}, {"previous", metaText(kRicePreviousMeta)}};
     const std::unique_lock probe(m_operation, std::try_to_lock);
     return Json{{"version", kVersion},
                 {"dataDirectory", utf8Path(m_options.dataDirectory)},
                 {"originalCapturedAt", *base ? Json((*base)->createdAt) : Json(nullptr)},
                 {"managedModules", *applied},
+                {"rice", std::move(rice)},
                 {"needsRestore", *needsRestore},
                 {"busy", !probe.owns_lock()},
                 {"safeMode", std::move(safeMode)},
@@ -1396,6 +1426,20 @@ Result<Json> CoreServer::runAction(std::string_view name, const Json& params, Or
             return fail(ErrorCode::NotFound, "no rice to go back to");
         }
         return applyRice(Json{{"path", **previous}}, origin);
+    }
+    if (name == "launch.app")
+    {
+        const std::string app = json::stringOr(params, "app", "");
+        if (app.empty())
+        {
+            return fail(ErrorCode::InvalidArgument, "launch.app needs 'app' (rmw apps lists them)");
+        }
+        if (auto launched = platform::launchApp(app); !launched)
+        {
+            return std::unexpected(std::move(launched.error()));
+        }
+        log::info("opened app {}", app);
+        return Json{{"launched", app}};
     }
     if (name == "wallpaper.next")
     {

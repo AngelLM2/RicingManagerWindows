@@ -34,6 +34,7 @@ constexpr auto kActions = std::to_array<PluginCapability>({
     {"rice.apply", false, "apply a rice that comes with the plugin"},
     {"rice.undo", false, "undo the last change of rice"},
     {"wallpaper.next", false, "show the next wallpaper of a slideshow"},
+    {"launch.app", false, "open apps installed on this PC (by their id, without arguments)"},
     {"bar.toggle", false, "show or hide the bar"},
     {"bar.on", false, "show the bar"},
     {"bar.off", false, "hide the bar"},

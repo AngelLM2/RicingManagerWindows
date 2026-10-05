@@ -1,0 +1,81 @@
+import { AboutSlint, ComboBox, ScrollView, Switch, Palette } from "std-widgets.slint";
+import { Api } from "../api.slint";
+import { Card, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
+
+export component SettingsPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Settings");
+            subtitle: @tr("Ricing Manager itself.");
+        }
+
+        Card {
+            title: @tr("Startup");
+
+            SettingRow {
+                label: @tr("Start with Windows");
+                description: @tr("Needed for schedules, hotkeys, rules, the bar and video wallpapers after you sign in.");
+                Switch {
+                    checked <=> Api.autostart;
+                    accessible-label: @tr("Start with Windows");
+                    toggled => {
+                        Api.autostart-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Keep the icon in the tray");
+                description: @tr("Ricing Manager stays running even when nothing needs it.");
+                Switch {
+                    checked <=> Api.keep-in-tray;
+                    accessible-label: @tr("Keep the icon in the tray");
+                    toggled => {
+                        Api.settings-edited();
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("Language");
+
+            SettingRow {
+                label: @tr("Language");
+                description: @tr("For this window and the tray menu.");
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Windows' language"), "English", "Português (Brasil)"];
+                    current-index <=> Api.language;
+                    accessible-label: @tr("Language");
+                    selected => {
+                        Api.settings-edited();
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("About");
+            subtitle: @tr("Ricing Manager for Windows {}", Api.version);
+
+            Text {
+                text: @tr("Free software under the GNU GPL, version 3 or later: you may use, study, share and change it. It comes with no warranty.");
+                wrap: word-wrap;
+                color: Palette.foreground;
+            }
+
+            Hint {
+                text: @tr("Built with Slint, toml++, nlohmann/json, SQLite, Luau and WIL. Their licenses are in the licenses folder next to the program.");
+            }
+
+            AboutSlint {
+                height: 120px;
+            }
+        }
+    }
+}

@@ -97,6 +97,7 @@ Cada nome precisa estar em `[permissions] actions`.
 | `rice.apply` | `{ rice = "<pasta>" }` | aplica um rice **que vem com o plugin** (uma pasta com `rice.toml` dentro da pasta do plugin) |
 | `rice.undo` | — | volta ao rice anterior (a última troca) |
 | `wallpaper.next` | — | próxima imagem do slideshow |
+| `launch.app` | `{ app = "<id>" }` | abre um app instalado pelo id da lista "Todos os apps" do Iniciar (`rmw apps` lista os ids); nunca um caminho ou argumentos |
 | `bar.toggle`, `bar.on`, `bar.off` | — | mostra/esconde a barra |
 | `appearance.toggle`, `appearance.dark`, `appearance.light` | — | modo escuro/claro |
 

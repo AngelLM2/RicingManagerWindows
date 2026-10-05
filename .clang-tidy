@@ -35,6 +35,8 @@ Checks: >
   readability-simplify-boolean-expr
 WarningsAsErrors: ''
 HeaderFilterRegex: '(libs|apps|tests)[/\\].*'
+# Generated code (the settings window's Slint header) lives in build\ and is not ours.
+ExcludeHeaderFilterRegex: '[/\\]build[/\\].*'
 FormatStyle: file
 CheckOptions:
   - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
