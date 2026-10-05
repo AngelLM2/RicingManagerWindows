@@ -11,6 +11,7 @@ add_executable(rmw_unit_tests
     unit/DatabaseTests.cpp
     unit/DomainValueTests.cpp
     unit/ErrorTests.cpp
+    unit/ExportTests.cpp
     unit/FileSystemTests.cpp
     unit/IpcTests.cpp
     unit/JsonTests.cpp

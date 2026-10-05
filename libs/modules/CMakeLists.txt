@@ -4,6 +4,7 @@ rmw_add_library(modules
     SOURCES
         src/Appearance.cpp
         src/Cursors.cpp
+        src/Export.cpp
         src/RegistryFields.cpp
         src/Taskbar.cpp
         src/Wallpaper.cpp
