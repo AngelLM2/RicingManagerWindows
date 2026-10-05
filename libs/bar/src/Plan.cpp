@@ -236,7 +236,7 @@ public:
 private:
     static Error badError(const std::string& path, std::string_view what)
     {
-        return Error(ErrorCode::InvalidData, std::format("bar plan: {}: {}", path, what));
+        return {ErrorCode::InvalidData, std::format("bar plan: {}: {}", path, what)};
     }
 
     static std::unexpected<Error> bad(const std::string& path, std::string_view what)
@@ -256,7 +256,7 @@ private:
                                         : Result<domain::Color>(fail(ErrorCode::InvalidData, "not a color"));
         if (!parsed)
         {
-            return bad(path, "expected \"#RRGGBB\" or \"#RRGGBBAA\"");
+            return bad(path, R"(expected "#RRGGBB" or "#RRGGBBAA")");
         }
         return std::optional<domain::ColorRef>(domain::ColorRef{*parsed});
     }

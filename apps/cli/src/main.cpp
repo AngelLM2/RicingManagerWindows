@@ -46,7 +46,8 @@ Commands:
   inspect <module>                      What Windows has now for a module (appearance,
                                         taskbar, cursors, wallpaper), as JSON
   action <name> [--path <folder>]       Run an action: rice.apply, restore.original,
-                                        appearance.toggle, appearance.dark, appearance.light
+                                        appearance.toggle, appearance.dark, appearance.light,
+                                        bar.on, bar.off
   settings reload                       Re-read config\settings.toml (hotkeys, rules, tray)
   autostart on|off|status               Start with Windows (a per-user Run entry; off until
                                         you turn it on)
@@ -537,6 +538,21 @@ int run(std::span<const std::string> args)
             out(std::format("Appearance schedule: light at {}, dark at {}",
                             json::stringOr(schedule, "lightAt", "?"),
                             json::stringOr(schedule, "darkAt", "?")));
+        }
+        const Json barStatus = json::memberOr(*status, "bar", Json::object());
+        if (json::boolOr(barStatus, "configured", false))
+        {
+            std::string state = json::boolOr(barStatus, "off", false) ? "off (rmw action bar.on)"
+                                : json::boolOr(barStatus, "disabled", false)
+                                    ? "stopped after failing too often"
+                                : json::boolOr(barStatus, "running", false)
+                                    ? std::format("running (pid {})", json::intOr(barStatus, "pid", 0))
+                                    : "starting";
+            if (const auto restarts = json::intOr(barStatus, "restarts", 0); restarts > 0)
+            {
+                state += std::format(", restarted {} time(s)", restarts);
+            }
+            out("Bar: " + state + " - Ctrl+Alt+Win+T brings Windows' taskbar back");
         }
         if (const auto slideshows = json::intOr(*status, "slideshows", 0); slideshows > 0)
         {

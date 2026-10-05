@@ -8,6 +8,7 @@
 #include "rmw/ipc/JsonRpc.hpp"
 #include "rmw/platform/MessageWindow.hpp"
 #include "rmw/platform/Pipe.hpp"
+#include "rmw/platform/Supervisor.hpp"
 
 #include <array>
 #include <atomic>
@@ -48,8 +49,9 @@ struct CoreOptions
 };
 
 // Actions are what hotkeys, rules, the tray, the CLI and (later) plugins call (docs/12).
-inline constexpr std::array<std::string_view, 5> kActions = {
-    "rice.apply", "restore.original", "appearance.toggle", "appearance.dark", "appearance.light",
+inline constexpr std::array<std::string_view, 7> kActions = {
+    "rice.apply",       "restore.original", "appearance.toggle", "appearance.dark",
+    "appearance.light", "bar.on",           "bar.off",
 };
 
 // Who asked: hotkeys, the tray and clients are the user (a history entry the user can go back
@@ -110,6 +112,14 @@ public:
     [[nodiscard]] std::optional<domain::AppearanceSchedule> schedule() const;
     // Slideshows the core turns: {"monitor:<key>": {"items", "intervalMs", "shuffle"}}.
     [[nodiscard]] ipc::Json rotation() const;
+    // The custom taskbar: the plan rmw-bar shows (JSON, also in <data>\bar\bars.json) and whether
+    // the user turned it off (the emergency hotkey, bar.off).
+    [[nodiscard]] std::optional<std::string> barPlan() const;
+    [[nodiscard]] bool barOff() const;
+    // The rmw-bar worker (window thread).
+    [[nodiscard]] Result<void> startBar();
+    void stopBar();
+    [[nodiscard]] ipc::Json barStatus() const;
     [[nodiscard]] SafeModeReason safeMode() const noexcept { return m_safeMode; }
     // An operation is running or ended moments ago: change events are probably our own.
     [[nodiscard]] bool ownChangesSettling() const noexcept;
@@ -144,6 +154,9 @@ private:
     [[nodiscard]] engine::IModuleRunner& runner() noexcept;
     void setSchedule(std::optional<domain::AppearanceSchedule> schedule);
     void setRotation(const ipc::Json& plan);
+    void setBarPlan(const std::optional<std::string>& plan);
+    void setBarOff(bool off);
+    void onWorkerEvent(const platform::WorkerEvent& event);
 
     CoreOptions m_options;
     SafeModeReason m_safeMode = SafeModeReason::None;
@@ -162,6 +175,9 @@ private:
     std::optional<domain::AppearanceSchedule> m_schedule; // mirrors meta "appearance_schedule"
     ipc::Json m_rotation = ipc::Json::object();           // mirrors meta "wallpaper_rotation"
     std::mt19937 m_random{std::random_device{}()};        // shuffled slideshows (operation lock)
+    std::optional<std::string> m_barPlan;                 // mirrors meta "bar_plan"
+    bool m_barOff = false;                                // mirrors meta "bar_off"
+    std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
 
     // Set before the accept thread starts and cleared after every client thread is joined.
     platform::MessageWindow* m_window = nullptr;

@@ -124,9 +124,21 @@ struct Supervisor::State
         options.memoryNotifyBytes = worker.spec.memoryLimitBytes / 10 * 8;
         options.completionPort = port.get();
         options.completionKey = key;
+        options.killOnClose = worker.spec.endsWithCore;
         options.inheritHandles = {mapping.get()};
-        const std::wstring arguments = std::format(L"{} --heartbeat {}", worker.spec.arguments,
-                                                   reinterpret_cast<std::uintptr_t>(mapping.get()));
+        std::wstring arguments = std::format(L"{} --heartbeat {}", worker.spec.arguments,
+                                             reinterpret_cast<std::uintptr_t>(mapping.get()));
+        wil::unique_handle core; // our copy closes after the spawn; the child keeps its own
+        if (!worker.spec.endsWithCore)
+        {
+            if (DuplicateHandle(GetCurrentProcess(), GetCurrentProcess(), GetCurrentProcess(), core.put(),
+                                SYNCHRONIZE, TRUE, 0) == FALSE)
+            {
+                return std::unexpected(lastError("DuplicateHandle(core)"));
+            }
+            options.inheritHandles.push_back(core.get());
+            arguments += std::format(L" --core {}", reinterpret_cast<std::uintptr_t>(core.get()));
+        }
         auto child = ChildProcess::spawn(worker.spec.executable, arguments, options);
         if (!child)
         {
@@ -345,7 +357,14 @@ Supervisor::~Supervisor()
         m_state->wake();
         m_state->thread.join();
     }
-    // Destroying the workers closes their jobs, which ends the processes (KILL_ON_JOB_CLOSE).
+    // Ended explicitly: a worker that outlives the core on purpose has no KILL_ON_JOB_CLOSE.
+    if (m_state)
+    {
+        for (auto& [name, worker] : m_state->workers)
+        {
+            worker->process.terminate();
+        }
+    }
 }
 
 Result<void> Supervisor::start(WorkerSpec spec)
@@ -354,7 +373,11 @@ Result<void> Supervisor::start(WorkerSpec spec)
     {
         const std::scoped_lock lock(m_state->mutex);
         auto& slot = m_state->workers[spec.name];
-        slot = std::make_unique<Worker>(std::move(spec)); // a previous one ends with its job
+        if (slot)
+        {
+            slot->process.terminate(); // the one it replaces
+        }
+        slot = std::make_unique<Worker>(std::move(spec));
         started = m_state->launch(*slot);
         if (!started)
         {
@@ -378,9 +401,10 @@ void Supervisor::stop(std::string_view name)
         gone = std::move(found->second);
         m_state->workers.erase(found);
     }
+    gone->process.terminate();
     m_state->wake();
     log::info("worker {} stopped", name);
-} // `gone` closes its job here
+}
 
 std::vector<WorkerStatus> Supervisor::status() const
 {

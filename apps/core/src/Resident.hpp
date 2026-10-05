@@ -53,6 +53,8 @@ public:
     // The schedule or the settings changed: residency, tray and timers follow.
     void refresh();
     [[nodiscard]] ipc::Json reloadSettings();
+    // The supervisor gave up on rmw-bar (it failed too often).
+    void onBarDisabled();
 
     // Any thread.
     [[nodiscard]] ipc::Json status() const;
@@ -72,6 +74,8 @@ private:
     [[nodiscard]] bool due(const std::string& key, domain::TimeOfDay at, std::int32_t now);
     void armSchedule();
     void syncPages();
+    void syncBar();
+    void emergency();
     void armPages();
     void onPagesTimer();
     void applySettings(LoadedSettings loaded);
@@ -104,7 +108,9 @@ private:
         std::chrono::steady_clock::time_point due;
         std::chrono::milliseconds interval{0};
     };
-    std::map<std::string, Pages> m_pages; // slideshows the core turns, per monitor field
+    std::map<std::string, Pages> m_pages;       // slideshows the core turns, per monitor field
+    std::optional<std::string> m_barStartedFor; // the plan rmw-bar was started with
+    bool m_emergencyKey = false;
 
     mutable std::mutex m_statusMutex;
     ipc::Json m_status;

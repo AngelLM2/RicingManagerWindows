@@ -1,5 +1,6 @@
 // rmw_test_worker.exe — a worker that misbehaves on purpose, for the supervisor tests (docs/03 §2.4):
-//   rmw_test_worker --mode ok|leak|hang|crash|exit [--heartbeat <handle>]
+//   rmw_test_worker --mode ok|leak|hang|crash|exit [--heartbeat <handle>] [--core <handle>]
+// With --core it exits (code 0) as soon as that process ends, like the bar does.
 // It beats on a 100 ms thread timer, like a window thread would; then, after half a second:
 //   leak   commits 8 MiB more on every beat
 //   hang   blocks its only thread forever
@@ -10,8 +11,10 @@
 
 #include <windows.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -36,6 +39,16 @@ int wmain(int argc, wchar_t** argv) // NOLINT(misc-use-internal-linkage): proces
         return 2;
     }
 
+    HANDLE core = nullptr;
+    for (std::size_t i = 0; i + 1 < args.size(); ++i)
+    {
+        if (args[i] == L"--core")
+        {
+            const auto value = std::wcstoull(std::wstring(args[i + 1]).c_str(), nullptr, 10);
+            core = reinterpret_cast<HANDLE>(value); // NOLINT(performance-no-int-to-ptr): inherited
+        }
+    }
+
     constexpr std::size_t kLeakStep = std::size_t{8} << 20;
     std::vector<std::unique_ptr<char[]>> leaked; // NOLINT(modernize-avoid-c-arrays): raw blocks
     SetTimer(nullptr, 0, 100, nullptr);
@@ -48,6 +61,10 @@ int wmain(int argc, wchar_t** argv) // NOLINT(misc-use-internal-linkage): proces
             continue;
         }
         heartbeat->beat();
+        if (core != nullptr && WaitForSingleObject(core, 0) == WAIT_OBJECT_0)
+        {
+            return 0;
+        }
         if (++ticks < 5)
         {
             continue;

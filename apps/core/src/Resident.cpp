@@ -9,6 +9,7 @@
 #include "rmw/base/Utf.hpp"
 #include "rmw/json/Json.hpp"
 #include "rmw/platform/FileSystem.hpp"
+#include "rmw/platform/NativeTaskbar.hpp"
 
 #include <windows.h>
 
@@ -44,7 +45,13 @@ enum TrayId : std::uint32_t
     kTrayReload,
     kTrayExit,
     kTraySafeMode,
+    kTrayBar,
 };
+
+// Always the same, documented chord: brings Windows' taskbar back whatever the bar does.
+constexpr std::uint32_t kEmergencyHotkey = 0xBF00;
+constexpr std::uint32_t kEmergencyModifiers = 0x2 | 0x1 | 0x8; // Ctrl+Alt+Win
+constexpr std::uint32_t kEmergencyKey = 'T';
 
 constexpr std::uint32_t kConfigWatch = 1;
 
@@ -310,6 +317,9 @@ void Resident::onTray(std::uint32_t id)
         [[maybe_unused]] const Json reloaded = reloadSettings();
         return;
     }
+    case kTrayBar:
+        queueAction({.name = m_core->barOff() ? "bar.on" : "bar.off", .ricePath = {}}, Origin::User);
+        return;
     case kTrayExit:
         log::info("exit from the tray");
         m_window->quit(0);
@@ -321,6 +331,11 @@ void Resident::onTray(std::uint32_t id)
 
 void Resident::onHotkey(std::uint32_t id)
 {
+    if (id == kEmergencyHotkey)
+    {
+        emergency();
+        return;
+    }
     const auto& hotkeys = m_loaded.settings.hotkeys;
     if (id == 0 || id > hotkeys.size())
     {
@@ -597,6 +612,7 @@ Json Resident::reloadSettings()
 void Resident::applySettings(LoadedSettings loaded)
 {
     m_window->unregisterHotkeys();
+    m_emergencyKey = false; // gone with the others; syncBar puts it back
     m_loaded = std::move(loaded);
     m_lastFired.clear(); // rule numbers may have changed
     m_hotkeyErrors.assign(m_loaded.settings.hotkeys.size(), std::string());
@@ -627,7 +643,7 @@ void Resident::applySettings(LoadedSettings loaded)
 void Resident::refresh()
 {
     const bool resident = safe() || m_loaded.settings.needsResidency() || m_core->schedule().has_value() ||
-                          !m_core->rotation().empty();
+                          !m_core->rotation().empty() || m_core->barPlan().has_value();
     if (resident != m_resident)
     {
         log::info("{}", resident ? "resident" : "not resident: exits when idle");
@@ -645,6 +661,71 @@ void Resident::refresh()
     }
     armSchedule();
     syncPages();
+    syncBar();
+    publishStatus();
+}
+
+void Resident::syncBar()
+{
+    const auto plan = m_core->barPlan();
+    const bool wanted = !safe() && plan.has_value() && !m_core->barOff();
+    if (!wanted)
+    {
+        if (m_barStartedFor)
+        {
+            m_core->stopBar();
+            m_barStartedFor.reset();
+        }
+        if (m_emergencyKey)
+        {
+            m_window->unregisterHotkey(kEmergencyHotkey);
+            m_emergencyKey = false;
+        }
+        // Also after a crash of everything: Windows' taskbar is never left hidden.
+        platform::showNativeTaskbars();
+        return;
+    }
+    if (!m_emergencyKey)
+    {
+        if (auto registered = m_window->registerHotkey(kEmergencyHotkey, kEmergencyModifiers, kEmergencyKey);
+            !registered)
+        {
+            log::warn("emergency hotkey Ctrl+Alt+Win+T: {}", registered.error().toString());
+        }
+        else
+        {
+            m_emergencyKey = true;
+        }
+    }
+    // A running bar follows the plan file by itself; a new plan restarts one that gave up.
+    if (m_barStartedFor && (*m_barStartedFor == *plan || json::boolOr(m_core->barStatus(), "running", false)))
+    {
+        m_barStartedFor = plan;
+        return;
+    }
+    if (auto started = m_core->startBar(); !started)
+    {
+        log::error("the bar did not start: {}", started.error().toString());
+    }
+    m_barStartedFor = plan;
+}
+
+void Resident::emergency()
+{
+    log::warn("emergency hotkey: the bar is off and Windows' taskbar is back");
+    // Right now, on this thread: an operation may be running and the bar may be hung.
+    m_core->stopBar();
+    m_barStartedFor.reset();
+    platform::showNativeTaskbars();
+    queueAction({.name = "bar.off", .ricePath = {}}, Origin::User);
+    const UiStrings& text = uiStrings();
+    notify(text.barOffTitle, std::wstring(text.barOffText));
+}
+
+void Resident::onBarDisabled()
+{
+    const UiStrings& text = uiStrings();
+    notify(text.barOffTitle, std::wstring(text.barDisabledText));
     publishStatus();
 }
 
@@ -713,6 +794,11 @@ void Resident::showTray()
     {
         menu.push_back({.id = kTrayToggle, .label = std::wstring(text.toggleAppearance)});
         menu.push_back({.id = kTrayRestore, .label = std::wstring(text.restoreOriginal)});
+        if (m_core->barPlan())
+        {
+            menu.push_back(
+                {.id = kTrayBar, .label = std::wstring(m_core->barOff() ? text.barOn : text.barOff)});
+        }
         menu.push_back({});
         menu.push_back({.id = kTrayReload, .label = std::wstring(text.reloadSettings)});
     }
