@@ -112,8 +112,9 @@ TEST(CursorsSystem, CapturesAndAppliesTheScheme)
 
     const auto before = system.capture();
     ASSERT_TRUE(before.has_value());
+    // Windows' own cursor: marked so the snapshot points at it instead of copying it.
     EXPECT_EQ(before->state["Arrow"],
-              (Json{{"type", "expand"}, {"data", R"(%SystemRoot%\cursors\aero_arrow.cur)"}}));
+              (Json{{"type", "expand"}, {"data", R"(%SystemRoot%\cursors\aero_arrow.cur)"}, {"keep", true}}));
     EXPECT_EQ(before->state["Help"], nullptr);
     EXPECT_EQ(before->state["scheme"]["data"], "Windows Default");
     EXPECT_EQ(before->state["schemeSource"], 2);

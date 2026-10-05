@@ -185,8 +185,10 @@ Result<void> CursorsLogic::internalize(Json& state, engine::IAssetSink& assets) 
             continue;
         }
         const std::string path = (*field)["data"].get<std::string>();
+        const bool keep = json::boolOr(*field, "keep", false);
+        field->erase("keep");
         // Windows' own cursors never go away; anything with %VARS% we cannot resolve here.
-        if (path.empty() || startsWithIgnoreCase(path, "%SystemRoot%") ||
+        if (keep || path.empty() || startsWithIgnoreCase(path, "%SystemRoot%") ||
             startsWithIgnoreCase(path, "%windir%") || path.find('%') != std::string::npos)
         {
             continue;
@@ -220,7 +222,12 @@ Result<engine::CaptureResult> CursorsSystem::capture()
         {
             return std::unexpected(std::move(value.error()));
         }
-        result.state[std::string(name)] = stringField(*value);
+        Json field = stringField(*value);
+        if (field.is_object() && m_shell.isWindowsFile(field["data"].get<std::string>()))
+        {
+            field["keep"] = true; // Windows' own cursor: never copied
+        }
+        result.state[std::string(name)] = std::move(field);
     }
     auto scheme = m_registry.read(kCursors, "");
     if (!scheme)

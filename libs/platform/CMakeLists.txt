@@ -7,6 +7,7 @@ rmw_add_library(platform
         src/Console.cpp
         src/FileSystem.cpp
         src/Pipe.cpp
+        src/Process.cpp
         src/ProcessHardening.cpp
         src/Win32Display.cpp
         src/Win32Registry.cpp

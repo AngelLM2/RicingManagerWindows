@@ -431,6 +431,10 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         auto applied = m_runner.apply(id, step.desired);
         if (applied)
         {
+            if (m_afterModule)
+            {
+                m_afterModule(id);
+            }
             continue;
         }
         Error error = std::move(applied.error()).withContext(std::format("apply {}", id));
@@ -476,7 +480,9 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         else
         {
             // Record what Windows actually holds now (it may normalize what we wrote).
-            auto after = m_runner.capture(id);
+            // Same shape as every other capture (markers such as "keep" resolved), so later
+            // three-way comparisons compare like with like.
+            auto after = captureInternalized(*step.module);
             for (const auto& [field, value] : step.desired.items())
             {
                 const bool captured = after && after->state.is_object() && after->state.contains(field);

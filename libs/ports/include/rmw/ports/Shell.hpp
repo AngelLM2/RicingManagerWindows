@@ -23,6 +23,10 @@ public:
     // Cursor size in pixels (32..256, step 16), applied live.
     [[nodiscard]] virtual Result<void> setCursorSize(std::uint32_t pixels) = 0;
 
+    // True for files Windows ships (under the Windows folder, %VARS% expanded): a snapshot
+    // keeps pointing at them instead of copying them.
+    [[nodiscard]] virtual bool isWindowsFile(std::string_view file) = 0;
+
     // Native taskbar auto-hide (SHAppBarMessage ABM_GETSTATE / ABM_SETSTATE).
     [[nodiscard]] virtual Result<bool> taskbarAutoHide() = 0;
     [[nodiscard]] virtual Result<void> setTaskbarAutoHide(bool enabled) = 0;

@@ -1,4 +1,5 @@
 #include "rmw/base/Utf.hpp"
+#include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/Win32Ports.hpp"
 #include "rmw/platform/WinError.hpp"
 
@@ -6,6 +7,7 @@
 
 #include <shellapi.h>
 
+#include <array>
 #include <format>
 
 namespace rmw::platform
@@ -45,7 +47,10 @@ Result<void> Win32Shell::broadcastSettingChange(std::string_view area)
 
 Result<void> Win32Shell::reloadCursors()
 {
-    if (SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) == FALSE)
+    // The values are already in the registry. With SPIF_UPDATEINIFILE | SPIF_SENDCHANGE this call
+    // returns FALSE with no error even though it worked (measured in Windows Sandbox, 25H2), so
+    // it is made without flags.
+    if (SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, 0) == FALSE)
     {
         return std::unexpected(lastError("SPI_SETCURSORS"));
     }
@@ -62,11 +67,28 @@ Result<void> Win32Shell::setCursorSize(std::uint32_t pixels)
     // The size goes in pvParam itself, not behind a pointer.
     auto* const size =
         reinterpret_cast<PVOID>(static_cast<UINT_PTR>(pixels)); // NOLINT(performance-no-int-to-ptr)
-    if (SystemParametersInfoW(kSpiSetCursorBaseSize, 0, size, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) == FALSE)
+    if (SystemParametersInfoW(kSpiSetCursorBaseSize, 0, size, 0) ==
+        FALSE) // the module writes CursorBaseSize itself
     {
         return std::unexpected(lastError("set cursor size"));
     }
     return {};
+}
+
+bool Win32Shell::isWindowsFile(std::string_view file)
+{
+    auto wide = utf8To16(file);
+    if (!wide)
+    {
+        return false;
+    }
+    std::array<wchar_t, 32'768> expanded{};
+    const DWORD length =
+        ExpandEnvironmentStringsW(wide->c_str(), expanded.data(), static_cast<DWORD>(expanded.size()));
+    std::array<wchar_t, MAX_PATH> windows{};
+    const UINT windowsLength = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
+    return length > 0 && length <= expanded.size() && windowsLength > 0 &&
+           isWithin(std::wstring(expanded.data()), std::wstring(windows.data(), windowsLength));
 }
 
 Result<bool> Win32Shell::taskbarAutoHide()
