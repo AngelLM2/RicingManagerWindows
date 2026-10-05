@@ -10,3 +10,4 @@ under `docs/adr/`, which is what matters.
 | S3 — native taskbar (run in Windows Sandbox only) | `s3-taskbar/` | [ADR-0003](../docs/adr/0003-s3-barra-nativa.md) |
 | S5 — monitor identity (host, read-only) and wallpaper snapshot (Sandbox only) | `s5-monitors-snapshot/` | [ADR-0004](../docs/adr/0004-s5-identidade-de-monitor-e-snapshot.md) |
 | S4 — live light/dark + accent via IThemeManager2 (Sandbox only) | `s4-appearance/` | [ADR-0005](../docs/adr/0005-s4-aparencia-ao-vivo.md) |
+| S1 — video wallpaper (`host` safe on the host; `desktop` Sandbox only) | `s1-video/` | [ADR-0006](../docs/adr/0006-s1-wallpaper-em-video.md) |
