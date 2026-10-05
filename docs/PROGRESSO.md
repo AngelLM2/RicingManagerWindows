@@ -32,7 +32,7 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | **Spikes** | ✅ 8 de 9 concluídos (ADR-0002 a ADR-0009); **S0 (CI) aguarda push** |
 | **M1 — Motor** | ✅ `v0.1.0-alpha` (tag local): core + `--apply-helper` + CLI; 4 módulos; 203 testes de unidade (debug/ASan/Sandbox) + suíte de sistema na Sandbox com os 4 critérios de aceite |
 | **M2 — Residente** | ✅ `v0.2.0-alpha` (tag local): core residente (janela + eventos do sistema), `settings.toml` com atalhos e regras, aparência agendada, slideshow por monitor, drift ao vivo, bandeja só quando residente, `--startup`/autostart, supervisor de workers, modo seguro; 222 testes de unidade (debug/release/ASan/Sandbox) + 54 verificações de sistema na Sandbox |
-| **M3 — Barra** | 🟡 implementado na branch `feat/bar` (ADR-0010): `rmw-bar` com janela própria (AppBar, DPI, camada com alfa / acrylic / mica), 11 widgets embutidos, barra nativa escondida e sempre devolvida, atalho de emergência, auto-ocultar, recarga ao salvar o rice; aceites verificados na Sandbox. **Falta o teste real no seu PC** (DPI misto, 2 monitores, mica/acrylic com transparência), que pede a sua permissão |
+| **M3 — Barra** | ✅ `v0.3.0-alpha` (tag local) — testado no seu PC (sem DPI misto nem 2 monitores, que o PC não tem) — implementado (ADR-0010): `rmw-bar` com janela própria (AppBar, DPI, camada com alfa / acrylic / mica), 11 widgets embutidos, barra nativa escondida e sempre devolvida, atalho de emergência, auto-ocultar, recarga ao salvar o rice; aceites verificados na Sandbox. M4 — Plugins é o próximo |
 
 ### Resultado dos spikes
 
@@ -79,10 +79,12 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | 2026-10-05 | M3 — `rmw-bar` | `feat/bar` | Slint sobre loop Win32 próprio; translucidez por duas passadas (o renderizador só escreve RGB); supervisor com worker que sobrevive ao core para devolver a barra nativa. **Achados:** o Slint limpa o quadro para preto mesmo com fundo `transparent` (daí o *matte* preto/branco); o `run_event_loop` padrão sai quando a última janela some (a reconstrução após reiniciar o Explorer fechava a barra); `Screen.WorkingArea` do .NET fica em cache sem fila de mensagens (o teste passou a usar `SPI_GETWORKAREA`); `CaptureBlt` é recusado como enum pelo `CopyFromScreen` |
 | 2026-10-05 | M3 — widgets e acabamento | `feat/bar` | lista de janelas, áreas de trabalho, mídia (C++/WinRT do SDK), CPU/RAM/rede, bateria, volume, notificações; auto-ocultar; recarga ao salvar o `rice.toml`; a CLI substitui um core de outra versão. ✅ Sandbox (suíte `bar`): reserva/flutuante/duas barras, nativa escondida, matar a barra → nativa de volta em 120–240 ms, atalho de emergência, reinício do Explorer, `restore`; 9,1 MB e ~0% de CPU. **Achado:** a versão do projeto ficou em 0.1.0 durante o M2 (a tag é `v0.2.0-alpha`); agora 0.3.0 |
 
+| 2026-10-05 | M3 — teste real no seu PC | `fix/bar-real-test` | ✅ barra, widgets, ícones dos seus apps, mídia do Spotify, kill → nativa de volta em 153 ms, emergência, `restore` completo. **Achados:** a lista de janelas passava por baixo do relógio do centro; a mica do DWM fica clara e chapada numa janela sem foco. Os dois foram corrigidos e conferidos no seu PC |
+
 ## Pendências conhecidas
 
 - **S0 (CI)** só pode rodar com push — aguardando autorização ("OK com push").
-- Testes reais na sua máquina (fim do M3, M5, M6) — vou pedir permissão na hora. **M3:** pronto para o teste; conferir DPI misto, dois monitores, mica/acrylic com transparência ligada, ícones de apps da Store.
+- Testes reais na sua máquina (fim do M3, M5, M6) — vou pedir permissão na hora. **M3:** feito; DPI misto e dois monitores ficam para quando houver esse hardware.
 - Meta de 90 MB do renderizador de vídeo (M6).
 - Wallpaper: ajuste diferente por monitor precisa de pré-renderização (WIC no `--apply-helper`); por enquanto vale o ajuste da primeira regra (o parser avisa).
 - Slideshow por monitor feito pelo core: coberto por testes de unidade; o teste de ponta a ponta precisa de 2 monitores (a Sandbox tem 1) — conferir no teste real do fim do M3.

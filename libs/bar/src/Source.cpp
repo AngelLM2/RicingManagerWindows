@@ -81,32 +81,51 @@ GeneratedBar generateBarSource(const domain::BarConfig& bar, std::span<const Wid
     }
 
     // Three zones on one surface: start, center and end, like Waybar. The center one stays
-    // centered whatever the other two hold.
+    // centered whatever the other two hold; the start and end ones never run into it (or into
+    // each other): they get what is left, and their widgets shrink to fit (window buttons elide
+    // their titles).
     const std::string_view layout = horizontal ? "HorizontalLayout" : "VerticalLayout";
     const std::string_view along = horizontal ? "width" : "height";
     const std::string_view across = horizontal ? "height" : "width";
     const std::string_view axis = horizontal ? "x" : "y";
     const std::string_view startPadding = horizontal ? "padding-left" : "padding-top";
     const std::string_view endPadding = horizontal ? "padding-right" : "padding-bottom";
+    const bool hasCenter = !zones[1].empty();
+    const bool hasEnd = !zones[2].empty();
+    // Where the start zone must stop, and how much room the end zone has after the center.
+    const std::string startLimit = hasCenter ? std::format("center-zone.{} - 8px", axis)
+                                   : hasEnd  ? std::format("end-zone.{} - 8px", axis)
+                                             : std::format("parent.{}", along);
+    const std::string endLimit =
+        hasCenter ? std::format("parent.{0} - center-zone.{1} - center-zone.{0} - 8px", along, axis)
+                  : std::format("parent.{}", along);
     const std::array<std::string, 3> placement = {
-        std::format("{}: 0px; {}: 6px;", axis, startPadding),
-        std::format("{0}: (parent.{1} - self.{1}) / 2;", axis, along),
-        std::format("{0}: parent.{1} - self.{1}; {2}: 6px;", axis, along, endPadding),
+        std::format("{0}: min(self.preferred-{0}, {1}); {2}: 0px; {3}: 6px;", along, startLimit, axis,
+                    startPadding),
+        std::format("{0}: min(self.preferred-{0}, parent.{0}); {1}: (parent.{0} - self.{0}) / 2;", along,
+                    axis),
+        std::format("{0}: min(self.preferred-{0}, {1}); {2}: parent.{0} - self.{0}; {3}: 6px;", along,
+                    endLimit, axis, endPadding),
     };
+    constexpr std::array<std::string_view, 3> kZoneIds = {"start-zone", "center-zone", "end-zone"};
 
     std::string root(kRootHeader);
     root += declarations;
+    // Where the zones ended up (for tests and diagnostics).
+    root += std::format("    out property <length> layout-start-end: start-zone.{0} + start-zone.{1};\n"
+                        "    out property <length> layout-center-start: center-zone.{0};\n",
+                        axis, along);
     root += "    Rectangle {\n"
             "        background: root.bar-background;\n"
             "        border-radius: root.bar-radius;\n";
     for (std::size_t zone = 0; zone < zones.size(); ++zone)
     {
-        root += std::format("        {} {{\n"
-                            "            {}: self.preferred-{}; {}: parent.{}; {}\n"
+        root += std::format("        {} := {} {{\n"
+                            "            {} {}: parent.{};\n"
                             "            spacing: 4px;\n"
                             "{}"
                             "        }}\n",
-                            layout, along, along, across, across, placement[zone], zones[zone]);
+                            kZoneIds[zone], layout, placement[zone], across, across, zones[zone]);
     }
     root += "    }\n}\n";
 

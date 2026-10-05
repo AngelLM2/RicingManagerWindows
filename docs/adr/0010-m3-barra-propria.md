@@ -13,7 +13,7 @@
 3. **Apresentação.**
    - Sólida, transparente e cantos arredondados: janela *layered* (`UpdateLayeredWindow`, alfa por pixel). Pixels totalmente transparentes deixam o mouse passar.
    - Acrylic: janela normal, com `SetWindowCompositionAttribute(ACCENT_ENABLE_ACRYLICBLURBEHIND)`. A API não é documentada, mas é estável desde o Windows 10; é a única que mantém o acrylic numa janela que nunca recebe foco. Ela é aplicada **na nossa janela** (sem injeção); se faltar, só o tom é desenhado.
-   - Mica: `DWMWA_SYSTEMBACKDROP_TYPE`. Num Windows real, conferir no teste do fim do M3 se ela não fica com a aparência "inativa".
+   - Mica: o acrylic acima, sob um tom espesso do tema (80%). O `DWMWA_SYSTEMBACKDROP_TYPE` foi testado e descartado no teste real (ver abaixo): a mica do DWM só aparece na janela com foco, e a barra nunca tem foco, então ela ficava clara e chapada, com o texto ilegível no modo escuro.
 
 4. **O `rmw-bar` sobrevive a um crash do core, de propósito.** O doc 03 §2.3 diz que os workers morrem com o core (`KILL_ON_JOB_CLOSE`). A barra é a exceção: se morresse junto, a barra nativa ficaria escondida até o Explorer reiniciar. O Job dela não tem `KILL_ON_JOB_CLOSE`; ela recebe `--core <handle>`, vigia o processo do core e, quando ele some, mostra a barra nativa e sai. O supervisor continua com teto de memória, heartbeat e backoff, e a encerra explicitamente ao parar.
 
@@ -44,8 +44,20 @@
 | CPU parada (relógio por segundo) | 0,00–0,16% | ~0% |
 | `rmw-bar` morto → barra nativa de volta | 120–240 ms | < 3 s |
 
-## A confirmar no teste real (fim do M3, com permissão)
+## Teste real (PC do dono do projeto, com permissão, 2026-10-05)
 
-- DPI misto e dois monitores (a Sandbox tem um monitor a 100%).
-- Mica e acrylic num Windows com transparência ligada; o Iniciar do 25H2 (ADR-0003).
-- Ícones de apps da Store, que vêm do `ApplicationFrameHost` e podem ficar sem ícone (melhoria futura: ícone por AppUserModelID).
+Um monitor 1920×1080 a 100%, modo escuro, transparência ligada, build release, numa pasta de dados separada; no fim, `restore` devolveu tudo (barra nativa, área de trabalho, auto-ocultar).
+
+| | Resultado |
+|---|---|
+| Barra sólida com todos os widgets | ✅ reserva 44 px; a nativa fica escondida; os ícones dos apps aparecem (Spotify, Teams, Discord e Claude, inclusive os da Store); a mídia mostra o que o Spotify toca |
+| Memória / CPU (release) | `rmw-bar` com 11,7 MB privados e 0,00% em 10 s; `rmw-core` com 2,3 MB |
+| `rmw-bar` morto | a nativa volta em **153 ms**; a barra reinicia e a esconde de novo |
+| Ctrl+Alt+Win+T e `bar.on` | ✅ |
+| Acrylic | ✅ |
+| **Achado:** muitas janelas abertas | a lista passava por baixo do relógio do centro → as zonas das pontas agora param antes do centro e a lista encolhe (teste novo `TheStartZoneNeverRunsIntoTheCenter`) |
+| **Achado:** mica | clara e chapada (a do DWM é "inativa" sem foco) → agora é acrylic sob um tom do tema. As cores que o rice não define seguem o claro/escuro do Windows, e a barra se refaz quando o tema muda |
+
+**Não verificado:** DPI misto e dois monitores (o PC tem um monitor só). O código trata DPI por monitor (`WM_DPICHANGED`, `GetDpiForMonitor`) e uma barra por monitor, mas isso continua sem teste em hardware.
+
+Melhoria futura: ícones de apps da Store que não respondem a `WM_GETICON` (ícone por AppUserModelID).
