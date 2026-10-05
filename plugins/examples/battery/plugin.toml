@@ -1,0 +1,34 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.battery"
+name        = "Battery"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = "The bar's built-in battery widget, written as a plugin. Hidden on a desktop PC."
+kind        = ["bar.widget"]
+
+[permissions]
+providers = ["battery"]
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui        = "widget.slint"
+component = "Battery"
+
+[widget.properties]
+level    = "float"
+text     = "string"
+charging = "bool"
+shown    = "bool"
+warn     = "bool"
+low      = "color"
+
+[config]
+low_at = { type = "int", default = 20, min = 5, max = 50, label = "Low below (%)" }
+low    = { type = "color", default = "#ff6b6b", label = "Color when low" }

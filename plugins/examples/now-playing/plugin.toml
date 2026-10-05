@@ -1,0 +1,38 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.now-playing"
+name        = "Now playing"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = "What Windows is playing, with previous, play/pause and next."
+kind        = ["bar.widget"]
+
+[permissions]
+providers = ["media"]
+actions   = ["media.control"]
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui        = "widget.slint"
+component = "NowPlaying"
+
+[widget.properties]
+title   = "string"
+playing = "bool"
+shown   = "bool"
+limit   = "length"
+
+[widget.callbacks]
+toggle   = []
+next     = []
+previous = []
+
+[config]
+show_artist = { type = "bool", default = true, label = "Show the artist" }
+max_width   = { type = "int", default = 260, min = 120, max = 600, label = "Width at most (px)" }

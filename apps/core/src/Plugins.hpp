@@ -26,6 +26,11 @@ struct RicePlugins
 {
     std::vector<std::string> required;
     std::vector<std::pair<std::string, domain::Value>> settings;
+    // The rice's palette ("base" -> "#1a1b26") and accent: plugin settings may name them.
+    std::vector<std::pair<std::string, std::string>> palette;
+    std::string accent; // "#RRGGBB"; empty: Windows' own
+
+    [[nodiscard]] static RicePlugins of(const domain::Rice& rice);
 
     [[nodiscard]] const domain::Value* settingsOf(std::string_view id) const noexcept;
 };

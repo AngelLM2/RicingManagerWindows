@@ -659,6 +659,7 @@ Result<void> CoreServer::reloadBars()
     {
         return std::unexpected(std::move(plan.error()));
     }
+    m_plugins->setRicePlugins(RicePlugins::of(*loaded->rice)); // its plugin settings may have changed too
     setBarPlan(bar::toJson(*plan));
     return {};
 }
@@ -1284,16 +1285,7 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
         report->warnings.push_back(std::move(note));
     }
     // What the rice asks of plugins; and which rice to go back to (rice.undo).
-    RicePlugins ricePlugins;
-    for (const auto& requirement : rice.pluginRequirements)
-    {
-        ricePlugins.required.push_back(requirement.id);
-    }
-    for (const auto& settings : rice.pluginSettings)
-    {
-        ricePlugins.settings.emplace_back(settings.id, settings.config);
-    }
-    m_plugins->setRicePlugins(std::move(ricePlugins));
+    m_plugins->setRicePlugins(RicePlugins::of(rice));
     const std::string folderText = utf8Path(loaded->folder);
     if (auto current = m_state->meta(kRiceCurrentMeta); current && *current && **current != folderText)
     {

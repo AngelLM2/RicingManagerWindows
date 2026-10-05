@@ -1,0 +1,24 @@
+// The time, and the date under it when there is one.
+export component Clock inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <string> time;
+    in property <string> date;
+    min-width: column.preferred-width + 16px;
+    min-height: 32px;
+    column := VerticalLayout {
+        alignment: center;
+        Text {
+            text: root.time;
+            color: root.foreground;
+            font-size: root.date == "" ? 13px : 12px;
+            horizontal-alignment: center;
+        }
+        if root.date != "": Text {
+            text: root.date;
+            color: root.foreground.transparentize(25%);
+            font-size: 10px;
+            horizontal-alignment: center;
+        }
+    }
+}

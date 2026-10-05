@@ -66,6 +66,55 @@ bool isText(const Json& item, std::string_view value)
     return item.is_string() && item.get<std::string>() == value;
 }
 
+// Windows' accent color (DWM keeps it as ABGR), for "palette.accent" when the rice sets none.
+std::string systemAccent()
+{
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\DWM)", L"AccentColor",
+                     RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
+    {
+        return "#0078d4";
+    }
+    return std::format("#{:02x}{:02x}{:02x}", value & 0xFFU, (value >> 8U) & 0xFFU, (value >> 16U) & 0xFFU);
+}
+
+// "palette.<name>" in a color setting becomes the rice's color: a plugin gets colors it can show.
+void resolveColors(const domain::ConfigSchema& schema, domain::Value& config, const RicePlugins& rice)
+{
+    auto* members = std::get_if<domain::Value::Table>(&config.data);
+    if (members == nullptr)
+    {
+        return;
+    }
+    constexpr std::string_view kPrefix = "palette.";
+    for (auto& member : *members)
+    {
+        const auto* field = schema.find(member.key);
+        auto* text = std::get_if<std::string>(&member.value.data);
+        if (field == nullptr || field->type != domain::ConfigType::Color || text == nullptr ||
+            !text->starts_with(kPrefix))
+        {
+            continue;
+        }
+        const std::string name = text->substr(kPrefix.size());
+        const auto found = std::ranges::find(rice.palette, name, &std::pair<std::string, std::string>::first);
+        if (found != rice.palette.end())
+        {
+            *text = found->second;
+        }
+        else if (name == "accent")
+        {
+            *text = rice.accent.empty() ? systemAccent() : rice.accent;
+        }
+        else
+        {
+            const auto* fallback = std::get_if<std::string>(&field->defaultValue.data);
+            *text = fallback != nullptr && !fallback->starts_with(kPrefix) ? *fallback : systemAccent();
+        }
+    }
+}
+
 // A link, a junction or any other reparse point: never followed while copying a plugin.
 bool isReparsePoint(const std::filesystem::path& path)
 {
@@ -81,6 +130,28 @@ bool contains(const Json& list, std::string_view value)
 }
 
 } // namespace
+
+RicePlugins RicePlugins::of(const domain::Rice& rice)
+{
+    RicePlugins plugins;
+    for (const auto& requirement : rice.pluginRequirements)
+    {
+        plugins.required.push_back(requirement.id);
+    }
+    for (const auto& settings : rice.pluginSettings)
+    {
+        plugins.settings.emplace_back(settings.id, settings.config);
+    }
+    for (const auto& entry : rice.palette)
+    {
+        plugins.palette.emplace_back(entry.name, entry.color.toHex());
+    }
+    if (rice.appearance && rice.appearance->accent)
+    {
+        plugins.accent = rice.appearance->accent->toHex();
+    }
+    return plugins;
+}
 
 const domain::Value* RicePlugins::settingsOf(std::string_view id) const noexcept
 {
@@ -492,7 +563,15 @@ void PluginManager::setRicePlugins(RicePlugins rice)
     {
         settings[id] = json::fromValue(value);
     }
-    setMetaJson(kRiceMeta, Json{{"required", rice.required}, {"settings", std::move(settings)}});
+    Json palette = Json::object();
+    for (const auto& [name, color] : rice.palette)
+    {
+        palette[name] = color;
+    }
+    setMetaJson(kRiceMeta, Json{{"required", rice.required},
+                                {"settings", std::move(settings)},
+                                {"palette", std::move(palette)},
+                                {"accent", rice.accent}});
 }
 
 RicePlugins PluginManager::ricePlugins()
@@ -518,6 +597,21 @@ RicePlugins PluginManager::ricePlugins()
             }
         }
     }
+    const Json palette = json::memberOr(stored, "palette", Json::object());
+    if (palette.is_object())
+    {
+        for (const auto& [name, color] : palette.items())
+        {
+            if (color.is_string() && domain::Color::parse(color.get<std::string>()))
+            {
+                rice.palette.emplace_back(name, color.get<std::string>());
+            }
+        }
+    }
+    if (const std::string accent = json::stringOr(stored, "accent", ""); domain::Color::parse(accent))
+    {
+        rice.accent = accent;
+    }
     return rice;
 }
 
@@ -531,6 +625,7 @@ domain::Value PluginManager::settingsFor(const domain::PluginManifest& manifest,
     {
         log::warn("plugins: {}: {}", diagnostic.key, diagnostic.message);
     }
+    resolveColors(manifest.config, resolved, rice);
     return resolved;
 }
 
@@ -562,11 +657,7 @@ Result<bar::Plan> PluginManager::barPlan(const domain::Rice& rice)
     {
         return plan;
     }
-    RicePlugins settings;
-    for (const auto& entry : rice.pluginSettings)
-    {
-        settings.settings.emplace_back(entry.id, entry.config);
-    }
+    const RicePlugins settings = RicePlugins::of(rice);
     for (auto& config : plan->bars)
     {
         for (auto* zone : {&config.left, &config.center, &config.right})

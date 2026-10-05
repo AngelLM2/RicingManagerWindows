@@ -1,0 +1,38 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.weather"
+name        = "Weather"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = "The temperature and the sky where you are, from Open-Meteo (no account needed)."
+kind        = ["bar.widget"]
+
+# The only address it reaches; requests go through the plugin host (docs/12 §6).
+[permissions]
+network = ["api.open-meteo.com"]
+storage = true
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui        = "widget.slint"
+component = "Weather"
+
+[widget.properties]
+text = "string"
+tip  = "string"
+
+[widget.callbacks]
+clicked = []
+
+[config]
+place     = { type = "string", default = "Lisboa", max_length = 40, label = "Place (only shown)" }
+latitude  = { type = "float", default = 38.72, min = -90, max = 90, label = "Latitude" }
+longitude = { type = "float", default = -9.14, min = -180, max = 180, label = "Longitude" }
+unit      = { type = "choice", choices = ["celsius", "fahrenheit"], default = "celsius", label = "Unit" }
+minutes   = { type = "int", default = 15, min = 5, max = 180, label = "Refresh every (minutes)" }

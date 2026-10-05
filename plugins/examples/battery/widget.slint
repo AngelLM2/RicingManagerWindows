@@ -1,0 +1,43 @@
+// A battery outline filled to its level (red when low), then the percentage.
+export component Battery inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <float> level;
+    in property <string> text;
+    in property <bool> charging;
+    in property <bool> shown;
+    in property <bool> warn;
+    in property <color> low: #ff6b6b;
+    visible: root.shown;
+    min-width: root.shown ? row.preferred-width + 12px : 0px;
+    min-height: root.shown ? 32px : 0px;
+    row := HorizontalLayout {
+        padding-left: 6px;
+        spacing: 6px;
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 22px;
+                height: 11px;
+                border-width: 1px;
+                border-radius: 2px;
+                border-color: root.foreground;
+                Rectangle {
+                    x: 2px;
+                    y: 2px;
+                    width: (parent.width - 4px) * min(1, max(0, root.level));
+                    height: parent.height - 4px;
+                    border-radius: 1px;
+                    background: root.warn ? root.low : root.foreground;
+                }
+            }
+        }
+        Text {
+            text: root.charging ? root.text + " +" : root.text;
+            color: root.foreground;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}
