@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'vsdev.ps1')
 
 $root = Split-Path $PSScriptRoot -Parent
-$files = Get-ChildItem -Path (Join-Path $root 'libs'), (Join-Path $root 'apps'), (Join-Path $root 'tests') `
+$files = Get-ChildItem -Path (Join-Path $root 'libs'), (Join-Path $root 'apps'), (Join-Path $root 'tests'), (Join-Path $root 'fuzz') `
     -Recurse -Include '*.cpp', '*.hpp', '*.h' -File |
     Where-Object { $_.FullName -notmatch '\\(build|vcpkg_installed)\\' } |
     ForEach-Object { $_.FullName }

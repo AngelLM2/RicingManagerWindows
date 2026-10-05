@@ -71,3 +71,30 @@ jobs:
           name: test-logs-${{ matrix.preset }}
           path: build/${{ matrix.preset }}/Testing/Temporary/
           retention-days: 7
+
+  fuzz-smoke:
+    name: fuzz (60 s per target)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/triplets/**') }}
+          restore-keys: vcpkg-
+
+      - name: Build and fuzz
+        shell: pwsh
+        run: ./scripts/fuzz.ps1 -Seconds 60
+
+      - name: Upload what was found
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-findings
+          path: |
+            build/fuzz/crashes/
+            build/fuzz/*.log
+          retention-days: 14
