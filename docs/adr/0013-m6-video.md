@@ -64,9 +64,9 @@
 
 | Medida | Resultado |
 |---|---|
-| Suíte `video` | 24/24 |
-| Tocando: memória (*Private Bytes*) | **45,9–46,6 MB** (S1 com o `IMFMediaEngine`, na Sandbox: 54 MB; no host: 106 MB — a meta de 90 MB no seu PC se confere no teste real) |
-| Tocando: CPU | 0,30–0,49% (o critério de "não seguir" é 5%; o doc 01 pede ≤ 3%) |
+| Suíte `video` | 25/25, duas rodadas seguidas |
+| Tocando: memória (*Private Bytes*) | **45,3–46,6 MB** (S1 com o `IMFMediaEngine`, na Sandbox: 54 MB; no host: 106 MB — a meta de 90 MB no seu PC se confere no teste real) |
+| Tocando: CPU | 0,30–0,49% (0,42% na segunda rodada) (o critério de "não seguir" é 5%; o doc 01 pede ≤ 3%) |
 | Pausado (tela cheia na frente) | 0,00% de CPU |
 | Liberado após 2 min pausado | 37,7 MB (o dispositivo D3D11 fica; decodificador, swap chain e janela saem) |
 | `rmw-wallpaper` morto | de volta em 1,1 s (limite: 3 s) |
