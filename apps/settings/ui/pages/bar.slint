@@ -1,0 +1,696 @@
+import { Button, ComboBox, LineEdit, ScrollView, Slider, SpinBox, Switch, Palette } from "std-widgets.slint";
+import { Api, WidgetChip } from "../api.slint";
+import { Card, Chip, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
+import { EditingBanner } from "editing.slint";
+
+// One widget in a zone: click selects it (the buttons below move it), drag takes it to another zone.
+component WidgetItem inherits Rectangle {
+    in property <WidgetChip> item;
+    in property <bool> selected;
+    callback select;
+    callback dragged(length /* absolute x */, length /* absolute y */);
+    callback dropped(length /* absolute x */, length /* absolute y */);
+
+    height: 32px;
+    border-radius: 16px;
+    background: root.selected ? Palette.accent-background
+        : root.item.plugin ? Palette.accent-background.transparentize(75%) : Palette.foreground.transparentize(88%);
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.item.label;
+    accessible-description: root.item.plugin ? @tr("plugin widget") : "";
+    accessible-action-default => {
+        root.select();
+    }
+    forward-focus: focus;
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.select();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    label := Text {
+        text: root.item.label;
+        color: root.selected ? Palette.accent-foreground : Palette.foreground;
+        font-size: Metrics.small-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        border-radius: 16px;
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: Palette.accent-background;
+    }
+
+    area := TouchArea {
+        mouse-cursor: self.pressed ? MouseCursor.grabbing : MouseCursor.grab;
+        clicked => {
+            root.select();
+        }
+        moved => {
+            if (self.pressed) {
+                root.dragged(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.up && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px)) {
+                root.dropped(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+}
+
+component Zone inherits Rectangle {
+    in property <string> title;
+    in property <int> zone;
+    in property <[WidgetChip]> items;
+    in property <int> selected-zone;
+    in property <int> selected-index;
+    in property <bool> highlighted;
+    callback select(int /* index */);
+    callback dragged(length, length);
+    callback dropped(int /* index */, length, length);
+
+    min-height: 96px;
+    horizontal-stretch: 1;
+    border-radius: Metrics.radius;
+    border-width: root.highlighted ? 2px : 1px;
+    border-color: root.highlighted ? Palette.accent-background : Palette.border;
+    background: Palette.background;
+    accessible-role: AccessibleRole.list;
+    accessible-label: root.title;
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+        alignment: start;
+
+        Hint {
+            text: root.title;
+        }
+
+        for item[index] in root.items: WidgetItem {
+            item: item;
+            selected: root.selected-zone == root.zone && root.selected-index == index;
+            select => {
+                root.select(index);
+            }
+            dragged(x, y) => {
+                root.dragged(x, y);
+            }
+            dropped(x, y) => {
+                root.dropped(index, x, y);
+            }
+        }
+
+        if root.items.length == 0: Hint {
+            text: @tr("Empty: drop a widget here or add one below.");
+        }
+    }
+}
+
+// The three zones of the selected bar, with what moves their widgets (drag, or select and click).
+component WidgetsEditor inherits VerticalLayout {
+    in property <int> bar-index: Api.selected-bar;
+    spacing: 10px;
+
+    changed bar-index => {
+        root.sel-zone = -1;
+        root.sel-index = -1;
+    }
+
+    property <int> sel-zone: -1;
+    property <int> sel-index: -1;
+    property <int> drop-zone: -1;
+    property <int> add-choice: 0;
+    property <int> add-zone: 2;
+
+    function zone-at(x: length, y: length) -> int {
+        if (x >= left-zone.absolute-position.x && x < left-zone.absolute-position.x + left-zone.width
+                && y >= left-zone.absolute-position.y && y < left-zone.absolute-position.y + left-zone.height) {
+            return 0;
+        }
+        if (x >= center-zone.absolute-position.x && x < center-zone.absolute-position.x + center-zone.width
+                && y >= center-zone.absolute-position.y && y < center-zone.absolute-position.y + center-zone.height) {
+            return 1;
+        }
+        if (x >= right-zone.absolute-position.x && x < right-zone.absolute-position.x + right-zone.width
+                && y >= right-zone.absolute-position.y && y < right-zone.absolute-position.y + right-zone.height) {
+            return 2;
+        }
+        return -1;
+    }
+
+    function zone-size(zone: int) -> int {
+        return zone == 0 ? Api.bar.left.length : zone == 1 ? Api.bar.center.length : Api.bar.right.length;
+    }
+
+    function move-selected(to-zone: int, to-index: int) {
+        if (root.sel-zone >= 0 && root.sel-index >= 0) {
+            Api.bar-move-item(root.sel-zone, root.sel-index, to-zone, to-index);
+            root.sel-index = to-zone == root.sel-zone && to-index > root.sel-index ? to-index - 1 : to-index;
+            root.sel-zone = to-zone;
+        }
+    }
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                left-zone := Zone {
+                    title: @tr("Left (or top)");
+                    zone: 0;
+                    items: Api.bar.left;
+                    selected-zone: root.sel-zone;
+                    selected-index: root.sel-index;
+                    highlighted: root.drop-zone == 0;
+                    select(index) => {
+                        root.sel-zone = 0;
+                        root.sel-index = index;
+                    }
+                    dragged(x, y) => {
+                        root.drop-zone = root.zone-at(x, y);
+                    }
+                    dropped(index, x, y) => {
+                        root.sel-zone = 0;
+                        root.sel-index = index;
+                        root.drop-zone = -1;
+                        if (root.zone-at(x, y) >= 0 && root.zone-at(x, y) != 0) {
+                            root.move-selected(root.zone-at(x, y), root.zone-size(root.zone-at(x, y)));
+                        }
+                    }
+                }
+
+                center-zone := Zone {
+                    title: @tr("Center");
+                    zone: 1;
+                    items: Api.bar.center;
+                    selected-zone: root.sel-zone;
+                    selected-index: root.sel-index;
+                    highlighted: root.drop-zone == 1;
+                    select(index) => {
+                        root.sel-zone = 1;
+                        root.sel-index = index;
+                    }
+                    dragged(x, y) => {
+                        root.drop-zone = root.zone-at(x, y);
+                    }
+                    dropped(index, x, y) => {
+                        root.sel-zone = 1;
+                        root.sel-index = index;
+                        root.drop-zone = -1;
+                        if (root.zone-at(x, y) >= 0 && root.zone-at(x, y) != 1) {
+                            root.move-selected(root.zone-at(x, y), root.zone-size(root.zone-at(x, y)));
+                        }
+                    }
+                }
+
+                right-zone := Zone {
+                    title: @tr("Right (or bottom)");
+                    zone: 2;
+                    items: Api.bar.right;
+                    selected-zone: root.sel-zone;
+                    selected-index: root.sel-index;
+                    highlighted: root.drop-zone == 2;
+                    select(index) => {
+                        root.sel-zone = 2;
+                        root.sel-index = index;
+                    }
+                    dragged(x, y) => {
+                        root.drop-zone = root.zone-at(x, y);
+                    }
+                    dropped(index, x, y) => {
+                        root.sel-zone = 2;
+                        root.sel-index = index;
+                        root.drop-zone = -1;
+                        if (root.zone-at(x, y) >= 0 && root.zone-at(x, y) != 2) {
+                            root.move-selected(root.zone-at(x, y), root.zone-size(root.zone-at(x, y)));
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+
+                Button {
+                    text: @tr("◀ Earlier");
+                    enabled: root.sel-zone >= 0 && root.sel-index > 0;
+                    accessible-label: @tr("Move the selected widget earlier");
+                    clicked => {
+                        root.move-selected(root.sel-zone, root.sel-index - 1);
+                    }
+                }
+
+                Button {
+                    text: @tr("Later ▶");
+                    enabled: root.sel-zone >= 0 && root.sel-index >= 0 && root.sel-index + 1 < root.zone-size(root.sel-zone);
+                    accessible-label: @tr("Move the selected widget later");
+                    clicked => {
+                        root.move-selected(root.sel-zone, root.sel-index + 2);
+                    }
+                }
+
+                Button {
+                    text: @tr("To the left");
+                    enabled: root.sel-zone > 0 && root.sel-index >= 0;
+                    clicked => {
+                        root.move-selected(0, root.zone-size(0));
+                    }
+                }
+
+                Button {
+                    text: @tr("To the center");
+                    enabled: root.sel-zone >= 0 && root.sel-zone != 1 && root.sel-index >= 0;
+                    clicked => {
+                        root.move-selected(1, root.zone-size(1));
+                    }
+                }
+
+                Button {
+                    text: @tr("To the right");
+                    enabled: root.sel-zone >= 0 && root.sel-zone != 2 && root.sel-index >= 0;
+                    clicked => {
+                        root.move-selected(2, root.zone-size(2));
+                    }
+                }
+
+                Button {
+                    text: @tr("Remove");
+                    enabled: root.sel-zone >= 0 && root.sel-index >= 0;
+                    accessible-label: @tr("Remove the selected widget");
+                    clicked => {
+                        Api.bar-remove-item(root.sel-zone, root.sel-index);
+                        root.sel-index = -1;
+                        root.sel-zone = -1;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                ComboBox {
+                    width: 240px;
+                    model: Api.widget-labels;
+                    current-index <=> root.add-choice;
+                    accessible-label: @tr("Widget to add");
+                }
+
+                ComboBox {
+                    width: 180px;
+                    model: [@tr("to the left"), @tr("to the center"), @tr("to the right")];
+                    current-index <=> root.add-zone;
+                    accessible-label: @tr("Zone to add it to");
+                }
+
+                Button {
+                    text: @tr("Add");
+                    enabled: Api.widget-choices.length > 0;
+                    accessible-label: @tr("Add the widget");
+                    clicked => {
+                        Api.bar-add-item(root.add-zone, Api.widget-choices[root.add-choice].id);
+                    }
+                }
+            }
+}
+
+export component BarPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Taskbar");
+            subtitle: @tr("Windows' own taskbar, and bars of your own on any edge, any size.");
+        }
+
+        EditingBanner { }
+
+        if Api.editing: Card {
+            title: @tr("Windows' taskbar");
+            subtitle: @tr("Used when no bar of this rice hides it.");
+
+            SettingRow {
+                label: @tr("Alignment");
+                description: @tr("Shows after Windows restarts Explorer.");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Leave as it is"), @tr("Left"), @tr("Center")];
+                    current-index <=> Api.taskbar-alignment;
+                    accessible-label: @tr("Alignment");
+                    selected => {
+                        Api.taskbar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Hide automatically");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
+                    current-index <=> Api.taskbar-autohide;
+                    accessible-label: @tr("Hide automatically");
+                    selected => {
+                        Api.taskbar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Task view button");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
+                    current-index <=> Api.taskbar-task-view;
+                    accessible-label: @tr("Task view button");
+                    selected => {
+                        Api.taskbar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Search");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Leave as it is"), @tr("Hidden"), @tr("Icon"), @tr("Box"), @tr("Button")];
+                    current-index <=> Api.taskbar-search;
+                    accessible-label: @tr("Search");
+                    selected => {
+                        Api.taskbar-edited();
+                    }
+                }
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("Bars of this rice");
+            subtitle: @tr("If something goes wrong, Ctrl+Alt+Win+T turns the bar off and brings Windows' taskbar back.");
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                if Api.bar-names.length > 0: ComboBox {
+                    width: 320px;
+                    model: Api.bar-names;
+                    current-index: Api.selected-bar;
+                    accessible-label: @tr("Bar");
+                    selected => {
+                        Api.bar-selected(self.current-index);
+                    }
+                }
+
+                Button {
+                    text: @tr("Add a bar");
+                    clicked => {
+                        Api.bar-add();
+                    }
+                }
+
+                if Api.selected-bar >= 0: Button {
+                    text: @tr("Remove this bar");
+                    clicked => {
+                        Api.confirm-what = "remove-bar";
+                        Api.confirm-arg = Api.selected-bar;
+                    }
+                }
+            }
+
+            if Api.bar-names.length == 0: Hint {
+                text: @tr("No bar: Windows' taskbar stays. Add one to have your own.");
+            }
+        }
+
+        if Api.editing && Api.selected-bar >= 0: Card {
+            title: @tr("Widgets");
+            subtitle: @tr("Drag a widget to another zone, or select it and use the buttons.");
+
+            WidgetsEditor { }
+        }
+
+        if Api.editing && Api.selected-bar >= 0: Card {
+            title: @tr("Place and size");
+
+            SettingRow {
+                label: @tr("Monitor");
+                ComboBox {
+                    width: 260px;
+                    model: Api.match-labels;
+                    current-index: Api.bar.monitor-index;
+                    accessible-label: @tr("Monitor of the bar");
+                    selected => {
+                        Api.bar.monitor = Api.match-choices[self.current-index];
+                        Api.bar.monitor-index = self.current-index;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Edge");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Top"), @tr("Bottom"), @tr("Left"), @tr("Right")];
+                    current-index: Api.bar.position;
+                    accessible-label: @tr("Edge");
+                    selected => {
+                        Api.bar.position = self.current-index;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Space");
+                description: @tr("Reserve: maximized windows stop at the bar. Float: over the desktop.");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Reserve"), @tr("Float")];
+                    current-index: Api.bar.mode;
+                    accessible-label: @tr("Space");
+                    selected => {
+                        Api.bar.mode = self.current-index;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Thickness");
+                description: @tr("16 to 512 pixels, at 100% scale.");
+                SpinBox {
+                    width: 140px;
+                    minimum: 16;
+                    maximum: 512;
+                    value: Api.bar.thickness;
+                    accessible-label: @tr("Thickness");
+                    edited(value) => {
+                        Api.bar.thickness = value;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Length");
+                Switch {
+                    text: @tr("in %");
+                    checked: Api.bar.length-percent;
+                    accessible-label: @tr("Length in percent");
+                    toggled => {
+                        Api.bar.length-percent = self.checked;
+                        Api.bar.length = self.checked ? 100 : 800;
+                        Api.bar-edited();
+                    }
+                }
+
+                SpinBox {
+                    width: 140px;
+                    minimum: Api.bar.length-percent ? 1 : 16;
+                    maximum: Api.bar.length-percent ? 100 : 16384;
+                    value: Api.bar.length;
+                    accessible-label: @tr("Length");
+                    edited(value) => {
+                        Api.bar.length = value;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Margins");
+                description: @tr("Top, right, bottom, left.");
+                SpinBox {
+                    width: 90px;
+                    minimum: 0;
+                    maximum: 1024;
+                    value: Api.bar.margin-top;
+                    accessible-label: @tr("Top margin");
+                    edited(value) => {
+                        Api.bar.margin-top = value;
+                        Api.bar-edited();
+                    }
+                }
+
+                SpinBox {
+                    width: 90px;
+                    minimum: 0;
+                    maximum: 1024;
+                    value: Api.bar.margin-right;
+                    accessible-label: @tr("Right margin");
+                    edited(value) => {
+                        Api.bar.margin-right = value;
+                        Api.bar-edited();
+                    }
+                }
+
+                SpinBox {
+                    width: 90px;
+                    minimum: 0;
+                    maximum: 1024;
+                    value: Api.bar.margin-bottom;
+                    accessible-label: @tr("Bottom margin");
+                    edited(value) => {
+                        Api.bar.margin-bottom = value;
+                        Api.bar-edited();
+                    }
+                }
+
+                SpinBox {
+                    width: 90px;
+                    minimum: 0;
+                    maximum: 1024;
+                    value: Api.bar.margin-left;
+                    accessible-label: @tr("Left margin");
+                    edited(value) => {
+                        Api.bar.margin-left = value;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Rounded corners");
+                SpinBox {
+                    width: 140px;
+                    minimum: 0;
+                    maximum: 256;
+                    value: Api.bar.radius;
+                    accessible-label: @tr("Corner radius");
+                    edited(value) => {
+                        Api.bar.radius = value;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Hide automatically");
+                Switch {
+                    checked: Api.bar.autohide;
+                    accessible-label: @tr("Hide the bar automatically");
+                    toggled => {
+                        Api.bar.autohide = self.checked;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Hide Windows' taskbar");
+                Switch {
+                    checked: Api.bar.hide-native;
+                    accessible-label: @tr("Hide Windows' taskbar");
+                    toggled => {
+                        Api.bar.hide-native = self.checked;
+                        Api.bar-edited();
+                    }
+                }
+            }
+        }
+
+        if Api.editing && Api.selected-bar >= 0: Card {
+            title: @tr("Look");
+
+            SettingRow {
+                label: @tr("Background");
+                description: @tr("Acrylic and mica blur what is behind the bar.");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Solid"), @tr("Transparent"), @tr("Acrylic"), @tr("Mica")];
+                    current-index: Api.bar.background;
+                    accessible-label: @tr("Background");
+                    selected => {
+                        Api.bar.background = self.current-index;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Color");
+                description: @tr("#RRGGBB or palette.<name> from the rice, then Enter.");
+                LineEdit {
+                    width: 160px;
+                    text: Api.bar.tint;
+                    placeholder-text: "#1E1E2E";
+                    accessible-label: @tr("Background color");
+                    accepted(text) => {
+                        Api.bar.tint = text;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Opacity");
+                Slider {
+                    width: 200px;
+                    minimum: 0;
+                    maximum: 100;
+                    value: Api.bar.opacity;
+                    accessible-label: @tr("Opacity");
+                    changed(value) => {
+                        Api.bar.opacity = value;
+                        Api.bar-edited();
+                    }
+                }
+
+                Text {
+                    text: Api.bar.opacity + "%";
+                    width: 44px;
+                    vertical-alignment: center;
+                    color: Palette.foreground;
+                }
+            }
+
+            SettingRow {
+                label: @tr("Text and icons");
+                description: @tr("#RRGGBB or palette.<name>; empty follows Windows' mode.");
+                LineEdit {
+                    width: 160px;
+                    text: Api.bar.foreground;
+                    accessible-label: @tr("Text and icon color");
+                    accepted(text) => {
+                        Api.bar.foreground = text;
+                        Api.bar-edited();
+                    }
+                }
+            }
+
+            if Api.bar.skin != "": Hint {
+                text: @tr("Starts from the skin {}: what this bar does not set comes from it.", Api.bar.skin);
+            }
+        }
+    }
+}

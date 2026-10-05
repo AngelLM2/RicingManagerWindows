@@ -1,0 +1,240 @@
+// The pieces every page uses: Fluent-like cards and rows on Slint's Palette (light and dark follow
+// Windows), the navigation item, a page header, a widget chip.
+import { Palette, Button } from "std-widgets.slint";
+
+export global Metrics {
+    out property <length> page-padding: 28px;
+    out property <length> spacing: 12px;
+    out property <length> radius: 8px;
+    out property <length> small-text: 12px;
+    out property <length> body-text: 14px;
+    out property <length> title-text: 26px;
+    out property <length> card-title-text: 16px;
+}
+
+export component Hint inherits Text {
+    color: Palette.foreground.transparentize(35%);
+    font-size: Metrics.small-text;
+    wrap: word-wrap;
+}
+
+export component PageHeader inherits VerticalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+    spacing: 4px;
+    padding-bottom: 8px;
+
+    Text {
+        text: root.title;
+        font-size: Metrics.title-text;
+        font-weight: 600;
+        color: Palette.foreground;
+        accessible-role: AccessibleRole.text;
+    }
+
+    if root.subtitle != "": Hint {
+        text: root.subtitle;
+        font-size: Metrics.body-text;
+    }
+}
+
+export component Card inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    background: Palette.alternate-background;
+    border-radius: Metrics.radius;
+    border-width: 1px;
+    border-color: Palette.border;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+
+        if root.title != "": VerticalLayout {
+            spacing: 2px;
+            Text {
+                text: root.title;
+                font-size: Metrics.card-title-text;
+                font-weight: 600;
+                color: Palette.foreground;
+                wrap: word-wrap;
+            }
+
+            if root.subtitle != "": Hint {
+                text: root.subtitle;
+            }
+        }
+
+        @children
+    }
+}
+
+// A label (and a line saying what it does) on the left, its control on the right.
+export component SettingRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> description;
+    spacing: 16px;
+    alignment: stretch;
+
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        spacing: 2px;
+
+        Text {
+            text: root.label;
+            color: Palette.foreground;
+            font-size: Metrics.body-text;
+            wrap: word-wrap;
+        }
+
+        if root.description != "": Hint {
+            text: root.description;
+        }
+    }
+
+    @children
+}
+
+export component NavItem inherits Rectangle {
+    in property <string> text;
+    in property <string> glyph;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 38px;
+    border-radius: 6px;
+    background: root.selected ? Palette.foreground.transparentize(90%)
+        : touch.has-hover ? Palette.foreground.transparentize(95%) : transparent;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-item-selected: root.selected;
+    accessible-action-default => {
+        root.clicked();
+    }
+    forward-focus: focus;
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        width: 3px;
+        height: 16px;
+        border-radius: 2px;
+        background: root.selected ? Palette.accent-background : transparent;
+    }
+
+    Rectangle {
+        x: 6px;
+        width: parent.width - 12px;
+        height: parent.height - 6px;
+        border-radius: 4px;
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: Palette.accent-background;
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        spacing: 12px;
+
+        Text {
+            width: 18px;
+            text: root.glyph;
+            font-family: "Segoe Fluent Icons";
+            font-size: 15px;
+            vertical-alignment: center;
+            color: Palette.foreground;
+        }
+
+        Text {
+            text: root.text;
+            vertical-alignment: center;
+            color: Palette.foreground;
+            font-size: Metrics.body-text;
+        }
+    }
+}
+
+// A small rounded label: a widget in a bar zone, a permission, a state.
+export component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> strong;
+    in property <bool> warn;
+    height: 26px;
+    border-radius: 13px;
+    background: root.warn ? #c4314b33 : root.strong ? Palette.accent-background.transparentize(70%)
+        : Palette.foreground.transparentize(92%);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+
+        Text {
+            text: root.text;
+            vertical-alignment: center;
+            font-size: Metrics.small-text;
+            color: Palette.foreground;
+        }
+    }
+}
+
+// A square of color; clicking picks it.
+export component Swatch inherits Rectangle {
+    in property <color> swatch-color;
+    in property <bool> selected;
+    in property <string> name;
+    callback clicked;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: root.swatch-color;
+    border-width: root.selected ? 3px : 1px;
+    border-color: root.selected ? Palette.foreground : Palette.border;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.name;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A message under a control: a warning or an error (callers put it under an `if`: an invisible
+// element still takes its place in a layout).
+export component Problem inherits Rectangle {
+    in property <string> text;
+    in property <bool> error: true;
+    border-radius: 6px;
+    background: root.error ? #c4314b26 : #f7b50026;
+
+    HorizontalLayout {
+        padding: 8px;
+
+        Text {
+            text: root.text;
+            wrap: word-wrap;
+            color: Palette.foreground;
+            font-size: Metrics.small-text;
+        }
+    }
+}

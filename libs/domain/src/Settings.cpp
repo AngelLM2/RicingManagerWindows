@@ -4,6 +4,7 @@
 #include "TomlReader.hpp"
 
 #include "rmw/domain/PluginApi.hpp"
+#include "rmw/domain/RiceWriter.hpp"
 
 #include <algorithm>
 #include <array>
@@ -20,6 +21,7 @@ namespace
 constexpr std::size_t kMaxHotkeys = 64;
 constexpr std::size_t kMaxRules = 64;
 constexpr std::size_t kMaxPathBytes = 1024;
+constexpr std::size_t kMaxAppIdBytes = 1024;
 
 constexpr std::uint32_t kModAlt = 0x1;
 constexpr std::uint32_t kModControl = 0x2;
@@ -166,6 +168,24 @@ public:
             settings.keepInTray = c.boolean("keep_in_tray").value_or(false);
             c.reportUnknownKeys();
         }
+        if (const auto* ui = t.table("ui"))
+        {
+            TableReader u(*ui, "ui", m_diagnostics);
+            if (auto language = u.string("language"))
+            {
+                if (*language == kLanguageEnglish || *language == kLanguagePortuguese)
+                {
+                    settings.language = std::move(*language);
+                }
+                else if (!language->empty())
+                {
+                    u.error("language", std::format("unknown language '{}' (known: {}, {}; leave it out for "
+                                                    "Windows' own)",
+                                                    *language, kLanguageEnglish, kLanguagePortuguese));
+                }
+            }
+            u.reportUnknownKeys();
+        }
         readList(t, "hotkey", kMaxHotkeys, [&](TableReader& entry) { readHotkey(entry, settings); });
         readList(t, "rule", kMaxRules, [&](TableReader& entry) { readRule(entry, settings); });
         t.reportUnknownKeys();
@@ -220,7 +240,7 @@ private:
             t.error("action", std::format("unknown action '{}' (known: {})", *name, known));
             return std::nullopt;
         }
-        ActionCall call{*name, {}};
+        ActionCall call{*name, {}, {}};
         if (auto rice = t.string("rice", kMaxPathBytes))
         {
             call.ricePath = std::move(*rice);
@@ -228,6 +248,15 @@ private:
         if (call.name == "rice.apply" && call.ricePath.empty())
         {
             t.error("action", "rice.apply needs rice = \"<folder of the rice>\"");
+            return std::nullopt;
+        }
+        if (auto app = t.string("app", kMaxAppIdBytes))
+        {
+            call.app = std::move(*app);
+        }
+        if (call.name == "launch.app" && call.app.empty())
+        {
+            t.error("action", "launch.app needs app = \"<id of the app>\" (rmw apps lists them)");
             return std::nullopt;
         }
         return call;
@@ -413,6 +442,47 @@ Result<Settings> parseSettings(std::string_view text, Diagnostics& diagnostics,
                     std::format("settings.toml is invalid: {}", diagnostics.errorSummary("settings.toml")));
     }
     return settings;
+}
+
+std::string writeSettings(const Settings& settings)
+{
+    const auto action = [](const ActionCall& call) {
+        std::string text = "action = " + tomlQuote(call.name) + "\n";
+        if (!call.ricePath.empty())
+        {
+            text += "rice = " + tomlQuote(call.ricePath) + "\n";
+        }
+        if (!call.app.empty())
+        {
+            text += "app = " + tomlQuote(call.app) + "\n";
+        }
+        return text;
+    };
+    std::string text = std::format("schema = {}\n\n[core]\nkeep_in_tray = {}\n", kSettingsSchemaVersion,
+                                   settings.keepInTray);
+    if (!settings.language.empty())
+    {
+        text += "\n[ui]\nlanguage = " + tomlQuote(settings.language) + "\n";
+    }
+    for (const auto& hotkey : settings.hotkeys)
+    {
+        text += "\n[[hotkey]]\nkeys = " + tomlQuote(hotkey.keys.toString()) + "\n" + action(hotkey.action);
+    }
+    for (const auto& rule : settings.rules)
+    {
+        text +=
+            "\n[[rule]]\nwhen = " + tomlQuote(enumToName<RuleTrigger>(kTriggerNames, rule.trigger)) + "\n";
+        if (rule.trigger == RuleTrigger::Time && rule.at)
+        {
+            text += std::format("at = \"{:02}:{:02}\"\n", rule.at->hour, rule.at->minute);
+        }
+        if (rule.trigger == RuleTrigger::MonitorConnected && rule.monitor)
+        {
+            text += "monitor = " + tomlQuote(rule.monitor->toString()) + "\n";
+        }
+        text += action(rule.action);
+    }
+    return text;
 }
 
 std::int32_t secondsUntil(TimeOfDay at, std::int32_t now) noexcept

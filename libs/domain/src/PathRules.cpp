@@ -12,6 +12,8 @@ namespace rmw::domain
 namespace
 {
 
+constexpr std::size_t kSafeNameMaxBytes = 60;
+
 char asciiLower(char c) noexcept
 {
     return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
@@ -166,6 +168,41 @@ Result<std::string> validatePackagePath(std::string_view path)
         start = end + 1;
     }
     return normalized;
+}
+
+std::string safeFileName(std::string_view name, std::string_view fallback)
+{
+    std::string out;
+    for (const char c : name)
+    {
+        const auto byte = static_cast<unsigned char>(c);
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                        c == ' ' || c == '.' || c == '-' || c == '_' || byte >= 0x80;
+        out += ok ? c : '-';
+    }
+    // Cut at a character boundary.
+    if (out.size() > kSafeNameMaxBytes)
+    {
+        std::size_t cut = kSafeNameMaxBytes;
+        while (cut > 0 && (static_cast<unsigned char>(out[cut]) & 0xC0) == 0x80)
+        {
+            --cut;
+        }
+        out.resize(cut);
+    }
+    while (!out.empty() && (out.back() == '.' || out.back() == ' '))
+    {
+        out.pop_back();
+    }
+    while (!out.empty() && out.front() == ' ')
+    {
+        out.erase(out.begin());
+    }
+    if (out.empty() || !validatePackagePath(out))
+    {
+        return std::string(fallback);
+    }
+    return out;
 }
 
 bool hasExtension(std::string_view path, std::initializer_list<std::string_view> allowed) noexcept

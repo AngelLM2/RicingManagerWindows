@@ -63,6 +63,7 @@ export type RmwActionName =
     | "rice.apply"
     | "rice.undo"
     | "wallpaper.next"
+    | "launch.app"
     | "bar.toggle"
     | "bar.on"
     | "bar.off"

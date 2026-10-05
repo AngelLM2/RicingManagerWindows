@@ -54,9 +54,9 @@ struct CoreOptions
 
 // Actions are what hotkeys, rules, the tray, the CLI and plugins call (docs/12). A plugin's own
 // actions are "<plugin id>:<action>" and run in the plugin host.
-inline constexpr std::array<std::string_view, 10> kActions = {
-    "rice.apply",       "rice.undo", "restore.original", "appearance.toggle", "appearance.dark",
-    "appearance.light", "bar.on",    "bar.off",          "bar.toggle",        "wallpaper.next",
+inline constexpr std::array<std::string_view, 11> kActions = {
+    "rice.apply", "rice.undo", "restore.original", "appearance.toggle", "appearance.dark", "appearance.light",
+    "bar.on",     "bar.off",   "bar.toggle",       "wallpaper.next",    "launch.app",
 };
 
 // Who asked: hotkeys, the tray and clients are the user (a history entry the user can go back

@@ -25,6 +25,12 @@ Push-Location $root
 try {
     cmake --preset tidy | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Configure failed (preset 'tidy')." }
+    # Generated headers the sources include (the settings window's Slint code): made, not compiled.
+    if (Test-Path (Join-Path $root 'build\tidy\build.ninja')) {
+        $generated = Select-String -Path (Join-Path $root 'build\tidy\build.ninja') -Pattern '^build (apps\\settings\\app\.h)[ :]' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -Unique
+        foreach ($header in $generated) { cmake --build build\tidy -- $header | Out-Null }
+    }
 
     $tidy = Join-Path $env:VCINSTALLDIR 'Tools\Llvm\x64\bin\clang-tidy.exe'
     if (-not (Test-Path $tidy)) { $tidy = (Get-Command clang-tidy).Source }

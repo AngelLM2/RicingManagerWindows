@@ -115,7 +115,9 @@ inline constexpr UiStrings kPortuguese{
     .taskbar = L"A barra de tarefas",
 };
 
-// Picked once from the user's Windows display language.
+// settings.toml's [ui] language ("en", "pt-BR"), or the user's Windows display language when it
+// names none.
 [[nodiscard]] const UiStrings& uiStrings() noexcept;
+void setUiLanguage(std::string_view language) noexcept;
 
 } // namespace rmw::core

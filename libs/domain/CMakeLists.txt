@@ -17,6 +17,7 @@ rmw_add_library(domain
         src/PluginManifest.cpp
         src/Rice.cpp
         src/RiceParser.cpp
+        src/RiceWriter.cpp
         src/SemVer.cpp
         src/Settings.cpp
         src/TomlReader.cpp

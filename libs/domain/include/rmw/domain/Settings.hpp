@@ -32,11 +32,12 @@ struct KeyChord
     friend bool operator==(const KeyChord&, const KeyChord&) = default;
 };
 
-// What an action needs: its name and, for rice.apply, the rice folder.
+// What an action needs: its name and, for rice.apply, the rice folder; for launch.app, the app.
 struct ActionCall
 {
     std::string name;     // "appearance.toggle", "rice.apply", "restore.original", ...
     std::string ricePath; // only for rice.apply (absolute folder)
+    std::string app;      // only for launch.app (an id of platform::installedApps())
 };
 
 struct Hotkey
@@ -61,9 +62,14 @@ struct Rule
     ActionCall action;
 };
 
+// The languages of the interface (the settings app, the tray menu). Empty: Windows' own.
+inline constexpr std::string_view kLanguageEnglish = "en";
+inline constexpr std::string_view kLanguagePortuguese = "pt-BR";
+
 struct Settings
 {
     bool keepInTray = false;
+    std::string language; // [ui] language: kLanguageEnglish, kLanguagePortuguese or empty
     std::vector<Hotkey> hotkeys;
     std::vector<Rule> rules;
 
@@ -86,5 +92,9 @@ inline constexpr std::int32_t kSecondsPerDay = 86'400;
 // `knownActions` lists valid action names.
 [[nodiscard]] Result<Settings> parseSettings(std::string_view text, Diagnostics& diagnostics,
                                              std::span<const std::string_view> knownActions);
+
+// settings.toml from the model (the settings app edits hotkeys and rules); it parses back to the
+// same settings. Comments of an edited file are not kept.
+[[nodiscard]] std::string writeSettings(const Settings& settings);
 
 } // namespace rmw::domain
