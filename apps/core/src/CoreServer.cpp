@@ -47,6 +47,7 @@ constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
 constexpr std::string_view kBarPlanMeta = "bar_plan";
 constexpr std::string_view kBarOffMeta = "bar_off";
+constexpr std::string_view kBarSourceMeta = "bar_source";
 constexpr std::string_view kBarWorker = "bar";
 constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20; // the bar's budget is 25 MB
 // Outside state.db on purpose: a damaged database must not hide a crash loop.
@@ -285,6 +286,13 @@ Result<void> CoreServer::initialize()
     if (auto saved = m_state->meta(kBarOffMeta); saved && *saved)
     {
         m_barOff = **saved == "1";
+    }
+    if (auto saved = m_state->meta(kBarSourceMeta); saved && *saved)
+    {
+        if (auto folder = utf8To16(**saved))
+        {
+            m_barSource = std::filesystem::path(*folder);
+        }
     }
     if (auto saved = m_state->meta(kRotationMeta); saved && *saved)
     {
@@ -554,6 +562,65 @@ void CoreServer::setBarOff(bool off)
     }
     log::info("bar: {}", off ? "off" : "on");
     notifyResident();
+}
+
+std::optional<std::filesystem::path> CoreServer::barSource() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_barSource;
+}
+
+void CoreServer::setBarSource(const std::optional<std::filesystem::path>& folder)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_barSource == folder)
+        {
+            return;
+        }
+        m_barSource = folder;
+    }
+    const std::string text = folder ? utf8Path(*folder) : std::string();
+    if (auto saved =
+            m_state->setMeta(kBarSourceMeta, folder ? std::optional<std::string_view>(text) : std::nullopt);
+        !saved)
+    {
+        log::warn("cannot save the bar source: {}", saved.error().toString());
+    }
+    notifyResident();
+}
+
+Result<void> CoreServer::reloadBars()
+{
+    const auto source = barSource();
+    if (!source)
+    {
+        return {};
+    }
+    const std::scoped_lock lock(m_operation);
+    auto loaded = loadRice(Json{{"path", utf8Path(*source)}});
+    if (!loaded)
+    {
+        return std::unexpected(std::move(loaded.error()));
+    }
+    if (!loaded->rice)
+    {
+        // Half-typed, maybe: the bars stay as they are until the file is valid again.
+        return std::unexpected(
+            std::move(loaded->rice.error()).withContext("rice.toml has errors; the bars stay"));
+    }
+    if (loaded->rice->bars.empty())
+    {
+        log::info("bar: the rice has no [[bar]] anymore; apply it again (or restore) to remove the bars");
+        return {};
+    }
+    auto plan = bar::planFromRice(*loaded->rice);
+    if (!plan)
+    {
+        return std::unexpected(std::move(plan.error()));
+    }
+    setBarPlan(bar::toJson(*plan));
+    return {};
 }
 
 Result<void> CoreServer::startBar()
@@ -1097,10 +1164,12 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     }
     if (!rice.bars.empty())
     {
-        // The custom taskbar: rmw-bar shows this plan (palette resolved).
+        // The custom taskbar: rmw-bar shows this plan (palette resolved), and follows the rice's
+        // file as its author edits it.
         if (auto plan = bar::planFromRice(rice))
         {
             setBarPlan(bar::toJson(*plan));
+            setBarSource(loaded->folder);
         }
         else
         {
@@ -1171,6 +1240,7 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     setSchedule(std::nullopt); // going back ends any schedule and slideshow
     setRotation(Json::object());
     setBarPlan(std::nullopt);
+    setBarSource(std::nullopt);
     return reportJson(*report);
 }
 

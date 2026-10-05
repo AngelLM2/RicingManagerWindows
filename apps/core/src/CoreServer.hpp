@@ -116,6 +116,10 @@ public:
     // the user turned it off (the emergency hotkey, bar.off).
     [[nodiscard]] std::optional<std::string> barPlan() const;
     [[nodiscard]] bool barOff() const;
+    // The folder of the rice the bars come from: saving its rice.toml updates them live.
+    [[nodiscard]] std::optional<std::filesystem::path> barSource() const;
+    // Work queue: reads the bars of that rice again (the rest waits for the next apply).
+    [[nodiscard]] Result<void> reloadBars();
     // The rmw-bar worker (window thread).
     [[nodiscard]] Result<void> startBar();
     void stopBar();
@@ -156,6 +160,7 @@ private:
     void setRotation(const ipc::Json& plan);
     void setBarPlan(const std::optional<std::string>& plan);
     void setBarOff(bool off);
+    void setBarSource(const std::optional<std::filesystem::path>& folder);
     void onWorkerEvent(const platform::WorkerEvent& event);
 
     CoreOptions m_options;
@@ -177,6 +182,7 @@ private:
     std::mt19937 m_random{std::random_device{}()};        // shuffled slideshows (operation lock)
     std::optional<std::string> m_barPlan;                 // mirrors meta "bar_plan"
     bool m_barOff = false;                                // mirrors meta "bar_off"
+    std::optional<std::filesystem::path> m_barSource;     // mirrors meta "bar_source"
     std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
 
     // Set before the accept thread starts and cleared after every client thread is joined.

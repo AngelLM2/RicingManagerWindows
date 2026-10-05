@@ -21,6 +21,9 @@ constexpr const wchar_t* kClassName = L"RicingManagerWindows.Bar";
 constexpr UINT kAppBarMessage = WM_APP + 10;
 constexpr UINT kRender = WM_APP + 11;
 constexpr UINT_PTR kAnimationTimer = 1;
+constexpr UINT_PTR kTuckTimer = 2;
+constexpr UINT kTuckDelayMs = 700;
+constexpr LONG kPeek = 2; // physical pixels left at the edge of an auto-hidden bar
 constexpr UINT kFrameMs = 16;
 
 // Undocumented, stable since Windows 10 and what lets a window that never takes focus keep its
@@ -110,6 +113,7 @@ struct BarWindow::Access
 BarWindow::BarWindow(domain::BarConfig config, void* monitor)
     : m_config(std::move(config))
     , m_monitor(monitor)
+    , m_autohide(m_config.autohide)
 {
     const auto kind = m_config.background.kind;
     m_layered =
@@ -224,8 +228,10 @@ void BarWindow::place()
 
     // Every bar is an app bar, so it hears about fullscreen apps; only Reserve bars take space.
     registerAppBar();
-    bar::Rect area = fromRect(info.rcWork);
-    if (m_config.mode == domain::BarMode::Reserve && m_appBar)
+    m_screen = fromRect(info.rcMonitor);
+    // An auto-hidden bar takes no space and sits at the very edge, like Windows' own.
+    bar::Rect area = m_autohide ? m_screen : fromRect(info.rcWork);
+    if (m_config.mode == domain::BarMode::Reserve && m_appBar && !m_autohide)
     {
         const bar::Rect wanted = bar::reservation(m_config, fromRect(info.rcMonitor), m_scale);
         APPBARDATA data{};
@@ -265,11 +271,60 @@ void BarWindow::place()
         resizeTarget(rect.width(), rect.height());
     }
     m_rect = rect;
-    SetWindowPos(hwnd, m_besideFullscreen ? HWND_NOTOPMOST : HWND_TOPMOST, rect.left, rect.top, rect.width(),
+    const bar::Rect at = m_tucked ? tuckedRect() : rect;
+    SetWindowPos(hwnd, m_besideFullscreen ? HWND_NOTOPMOST : HWND_TOPMOST, at.left, at.top, rect.width(),
                  rect.height(), SWP_NOACTIVATE);
+    if (m_autohide && !m_tucked)
+    {
+        SetTimer(hwnd, kTuckTimer, kTuckDelayMs * 2, nullptr); // seen once, then out of the way
+    }
     window().dispatch_scale_factor_change_event(static_cast<float>(m_scale));
     window().dispatch_resize_event(slint::LogicalSize(
         {static_cast<float>(rect.width() / m_scale), static_cast<float>(rect.height() / m_scale)}));
+    request_redraw();
+}
+
+bar::Rect BarWindow::tuckedRect() const noexcept
+{
+    bar::Rect at = m_rect;
+    const auto shift = [&](std::int32_t dx, std::int32_t dy) {
+        at.left += dx;
+        at.right += dx;
+        at.top += dy;
+        at.bottom += dy;
+    };
+    switch (m_config.position)
+    {
+    case domain::BarPosition::Top:
+        shift(0, m_screen.top - (m_rect.bottom - kPeek));
+        break;
+    case domain::BarPosition::Left:
+        shift(m_screen.left - (m_rect.right - kPeek), 0);
+        break;
+    case domain::BarPosition::Right:
+        shift(m_screen.right - kPeek - m_rect.left, 0);
+        break;
+    case domain::BarPosition::Bottom:
+        shift(0, m_screen.bottom - kPeek - m_rect.top);
+        break;
+    }
+    return at;
+}
+
+void BarWindow::tuck()
+{
+    m_tucked = true;
+    const bar::Rect at = tuckedRect();
+    SetWindowPos(static_cast<HWND>(m_window), nullptr, at.left, at.top, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    request_redraw();
+}
+
+void BarWindow::untuck()
+{
+    m_tucked = false;
+    SetWindowPos(static_cast<HWND>(m_window), nullptr, m_rect.left, m_rect.top, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     request_redraw();
 }
 
@@ -350,7 +405,18 @@ void BarWindow::present()
     const auto hwnd = static_cast<HWND>(m_window);
     if (m_layered)
     {
-        POINT position{m_rect.left, m_rect.top};
+        if (m_tucked)
+        {
+            // Fully transparent pixels let the mouse through: the strip left at the edge must
+            // still catch it, so nothing is quite transparent while tucked.
+            const std::span bits(static_cast<std::uint32_t*>(m_bits), pixels.size());
+            for (auto& pixel : bits)
+            {
+                pixel = (pixel >> 24) == 0 ? 0x01000000U : pixel;
+            }
+        }
+        const bar::Rect at = m_tucked ? tuckedRect() : m_rect;
+        POINT position{at.left, at.top};
         SIZE extent{m_rect.width(), m_rect.height()};
         POINT origin{0, 0};
         BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
@@ -414,6 +480,18 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
             KillTimer(hwnd, kAnimationTimer);
             request_redraw();
         }
+        else if (wParam == kTuckTimer)
+        {
+            KillTimer(hwnd, kTuckTimer);
+            POINT cursor{};
+            RECT now{};
+            GetCursorPos(&cursor);
+            GetWindowRect(hwnd, &now);
+            if (m_autohide && !m_tucked && PtInRect(&now, cursor) == FALSE)
+            {
+                tuck();
+            }
+        }
         return 0;
     case WM_PAINT: {
         PAINTSTRUCT paint{};
@@ -430,6 +508,10 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
     case WM_MOUSEMOVE:
+        if (m_tucked)
+        {
+            untuck();
+        }
         if (!m_trackingMouse)
         {
             TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
@@ -439,6 +521,10 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
         return 0;
     case WM_MOUSELEAVE:
         m_trackingMouse = false;
+        if (m_autohide && !m_tucked)
+        {
+            SetTimer(hwnd, kTuckTimer, kTuckDelayMs, nullptr);
+        }
         window().dispatch_pointer_exit_event();
         return 0;
     case WM_LBUTTONDOWN:

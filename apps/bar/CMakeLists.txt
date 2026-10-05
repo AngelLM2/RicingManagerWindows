@@ -11,9 +11,12 @@ endif()
 add_library(rmw_bar_ui STATIC
     src/BarApp.cpp
     src/BarWindow.cpp
+    src/MediaWidget.cpp
     src/SlintPlatform.cpp
     src/Surface.cpp
+    src/SystemWidgets.cpp
     src/Widgets.cpp
+    src/WindowList.cpp
 )
 target_include_directories(rmw_bar_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(rmw_bar_ui PUBLIC
@@ -24,6 +27,9 @@ target_link_libraries(rmw_bar_ui PUBLIC
     Slint::Slint
     dwmapi
     gdi32
+    iphlpapi
+    runtimeobject
+    ole32
     shcore
     shell32
     user32

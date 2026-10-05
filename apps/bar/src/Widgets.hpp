@@ -34,6 +34,12 @@ public:
 // nullptr for a widget that needs nothing.
 [[nodiscard]] std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& instance);
 
+// A widget's settings from the rice (`{ id = "clock", format = "%H:%M" }`), with a fallback when
+// absent or of another type.
+[[nodiscard]] std::string settingString(const domain::BarItem& item, std::string_view key,
+                                        std::string_view fallback);
+[[nodiscard]] bool settingBool(const domain::BarItem& item, std::string_view key, bool fallback);
+
 // "%H:%M" with a safe, small set of conversions (a rice is untrusted: no strftime, whose invalid
 // conversions end the process): %H %I %M %S %p %d %m %y %Y, and the user's language for %a %A
 // %b %B. Anything else is kept as written.

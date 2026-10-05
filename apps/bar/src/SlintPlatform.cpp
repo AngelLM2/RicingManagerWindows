@@ -41,6 +41,7 @@ struct Win32Platform::Access
 Win32Platform::Win32Platform(AdapterFactory factory)
     : m_factory(std::move(factory))
 {
+    s_current = this;
     WNDCLASSEXW windowClass{};
     windowClass.cbSize = sizeof(windowClass);
     windowClass.lpfnWndProc = &Access::proc;
@@ -58,6 +59,7 @@ Win32Platform::Win32Platform(AdapterFactory factory)
 
 Win32Platform::~Win32Platform()
 {
+    s_current = nullptr;
     if (m_messages != nullptr)
     {
         SetWindowLongPtrW(static_cast<HWND>(m_messages), GWLP_USERDATA, 0);

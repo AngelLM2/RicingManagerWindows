@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: alpha (v0.2.0, milestone M2 "Residente").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows. No graphical interface yet (see [docs/04-mvp.md](docs/04-mvp.md)).
+**Status: alpha (v0.3.0, milestone M3 "Barra").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows; a custom, fully resizable taskbar. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
 
 ---
 
@@ -18,7 +18,7 @@ Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: w
 
 Planejamento completo: [docs/README.md](docs/README.md).
 
-### Usar (linha de comando, v0.2)
+### Usar (linha de comando, v0.3)
 
 Um rice é uma pasta com um `rice.toml` e seus arquivos:
 
@@ -92,6 +92,28 @@ rmw settings reload            # relê o settings.toml
 
 Se o app parar inesperadamente 3 vezes seguidas ao iniciar (ou com `Shift` pressionado no logon), ele abre no **modo seguro**: nada é aplicado automaticamente e "Restaurar Windows original" fica à mão.
 
+**Barra de tarefas própria** — quantas quiser, em qualquer borda e monitor, do tamanho que quiser:
+
+```toml
+[[bar]]
+monitor = "primary"            # ou "all", "left", "edid:<chave>"
+position = "bottom"            # top, bottom, left, right
+mode = "reserve"               # ou "float" (por cima, sem reservar espaço)
+thickness = 44
+length = "100%"                # ou em pixels: 900
+margin = [0, 0]                # [vertical, horizontal] ou [cima, direita, baixo, esquerda]
+radius = 0
+background = { kind = "acrylic", tint = "palette.night", opacity = 0.4 }   # solid, transparent, acrylic, mica
+autohide = false
+hide_native_taskbar = true
+left = ["start", "desktops", "windows"]
+center = ["clock"]
+right = ["media", "cpu", "memory", "network", "volume", "battery", "notifications",
+         { id = "clock", format = "%d/%m/%Y" }]
+```
+
+Salvar o `rice.toml` atualiza a barra na hora. Se algo der errado, **Ctrl+Alt+Win+T** desliga a barra e traz a do Windows de volta (`rmw action bar.on` religa). Se a barra travar ou cair, a do Windows volta em menos de um segundo.
+
 ### Compilar
 
 Requisitos: Windows 11, Visual Studio 2022+ ou Build Tools com *Desktop development with C++*, componentes *MSVC Spectre-mitigated libs*, *C++ Clang tools for Windows* e *vcpkg*.
@@ -117,7 +139,7 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 
 The planning documents (in Portuguese) are in [docs/](docs/README.md).
 
-### Use (command line, v0.2)
+### Use (command line, v0.3)
 
 A rice is a folder with a `rice.toml` (example above) and its files.
 
@@ -142,6 +164,8 @@ rmw settings reload            # re-read settings.toml
 ```
 
 If the app stops unexpectedly 3 starts in a row (or `Shift` is held at sign-in), it opens in **safe mode**: nothing is applied automatically and "Restore original Windows" is at hand.
+
+**A taskbar of your own** — as many as you like, on any edge and monitor, any size: see the `[[bar]]` example above (widgets: `start`, `windows`, `desktops`, `clock`, `media`, `cpu`, `memory`, `network`, `volume`, `battery`, `notifications`). Saving `rice.toml` updates it live. If anything goes wrong, **Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back (`rmw action bar.on` turns it on again); if the bar hangs or crashes, Windows' taskbar is back in under a second.
 
 ### Build
 

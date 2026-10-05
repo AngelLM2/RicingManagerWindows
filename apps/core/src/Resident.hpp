@@ -108,8 +108,9 @@ private:
         std::chrono::steady_clock::time_point due;
         std::chrono::milliseconds interval{0};
     };
-    std::map<std::string, Pages> m_pages;       // slideshows the core turns, per monitor field
-    std::optional<std::string> m_barStartedFor; // the plan rmw-bar was started with
+    std::map<std::string, Pages> m_pages;                 // slideshows the core turns, per monitor field
+    std::optional<std::string> m_barStartedFor;           // the plan rmw-bar was started with
+    std::optional<std::filesystem::path> m_watchedSource; // the rice folder whose saves update the bars
     bool m_emergencyKey = false;
 
     mutable std::mutex m_statusMutex;

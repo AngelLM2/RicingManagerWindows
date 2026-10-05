@@ -1,5 +1,9 @@
 #include "Widgets.hpp"
 
+#include "MediaWidget.hpp"
+#include "SystemWidgets.hpp"
+#include "WindowList.hpp"
+
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 
@@ -45,6 +49,263 @@ export component RmwStart inherits Rectangle {
     }
 }
 
+export struct RmwWindowItem {
+    id: int,
+    title: string,
+    icon: image,
+    active: bool,
+}
+
+component RmwWindowButton inherits Rectangle {
+    in property <RmwWindowItem> item;
+    in property <color> foreground;
+    in property <bool> labels;
+    callback activate(int);
+    min-width: 40px;
+    min-height: 32px;
+    preferred-width: root.labels ? 180px : 44px;
+    max-width: root.labels ? 220px : 48px;
+    preferred-height: 40px;
+    border-radius: 6px;
+    background: root.item.active ? rgba(255, 255, 255, 0.16) : touch.has-hover ? rgba(255, 255, 255, 0.09) : transparent;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        alignment: root.labels ? LayoutAlignment.start : LayoutAlignment.center;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.item.icon;
+                width: 20px;
+                height: 20px;
+                image-fit: contain;
+            }
+        }
+        if root.labels: Text {
+            text: root.item.title;
+            color: root.foreground;
+            font-size: 12px;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+    // The active window's mark.
+    Rectangle {
+        width: root.item.active ? 16px : 6px;
+        height: 3px;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 4px;
+        border-radius: 1.5px;
+        background: root.item.active ? root.foreground : root.foreground.transparentize(60%);
+    }
+    touch := TouchArea {
+        clicked => { root.activate(root.item.id); }
+    }
+}
+
+export component RmwWindows inherits HorizontalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[RmwWindowItem]> windows;
+    in property <bool> labels: true;
+    callback activate(int);
+    spacing: 2px;
+    for item in root.windows: RmwWindowButton {
+        item: item;
+        foreground: root.foreground;
+        labels: root.labels;
+        activate(id) => { root.activate(id); }
+    }
+}
+
+export component RmwWindowsColumn inherits VerticalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[RmwWindowItem]> windows;
+    in property <bool> labels;
+    callback activate(int);
+    spacing: 2px;
+    for item in root.windows: RmwWindowButton {
+        item: item;
+        foreground: root.foreground;
+        labels: false;
+        activate(id) => { root.activate(id); }
+    }
+}
+
+// A short text that updates itself (cpu, memory, network, battery, volume).
+export component RmwLabel inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <string> text;
+    in property <bool> shown: true;
+    callback clicked();
+    callback scrolled(int);
+    visible: root.shown;
+    min-width: root.shown ? label.preferred-width + 16px : 0px;
+    min-height: root.shown ? 32px : 0px;
+    border-radius: 6px;
+    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    label := Text {
+        text: root.text;
+        color: root.foreground;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        scroll-event(event) => {
+            root.scrolled(event.delta-y > 0 ? 1 : -1);
+            accept
+        }
+    }
+}
+
+// Notifications (or quick settings): a bell from the system icon font.
+export component RmwBell inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    callback clicked();
+    min-width: 36px;
+    min-height: 32px;
+    preferred-width: 40px;
+    border-radius: 6px;
+    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    Text {
+        text: "\u{E7E7}";
+        font-family: "Segoe Fluent Icons";
+        font-size: 16px;
+        color: root.foreground;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component RmwGlyph inherits Rectangle {
+    in property <string> glyph;
+    in property <color> foreground;
+    callback clicked();
+    width: 28px;
+    border-radius: 6px;
+    background: touch.has-hover ? rgba(255, 255, 255, 0.14) : transparent;
+    Text {
+        text: root.glyph;
+        font-family: "Segoe Fluent Icons";
+        font-size: 12px;
+        color: root.foreground;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// What is playing: title and artist, previous / play-pause / next.
+export component RmwMedia inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <string> title;
+    in property <bool> playing;
+    in property <bool> shown;
+    callback toggle();
+    callback next();
+    callback previous();
+    visible: root.shown;
+    min-width: root.shown ? 140px : 0px;
+    preferred-width: root.shown ? 260px : 0px;
+    max-width: root.shown ? 320px : 0px;
+    min-height: root.shown ? 32px : 0px;
+    border-radius: 6px;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 2px;
+        spacing: 2px;
+        Text {
+            text: root.title;
+            color: root.foreground;
+            font-size: 12px;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        RmwGlyph {
+            glyph: "\u{E892}";
+            foreground: root.foreground;
+            clicked => { root.previous(); }
+        }
+        RmwGlyph {
+            glyph: root.playing ? "\u{E769}" : "\u{E768}";
+            foreground: root.foreground;
+            clicked => { root.toggle(); }
+        }
+        RmwGlyph {
+            glyph: "\u{E893}";
+            foreground: root.foreground;
+            clicked => { root.next(); }
+        }
+    }
+}
+
+export struct RmwDesktopItem {
+    index: int,
+    active: bool,
+}
+
+component RmwDesktopButton inherits Rectangle {
+    in property <RmwDesktopItem> desktop;
+    in property <color> foreground;
+    callback select(int);
+    min-width: 26px;
+    min-height: 26px;
+    preferred-width: 30px;
+    preferred-height: 30px;
+    border-radius: 6px;
+    background: root.desktop.active ? rgba(255, 255, 255, 0.18) : touch.has-hover ? rgba(255, 255, 255, 0.09) : transparent;
+    Text {
+        text: "\{root.desktop.index + 1}";
+        color: root.foreground;
+        font-size: 12px;
+        font-weight: root.desktop.active ? 700 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.select(root.desktop.index); }
+    }
+}
+
+export component RmwDesktops inherits HorizontalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[RmwDesktopItem]> desktops;
+    callback select(int);
+    spacing: 2px;
+    for desktop in root.desktops: RmwDesktopButton {
+        desktop: desktop;
+        foreground: root.foreground;
+        select(index) => { root.select(index); }
+    }
+}
+
+export component RmwDesktopsColumn inherits VerticalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[RmwDesktopItem]> desktops;
+    callback select(int);
+    spacing: 2px;
+    for desktop in root.desktops: RmwDesktopButton {
+        desktop: desktop;
+        foreground: root.foreground;
+        select(index) => { root.select(index); }
+    }
+}
+
 export component RmwClock inherits Rectangle {
     in property <color> foreground;
     in property <bool> vertical;
@@ -68,10 +329,29 @@ export component RmwClock inherits Rectangle {
 )slint";
 
 constexpr std::array<bar::WidgetProperty, 1> kTextProperty = {{{"text", "string"}}};
+constexpr std::array<bar::WidgetProperty, 2> kWindowsProperties = {
+    {{"windows", "[RmwWindowItem]"}, {"labels", "bool"}}};
+constexpr std::array<bar::WidgetProperty, 2> kLabelProperties = {{{"text", "string"}, {"shown", "bool"}}};
+constexpr std::array<bar::WidgetProperty, 1> kDesktopsProperties = {{{"desktops", "[RmwDesktopItem]"}}};
 constexpr std::array<std::string_view, 1> kClicked = {"clicked"};
-constexpr std::array<bar::WidgetKind, 2> kKinds = {{
+constexpr std::array<std::string_view, 2> kLabelCallbacks = {"clicked", "scrolled(int)"};
+constexpr std::array<std::string_view, 1> kActivate = {"activate(int)"};
+constexpr std::array<std::string_view, 1> kSelect = {"select(int)"};
+constexpr std::array<bar::WidgetProperty, 3> kMediaProperties = {
+    {{"title", "string"}, {"playing", "bool"}, {"shown", "bool"}}};
+constexpr std::array<std::string_view, 3> kMediaCallbacks = {"toggle", "next", "previous"};
+constexpr std::array<bar::WidgetKind, 11> kKinds = {{
+    {"media", "RmwMedia", kMediaProperties, kMediaCallbacks},
     {"start", "RmwStart", {}, kClicked},
     {"clock", "RmwClock", kTextProperty, kClicked},
+    {"windows", "RmwWindows", kWindowsProperties, kActivate, "RmwWindowsColumn"},
+    {"cpu", "RmwLabel", kLabelProperties, kLabelCallbacks},
+    {"memory", "RmwLabel", kLabelProperties, kLabelCallbacks},
+    {"network", "RmwLabel", kLabelProperties, kLabelCallbacks},
+    {"battery", "RmwLabel", kLabelProperties, kLabelCallbacks},
+    {"volume", "RmwLabel", kLabelProperties, kLabelCallbacks},
+    {"notifications", "RmwBell", {}, kClicked},
+    {"desktops", "RmwDesktops", kDesktopsProperties, kSelect, "RmwDesktopsColumn"},
 }};
 
 constexpr std::size_t kMaxClockFormat = 64;
@@ -85,13 +365,6 @@ std::string localized(const SYSTEMTIME& time, const wchar_t* picture)
         return {};
     }
     return utf16To8Lossy(text.data());
-}
-
-std::string stringSetting(const domain::BarItem& item, std::string_view key, std::string_view fallback)
-{
-    const domain::Value* value = item.config.find(key);
-    const auto* text = value != nullptr ? std::get_if<std::string>(&value->data) : nullptr;
-    return text != nullptr ? *text : std::string(fallback);
 }
 
 class StartProvider final : public Provider
@@ -115,7 +388,7 @@ class ClockProvider final : public Provider
 public:
     ClockProvider(const bar::Slot& slot, const Instance& instance)
         : m_property(slot.prefix + "-text")
-        , m_format(stringSetting(*slot.item, "format", "%H:%M").substr(0, kMaxClockFormat))
+        , m_format(settingString(*slot.item, "format", "%H:%M").substr(0, kMaxClockFormat))
         , m_instance(instance)
     {
         instance->set_callback(slot.prefix + "-clicked", [](std::span<const Value>) {
@@ -161,8 +434,26 @@ std::string_view builtinSources() noexcept
     return kSources;
 }
 
+std::string settingString(const domain::BarItem& item, std::string_view key, std::string_view fallback)
+{
+    const domain::Value* value = item.config.find(key);
+    const auto* text = value != nullptr ? std::get_if<std::string>(&value->data) : nullptr;
+    return text != nullptr ? *text : std::string(fallback);
+}
+
+bool settingBool(const domain::BarItem& item, std::string_view key, bool fallback)
+{
+    const domain::Value* value = item.config.find(key);
+    const auto* flag = value != nullptr ? std::get_if<bool>(&value->data) : nullptr;
+    return flag != nullptr ? *flag : fallback;
+}
+
 std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& instance)
 {
+    if (auto system = makeSystemProvider(slot, instance))
+    {
+        return system;
+    }
     if (slot.kind->id == "start")
     {
         return std::make_unique<StartProvider>(slot, instance);
@@ -170,6 +461,14 @@ std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& in
     if (slot.kind->id == "clock")
     {
         return std::make_unique<ClockProvider>(slot, instance);
+    }
+    if (slot.kind->id == "windows")
+    {
+        return makeWindowListProvider(slot, instance);
+    }
+    if (slot.kind->id == "media")
+    {
+        return makeMediaProvider(slot, instance);
     }
     return nullptr;
 }
