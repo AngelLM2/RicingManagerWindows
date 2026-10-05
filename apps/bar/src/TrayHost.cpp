@@ -48,14 +48,14 @@ constexpr int kAnchorHalf = 16; // around the click: where the app may anchor it
 // Window and icon handles travel as 32 bits; a 64-bit process sign-extends them.
 HWND windowOf(std::uint32_t handle) noexcept
 {
-    return reinterpret_cast<HWND>(
-        static_cast<std::intptr_t>(static_cast<std::int32_t>(handle))); // NOLINT(performance-no-int-to-ptr)
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    return reinterpret_cast<HWND>(static_cast<std::intptr_t>(static_cast<std::int32_t>(handle)));
 }
 
 HICON iconOf(std::uint32_t handle) noexcept
 {
-    return reinterpret_cast<HICON>(
-        static_cast<std::intptr_t>(static_cast<std::int32_t>(handle))); // NOLINT(performance-no-int-to-ptr)
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    return reinterpret_cast<HICON>(static_cast<std::intptr_t>(static_cast<std::int32_t>(handle)));
 }
 
 bool ownerGone(std::uint32_t owner)
@@ -280,8 +280,8 @@ void Worker::run(std::promise<void>& ready)
 
 LRESULT CALLBACK Worker::proc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    auto* self = reinterpret_cast<Worker*>(
-        GetWindowLongPtrW(window, GWLP_USERDATA)); // NOLINT(performance-no-int-to-ptr)
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto* self = reinterpret_cast<Worker*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (self != nullptr)
     {
         return self->handle(message, wParam, lParam);
