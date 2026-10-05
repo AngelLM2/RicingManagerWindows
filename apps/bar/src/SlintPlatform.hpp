@@ -27,6 +27,9 @@ public:
     Win32Platform(Win32Platform&&) = delete;
     Win32Platform& operator=(Win32Platform&&) = delete;
 
+    // The loop of this process (there is one), for widgets that wait on handles.
+    [[nodiscard]] static Win32Platform* current() noexcept { return s_current; }
+
     std::unique_ptr<slint::platform::WindowAdapter> create_window_adapter() override;
     void run_event_loop() override;
     void quit_event_loop() override;            // any thread
@@ -44,6 +47,8 @@ private:
     struct Access;
 
     void runTasks();
+
+    static inline Win32Platform* s_current = nullptr;
 
     AdapterFactory m_factory;
     void* m_messages = nullptr; // HWND, message-only: tasks and quit survive modal loops

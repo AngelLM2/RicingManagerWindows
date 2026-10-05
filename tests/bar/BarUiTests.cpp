@@ -136,16 +136,29 @@ TEST(BarSurface, GeneratedBarsCompileAndDraw)
     {
         rmw::domain::BarConfig config;
         config.position = position;
-        config.left = {{"start", {}}};
-        config.center = {{"clock", {}}};
-        config.right = {{"clock", {}}, {"no-such-widget", {}}};
+        config.left = {{"start", {}}, {"desktops", {}}, {"cpu", {}}, {"volume", {}}, {"notifications", {}}};
+        config.center = {{"media", {}}, {"clock", {}}};
+        config.right = {{"windows", {}}, {"clock", {}}, {"no-such-widget", {}}};
         const auto generated =
             rmw::bar::generateBarSource(config, rmw::barapp::builtinKinds(), rmw::barapp::builtinSources());
         EXPECT_EQ(generated.unknown.size(), 1u);
         auto instance = compile(generated.source);
         instance->set_property("bar-background",
                                Value(slint::Brush(slint::Color::from_rgb_uint8(32, 32, 32))));
-        instance->set_property("w1-text", Value(slint::SharedString("12:34")));
+        instance->set_property("w6-text", Value(slint::SharedString("12:34")));
+        instance->set_property("w5-title", Value(slint::SharedString("A song \u2014 An artist")));
+        instance->set_property("w5-shown", Value(true));
+        // Two windows in the list (what the provider sets).
+        auto windows = std::make_shared<slint::VectorModel<Value>>();
+        for (int i = 0; i < 2; ++i)
+        {
+            windows->push_back(
+                Value(slint::interpreter::Struct{{"id", Value(static_cast<double>(i))},
+                                                 {"title", Value(slint::SharedString("A window"))},
+                                                 {"icon", Value(slint::Image())},
+                                                 {"active", Value(i == 0)}}));
+        }
+        instance->set_property("w7-windows", Value(std::shared_ptr<slint::Model<Value>>(windows)));
         const bool horizontal = position == rmw::domain::BarPosition::Bottom;
         HeadlessPlatform::last->resize(horizontal ? 800 : 48, horizontal ? 48 : 600);
         Surface surface;

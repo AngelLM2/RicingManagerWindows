@@ -13,6 +13,8 @@
 
 #include <windows.h>
 
+#include <roapi.h>
+
 #include <charconv>
 #include <chrono>
 #include <cstdlib>
@@ -88,6 +90,12 @@ int run(std::span<const std::wstring_view> args)
     }
     // Per-monitor DPI: every bar is sized for its own monitor.
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    // The UI thread is a single-threaded apartment: the volume (Core Audio) and media (WinRT)
+    // widgets talk COM from it.
+    if (FAILED(RoInitialize(RO_INIT_SINGLETHREADED)))
+    {
+        log::warn("bar: COM is not available; the volume and media widgets stay empty");
+    }
 
     barapp::BarApp* app = nullptr;
     auto platform = std::make_unique<barapp::Win32Platform>([&app] { return app->createAdapter(); });

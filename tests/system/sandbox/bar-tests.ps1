@@ -33,6 +33,18 @@ public static extern bool IsWindowVisible(System.IntPtr window);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool SetCursorPos(int x, int y);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern void mouse_event(uint flags, int dx, int dy, uint data, System.UIntPtr extra);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern System.IntPtr GetForegroundWindow();
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool IsIconic(System.IntPtr window);
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern int GetWindowTextW(System.IntPtr window, System.Text.StringBuilder text, int length);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool GetWindowRect(System.IntPtr window, ref RECT rect);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern System.IntPtr GetDC(System.IntPtr window);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern int ReleaseDC(System.IntPtr window, System.IntPtr dc);
@@ -56,7 +68,9 @@ function Wait-Until([scriptblock] $Condition, [double] $Seconds) {
     }
     return [bool](& $Condition)
 }
-function Native-Visible { [Rmw.Win]::IsWindowVisible([Rmw.Win]::FindWindowW('Shell_TrayWnd', $null)) }
+# [NullString]::Value: PowerShell turns $null into "" for string parameters, and FindWindow would
+# then look for windows titled "".
+function Native-Visible { [Rmw.Win]::IsWindowVisible([Rmw.Win]::FindWindowW('Shell_TrayWnd', [NullString]::Value)) }
 function Bar-Process { Get-Process rmw-bar -ErrorAction SilentlyContinue | Select-Object -First 1 }
 # Asked every time: .NET's Screen.WorkingArea is cached until a message loop sees the change.
 function Work-Area {
@@ -79,6 +93,24 @@ function Shot([string] $Name) {
     $bitmap.Save((Join-Path $Out "$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
     $graphics.Dispose(); $bitmap.Dispose()
 }
+function Click([int] $X, [int] $Y) {
+    [void][Rmw.Win]::SetCursorPos($X, $Y)
+    Start-Sleep -Milliseconds 150
+    [Rmw.Win]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero) # left down
+    [Rmw.Win]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero) # left up
+    Start-Sleep -Milliseconds 700
+}
+function Title([IntPtr] $Window) {
+    $text = New-Object System.Text.StringBuilder 256
+    [void][Rmw.Win]::GetWindowTextW($Window, $text, 256)
+    $text.ToString()
+}
+function Bar-Rect {
+    $window = [Rmw.Win]::FindWindowW('RicingManagerWindows.Bar', [NullString]::Value)
+    $rect = New-Object Rmw.Win+RECT
+    [void][Rmw.Win]::GetWindowRect($window, [ref]$rect)
+    [System.Drawing.Rectangle]::FromLTRB($rect.Left, $rect.Top, $rect.Right, $rect.Bottom)
+}
 function Write-Rice([string] $Folder, [string] $Bar) {
     New-Item -ItemType Directory -Force $Folder | Out-Null
     @"
@@ -95,8 +127,10 @@ $Bar
 "@ | Out-File (Join-Path $Folder 'rice.toml') -Encoding ascii
 }
 
-# Something to look at behind the bar: an Explorer window on the desktop.
+# Something to look at behind the bar, and buttons for its window list: two Explorer windows.
 Start-Process explorer.exe 'C:\Windows' | Out-Null
+Start-Sleep -Seconds 2
+Start-Process explorer.exe 'C:\Users' | Out-Null
 Start-Sleep -Seconds 2
 
 $screen = Screen-Bounds
@@ -113,9 +147,9 @@ thickness = 44
 background = { kind = "solid", tint = "palette.night" }
 foreground = "palette.ink"
 hide_native_taskbar = true
-left = ["start"]
+left = ["start", "desktops", "windows"]
 center = ["clock"]
-right = [{ id = "clock", format = "%d/%m/%Y" }]
+right = ["media", "cpu", "memory", "network", "volume", "battery", "notifications", { id = "clock", format = "%d/%m/%Y" }]
 '@
 $r = Invoke-Rmw @('apply', $solid, '--wait')
 Check 'bar:apply' ($r.code -eq 0) $r.output
@@ -141,6 +175,20 @@ if ($bar) {
 $status = (Invoke-Rmw @('status')).output
 Check 'bar:status' ($status -match 'Bar: running') $status
 
+# The window list: its first button (after start and the desktop number) is the oldest window.
+# Click: it comes to the front; again: it minimizes; again: it is back.
+$buttonX = 6 + 40 + 4 + 30 + 4 + 90
+$buttonY = $screen.Bottom - 22
+Click $buttonX $buttonY
+$first = [Rmw.Win]::GetForegroundWindow()
+$firstTitle = Title $first
+Click $buttonX $buttonY
+$minimized = [Rmw.Win]::IsIconic($first)
+Click $buttonX $buttonY
+$restored = -not [Rmw.Win]::IsIconic($first) -and [Rmw.Win]::GetForegroundWindow() -eq $first
+Check 'bar:window-button-toggles' ($minimized -and $restored) "window='$firstTitle' minimized=$minimized restored=$restored"
+Shot 'bar-1b-window-list'
+
 # ---- 2. killing rmw-bar brings the native taskbar back in < 3 s, then the bar comes back -------
 $bar = Bar-Process
 $killedAt = Get-Date
@@ -164,6 +212,39 @@ Check 'bar:emergency-status-off' ($status -match 'Bar: off') $status
 $r = Invoke-Rmw @('action', 'bar.on', '--wait')
 $on = Wait-Until { $null -ne (Bar-Process) -and -not (Native-Visible) } 15
 Check 'bar:on-again' ($r.code -eq 0 -and $on) $r.output
+
+# ---- 3b. saving the applied rice updates its bar, without an apply -------------------------------
+$text = Get-Content (Join-Path $solid 'rice.toml') -Raw
+$text.Replace('thickness = 44', 'thickness = 56') | Out-File (Join-Path $solid 'rice.toml') -Encoding ascii
+$followed = Wait-Until { (Work-Area).Bottom -eq $screen.Bottom - 56 } 10
+Check 'bar:follows-rice-edits' $followed "work=$(Work-Area)"
+Set-Content (Join-Path $solid 'rice.toml') 'this is not toml [' -Encoding ascii
+Start-Sleep -Seconds 3
+Check 'bar:broken-edit-keeps-bar' ((Work-Area).Bottom -eq $screen.Bottom - 56 -and $null -ne (Bar-Process)) "work=$(Work-Area)"
+
+# ---- 3c. an auto-hidden bar takes no space and comes back with the mouse ------------------------
+$autohide = Join-Path $Work 'rice-autohide'
+Write-Rice $autohide @'
+[[bar]]
+position = "bottom"
+thickness = 40
+autohide = true
+hide_native_taskbar = true
+left = ["start", "windows"]
+right = ["clock"]
+'@
+$r = Invoke-Rmw @('apply', $autohide, '--wait')
+Check 'bar:autohide-apply' ($r.code -eq 0) $r.output
+$free = Wait-Until { (Work-Area).Bottom -eq $screen.Bottom } 10
+[void][Rmw.Win]::SetCursorPos([int]($screen.Width / 2), [int]($screen.Height / 2))
+$tucked = Wait-Until { (Bar-Rect).Top -ge $screen.Bottom - 2 } 8
+Check 'bar:autohide-reserves-nothing-and-tucks' ($free -and $tucked) "work=$(Work-Area) bar=$(Bar-Rect)"
+[void][Rmw.Win]::SetCursorPos([int]($screen.Width / 2), $screen.Bottom - 1)
+$shown = Wait-Until { (Bar-Rect).Top -eq $screen.Bottom - 40 } 5
+Shot 'bar-1c-autohide-shown'
+[void][Rmw.Win]::SetCursorPos([int]($screen.Width / 2), [int]($screen.Height / 2))
+$away = Wait-Until { (Bar-Rect).Top -ge $screen.Bottom - 2 } 5
+Check 'bar:autohide-follows-the-mouse' ($shown -and $away) "shown=$shown tucked-again=$away"
 
 # ---- 4. looks: floating, rounded, translucent; acrylic; a vertical bar ---------------------------
 $float = Join-Path $Work 'rice-float'

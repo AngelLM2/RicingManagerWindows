@@ -36,6 +36,7 @@ enum TimerId : std::uint32_t
     kExplorerTimer,
     kSettingsTimer,
     kPagesTimer,
+    kBarSourceTimer,
 };
 
 enum TrayId : std::uint32_t
@@ -54,6 +55,7 @@ constexpr std::uint32_t kEmergencyModifiers = 0x2 | 0x1 | 0x8; // Ctrl+Alt+Win
 constexpr std::uint32_t kEmergencyKey = 'T';
 
 constexpr std::uint32_t kConfigWatch = 1;
+constexpr std::uint32_t kRiceWatch = 2;
 
 constexpr auto kIdleCheck = 5s;
 constexpr auto kHealthyAfter = 60s; // docs/06 §6: a start that lasts this long was fine
@@ -207,7 +209,8 @@ void Resident::onEvent(const platform::SystemEvent& event)
         onHotkey(event.id);
         return;
     case SystemEventKind::FolderChanged:
-        m_window->setTimer(kSettingsTimer, kSettingsDebounce);
+        // Editors save in bursts (temporary file, rename): read once they are done.
+        m_window->setTimer(event.id == kRiceWatch ? kBarSourceTimer : kSettingsTimer, kSettingsDebounce);
         return;
     case SystemEventKind::SessionEnding:
         // Log off or shut down kills us next: that is not a crash.
@@ -291,6 +294,14 @@ void Resident::onTimer(std::uint32_t id)
         return;
     case kPagesTimer:
         onPagesTimer();
+        return;
+    case kBarSourceTimer:
+        m_work->push([this] {
+            if (auto reloaded = m_core->reloadBars(); !reloaded)
+            {
+                log::warn("bar: {}", reloaded.error().toString());
+            }
+        });
         return;
     case kSettingsTimer:
         if (stampOf(settingsFile(m_core->dataDirectory())) != m_settingsStamp)
@@ -669,6 +680,24 @@ void Resident::syncBar()
 {
     const auto plan = m_core->barPlan();
     const bool wanted = !safe() && plan.has_value() && !m_core->barOff();
+    // Saving the rice updates its bars: watch its folder while they are shown.
+    const auto source = wanted ? m_core->barSource() : std::nullopt;
+    if (source != m_watchedSource)
+    {
+        m_window->unwatchFolder(kRiceWatch);
+        m_watchedSource.reset();
+        if (source)
+        {
+            if (auto watched = m_window->watchFolder(kRiceWatch, *source); !watched)
+            {
+                log::warn("bar: edits to the rice will need an apply: {}", watched.error().toString());
+            }
+            else
+            {
+                m_watchedSource = source;
+            }
+        }
+    }
     if (!wanted)
     {
         if (m_barStartedFor)

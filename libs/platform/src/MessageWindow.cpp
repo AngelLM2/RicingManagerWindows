@@ -430,6 +430,18 @@ Result<void> MessageWindow::watchFolder(std::uint32_t id, const std::filesystem:
     return {};
 }
 
+void MessageWindow::unwatchFolder(std::uint32_t id) noexcept
+{
+    std::erase_if(m_watches, [id](const Watch& watch) {
+        if (watch.id != id)
+        {
+            return false;
+        }
+        FindCloseChangeNotification(watch.handle);
+        return true;
+    });
+}
+
 int MessageWindow::run()
 {
     std::vector<HANDLE> handles;

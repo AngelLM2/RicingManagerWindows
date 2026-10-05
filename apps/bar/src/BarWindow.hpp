@@ -51,6 +51,10 @@ private:
     void resizeTarget(std::int32_t width, std::int32_t height);
     void releaseTarget() noexcept;
     void applyBackdrop();
+    // Auto-hide: tucked away but for a thin strip at the edge, back when the mouse comes.
+    void tuck();
+    void untuck();
+    [[nodiscard]] bar::Rect tuckedRect() const noexcept;
     [[nodiscard]] slint::LogicalPosition logical(std::int32_t x, std::int32_t y) const;
 
     domain::BarConfig m_config;
@@ -60,7 +64,8 @@ private:
         slint::platform::SoftwareRenderer::RepaintBufferType::NewBuffer};
     Surface m_surface;
     Surface::Matte m_matte;
-    bar::Rect m_rect;
+    bar::Rect m_rect;   // where the bar is when shown
+    bar::Rect m_screen; // the monitor's full rectangle (auto-hide hides past its edge)
     double m_scale = 1.0;
     bool m_layered = true;
     bool m_translucent = true;
@@ -70,6 +75,8 @@ private:
     bool m_painting = false; // switching the matte asks for a redraw: not while we paint
     bool m_trackingMouse = false;
     bool m_besideFullscreen = false;
+    bool m_autohide = false;
+    bool m_tucked = false;
 
     // Present target: a 32-bit top-down DIB selected into a memory DC.
     void* m_dc = nullptr;     // HDC

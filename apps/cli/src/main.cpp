@@ -124,9 +124,14 @@ public:
                 {
                     return compatible;
                 }
-                return checkDataDirectory(*hello);
+                // Same protocol but another build (an update left the old core running): it
+                // would not know newer commands, so it is replaced too.
+                if (json::stringOr(*hello, "buildId", "") == kVersion || attempt > 0)
+                {
+                    return checkDataDirectory(*hello);
+                }
             }
-            if (hello.error().code() != ErrorCode::Unsupported)
+            else if (hello.error().code() != ErrorCode::Unsupported)
             {
                 return std::unexpected(std::move(hello.error()));
             }
