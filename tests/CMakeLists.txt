@@ -4,6 +4,7 @@ include(GoogleTest)
 
 add_executable(rmw_unit_tests
     unit/AppearanceTaskbarTests.cpp
+    unit/BarTests.cpp
     unit/CheckedCastTests.cpp
     unit/ConsoleTests.cpp
     unit/CursorFilesTests.cpp
@@ -31,6 +32,7 @@ add_executable(rmw_unit_tests
 )
 target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
 target_link_libraries(rmw_unit_tests PRIVATE
+    rmw::bar
     rmw::base
     rmw::domain
     rmw::engine
