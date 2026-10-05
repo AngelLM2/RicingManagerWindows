@@ -39,6 +39,18 @@ if (-not (Test-Path (Join-Path $buildDir 'tests'))) {
     throw "Build '$Preset' not found. Run .\scripts\build.ps1 -Preset $Preset first."
 }
 
+function Wait-SandboxClosed([int] $Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while (Get-Process -Name 'WindowsSandbox*' -ErrorAction SilentlyContinue) {
+        if ((Get-Date) -gt $deadline) { return $false }
+        Start-Sleep -Seconds 2
+    }
+    return $true
+}
+
+# Only one Windows Sandbox can run at a time: wait for a previous run to finish closing.
+if (-not (Wait-SandboxClosed 120)) { throw 'Another Windows Sandbox is still running.' }
+
 if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
@@ -104,6 +116,7 @@ while (-not (Test-Path $donePath)) {
 }
 
 $result = Get-Content $donePath -Raw | ConvertFrom-Json
+if (-not $KeepOpen) { [void](Wait-SandboxClosed 120) }
 Get-Content (Join-Path $outDir "$Suite.log") -ErrorAction SilentlyContinue | Select-Object -Last 40
 Write-Host "Sandbox suite '$Suite' finished with exit code $($result.exitCode)."
 exit [int]$result.exitCode

@@ -9,3 +9,4 @@ under `docs/adr/`, which is what matters.
 | S6 — process mitigations | `s6-mitigations/` | [ADR-0002](../docs/adr/0002-s6-mitigacoes-de-processo.md) |
 | S3 — native taskbar (run in Windows Sandbox only) | `s3-taskbar/` | [ADR-0003](../docs/adr/0003-s3-barra-nativa.md) |
 | S5 — monitor identity (host, read-only) and wallpaper snapshot (Sandbox only) | `s5-monitors-snapshot/` | [ADR-0004](../docs/adr/0004-s5-identidade-de-monitor-e-snapshot.md) |
+| S4 — live light/dark + accent via IThemeManager2 (Sandbox only) | `s4-appearance/` | [ADR-0005](../docs/adr/0005-s4-aparencia-ao-vivo.md) |
