@@ -1,11 +1,9 @@
 #include "WindowList.hpp"
 
 #include "rmw/base/Log.hpp"
-#include "rmw/base/Utf.hpp"
+#include "rmw/providers/Windows.hpp"
 
 #include <windows.h>
-
-#include <dwmapi.h>
 
 #include <algorithm>
 #include <array>
@@ -21,8 +19,7 @@ namespace
 using slint::interpreter::Value;
 using namespace std::chrono_literals;
 
-constexpr int kIconSize = 32; // drawn at 20 logical px: sharp up to 160% DPI
-constexpr int kMaxTitle = 256;
+constexpr int kIconSize = 32;  // drawn at 20 logical px: sharp up to 160% DPI
 constexpr auto kSettle = 60ms; // events come in bursts: look once they stop
 constexpr UINT kIconTimeoutMs = 50;
 // Asking windows for their icons costs up to 3 x 50 ms each: at most this much per pass (the UI
@@ -30,36 +27,6 @@ constexpr UINT kIconTimeoutMs = 50;
 constexpr auto kIconBudget = 250ms;
 
 std::atomic<WindowTracker*> g_tracker{nullptr}; // WinEvent callbacks carry no context
-
-bool isTaskbarWindow(HWND window)
-{
-    if (IsWindowVisible(window) == FALSE || GetAncestor(window, GA_ROOT) != window)
-    {
-        return false;
-    }
-    const auto extended = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
-    if ((extended & WS_EX_APPWINDOW) == 0 &&
-        (GetWindow(window, GW_OWNER) != nullptr || (extended & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) != 0))
-    {
-        return false;
-    }
-    // Cloaked: on another virtual desktop, or a suspended store app.
-    DWORD cloaked = 0;
-    if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked != 0)
-    {
-        return false;
-    }
-    DWORD process = 0;
-    GetWindowThreadProcessId(window, &process);
-    return process != GetCurrentProcessId() && GetWindowTextLengthW(window) > 0;
-}
-
-std::string titleOf(HWND window)
-{
-    std::array<wchar_t, kMaxTitle> text{};
-    const int length = GetWindowTextW(window, text.data(), static_cast<int>(text.size()));
-    return utf16To8Lossy(std::wstring_view(text.data(), static_cast<std::size_t>(std::max(0, length))));
-}
 
 HICON iconHandle(HWND window)
 {
@@ -218,18 +185,8 @@ private:
 
 struct WindowTracker::Access
 {
-    static void CALLBACK onEvent(HWINEVENTHOOK, DWORD event, HWND window, LONG object, LONG child, DWORD,
-                                 DWORD)
+    static void changed()
     {
-        if (object != OBJID_WINDOW || child != CHILDID_SELF || window == nullptr)
-        {
-            return;
-        }
-        // A destroyed window has no ancestor anymore; anything else must be top-level.
-        if (event != EVENT_OBJECT_DESTROY && GetAncestor(window, GA_ROOT) != window)
-        {
-            return;
-        }
         if (auto* tracker = g_tracker.load())
         {
             tracker->schedule();
@@ -246,30 +203,13 @@ WindowTracker& WindowTracker::instance()
 WindowTracker::WindowTracker()
 {
     g_tracker = this;
-    const std::array<std::pair<DWORD, DWORD>, 5> ranges = {{
-        {EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND},
-        {EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND},
-        {EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE},
-        {EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE},
-        {EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED},
-    }};
-    for (const auto& [first, last] : ranges)
-    {
-        if (HWINEVENTHOOK hook = SetWinEventHook(first, last, nullptr, &Access::onEvent, 0, 0,
-                                                 WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS))
-        {
-            m_hooks.push_back(hook);
-        }
-    }
+    m_hooks = std::make_unique<providers::WindowEventHooks>(&Access::changed);
     refresh();
 }
 
 WindowTracker::~WindowTracker()
 {
-    for (void* hook : m_hooks)
-    {
-        UnhookWinEvent(static_cast<HWINEVENTHOOK>(hook));
-    }
+    m_hooks.reset();
     g_tracker = nullptr;
 }
 
@@ -300,30 +240,19 @@ void WindowTracker::schedule()
 
 void WindowTracker::refresh()
 {
-    std::vector<HWND> current;
-    EnumWindows(
-        [](HWND window, LPARAM list) -> BOOL {
-            if (isTaskbarWindow(window))
-            {
-                // NOLINTNEXTLINE(performance-no-int-to-ptr): EnumWindows hands our pointer back
-                reinterpret_cast<std::vector<HWND>*>(list)->push_back(window);
-            }
-            return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&current));
+    const std::vector<void*> current = providers::taskbarWindows();
 
     bool changed = false;
     std::vector<Entry> next;
     next.reserve(current.size());
     for (auto& entry : m_windows)
     {
-        const auto window = static_cast<HWND>(entry.window);
-        if (std::ranges::find(current, window) == current.end())
+        if (std::ranges::find(current, entry.window) == current.end())
         {
             changed = true; // closed, hidden, or moved to another desktop
             continue;
         }
-        if (std::string title = titleOf(window); title != entry.title)
+        if (std::string title = providers::windowTitle(entry.window); title != entry.title)
         {
             entry.title = std::move(title);
             entry.iconLoaded = false; // browsers change both together
@@ -336,7 +265,7 @@ void WindowTracker::refresh()
     {
         if (std::ranges::none_of(next, [&](const Entry& entry) { return entry.window == *it; }))
         {
-            next.push_back({*it, titleOf(*it), {}, false});
+            next.push_back({*it, providers::windowTitle(*it), {}, false});
             changed = true;
         }
     }
@@ -378,26 +307,7 @@ void WindowTracker::refresh()
 
 void WindowTracker::activate(void* handle)
 {
-    const auto window = static_cast<HWND>(handle);
-    if (IsWindow(window) == FALSE)
-    {
-        return;
-    }
-    if (window == GetForegroundWindow() && IsIconic(window) == FALSE)
-    {
-        ShowWindowAsync(window, SW_MINIMIZE);
-        return;
-    }
-    if (IsIconic(window) != FALSE)
-    {
-        ShowWindowAsync(window, SW_RESTORE);
-    }
-    // The click was ours, so Windows lets us hand the foreground over; if it still refuses (the
-    // foreground lock), do what Alt+Tab does.
-    if (SetForegroundWindow(window) == FALSE)
-    {
-        SwitchToThisWindow(window, TRUE);
-    }
+    providers::activateWindow(handle);
 }
 
 std::unique_ptr<Provider> makeWindowListProvider(const bar::Slot& slot, const Instance& instance)

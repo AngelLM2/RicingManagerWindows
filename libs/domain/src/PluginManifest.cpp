@@ -1271,6 +1271,144 @@ Result<PluginManifest> parsePluginManifest(std::string_view text, Diagnostics& d
     return manifest;
 }
 
+namespace
+{
+
+Result<void> checkScalar(WidgetType type, const Value& value)
+{
+    switch (type)
+    {
+    case WidgetType::String:
+        if (const auto* text = std::get_if<std::string>(&value.data))
+        {
+            if (text->size() > kWidgetTextMaxBytes)
+            {
+                return fail(ErrorCode::LimitExceeded,
+                            std::format("text longer than {} bytes", kWidgetTextMaxBytes));
+            }
+            return {};
+        }
+        return fail(ErrorCode::InvalidData, "expected text");
+    case WidgetType::Int:
+        if (std::holds_alternative<std::int64_t>(value.data))
+        {
+            return {};
+        }
+        return fail(ErrorCode::InvalidData, "expected an integer");
+    case WidgetType::Float:
+    case WidgetType::Length:
+        if (std::holds_alternative<std::int64_t>(value.data) || std::holds_alternative<double>(value.data))
+        {
+            return {};
+        }
+        return fail(ErrorCode::InvalidData, "expected a number");
+    case WidgetType::Bool:
+        if (std::holds_alternative<bool>(value.data))
+        {
+            return {};
+        }
+        return fail(ErrorCode::InvalidData, "expected true or false");
+    case WidgetType::Color:
+        if (const auto* text = std::get_if<std::string>(&value.data); text != nullptr && Color::parse(*text))
+        {
+            return {};
+        }
+        return fail(ErrorCode::InvalidData, R"(expected a color "#RRGGBB" or "#RRGGBBAA")");
+    case WidgetType::Image: {
+        const auto* text = std::get_if<std::string>(&value.data);
+        if (text == nullptr)
+        {
+            return fail(ErrorCode::InvalidData, "expected an image path");
+        }
+        if (text->empty())
+        {
+            return {};
+        }
+        if (text->starts_with("window:"))
+        {
+            const std::string_view id = std::string_view(*text).substr(7);
+            if (!id.empty() && id.size() <= 20 &&
+                std::ranges::all_of(id, [](char c) { return c >= '0' && c <= '9'; }))
+            {
+                return {};
+            }
+            return fail(ErrorCode::InvalidData, "expected \"window:<id>\"");
+        }
+        auto path = validatePackagePath(*text);
+        if (!path)
+        {
+            return std::unexpected(std::move(path.error()));
+        }
+        if (!hasExtension(*path, {"png", "jpg", "jpeg", "svg"}))
+        {
+            return fail(ErrorCode::InvalidData, "expected a .png, .jpg or .svg file");
+        }
+        return {};
+    }
+    }
+    return fail(ErrorCode::InvalidData, "unknown type");
+}
+
+Result<void> checkItem(const PluginWidget& widget, const WidgetTypeRef& type, const Value& value)
+{
+    if (type.structName.empty())
+    {
+        return checkScalar(type.type, value);
+    }
+    const WidgetStruct* declared = widget.findStruct(type.structName);
+    const auto* members = value.table();
+    if (declared == nullptr || members == nullptr)
+    {
+        return fail(ErrorCode::InvalidData, std::format("expected a table ({})", type.structName));
+    }
+    for (const auto& member : *members)
+    {
+        const auto field = std::ranges::find(declared->fields, member.key, &WidgetField::name);
+        if (field == declared->fields.end())
+        {
+            return fail(ErrorCode::InvalidData,
+                        std::format("{} has no field '{}'", type.structName, member.key));
+        }
+        if (auto checked = checkScalar(field->type, member.value); !checked)
+        {
+            return std::unexpected(std::move(checked.error()).withContext(member.key));
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+Result<void> checkWidgetValue(const PluginWidget& widget, const WidgetTypeRef& type, const Value& value)
+{
+    if (!type.array)
+    {
+        return checkItem(widget, type, value);
+    }
+    const auto* items = std::get_if<Value::Array>(&value.data);
+    if (items == nullptr)
+    {
+        // An empty Lua table has no way to say it is a list.
+        if (const auto* members = value.table(); members != nullptr && members->empty())
+        {
+            return {};
+        }
+        return fail(ErrorCode::InvalidData, "expected a list");
+    }
+    if (items->size() > kWidgetListMaxItems)
+    {
+        return fail(ErrorCode::LimitExceeded, std::format("more than {} items", kWidgetListMaxItems));
+    }
+    for (std::size_t i = 0; i < items->size(); ++i)
+    {
+        if (auto checked = checkItem(widget, type, (*items)[i]); !checked)
+        {
+            return std::unexpected(std::move(checked.error()).withContext(std::format("item {}", i + 1)));
+        }
+    }
+    return {};
+}
+
 Value resolvePluginConfig(const ConfigSchema& schema, std::span<const Value* const> layers,
                           Diagnostics& diagnostics, std::string_view where)
 {

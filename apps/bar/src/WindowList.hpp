@@ -2,11 +2,14 @@
 
 #include "Widgets.hpp"
 
+#include "rmw/providers/Windows.hpp"
+
 #include <slint.h>
 
 #include <cstddef>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -51,7 +54,7 @@ private:
     void schedule();
     void refresh();
 
-    std::vector<void*> m_hooks; // HWINEVENTHOOK
+    std::unique_ptr<providers::WindowEventHooks> m_hooks;
     std::vector<Entry> m_windows;
     void* m_foreground = nullptr;
     std::map<std::size_t, std::function<void()>> m_subscribers;
