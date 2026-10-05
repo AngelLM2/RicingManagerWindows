@@ -19,5 +19,6 @@ target_link_libraries(rmw_core PRIVATE
     rmw::modules
     rmw::platform
     rmw::plugins
+    rmw::video
 )
 rmw_configure_target(rmw_core)

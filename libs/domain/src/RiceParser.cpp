@@ -352,11 +352,12 @@ private:
                 break;
             }
         }
-        if (std::ranges::any_of(config.monitors,
-                                [](const auto& r) { return r.kind == WallpaperKind::Video; }))
+        if (std::ranges::any_of(config.monitors, [](const auto& r) {
+                return r.kind == WallpaperKind::Video && r.fallbackImage.empty();
+            }))
         {
-            t.warning("monitor",
-                      "video wallpapers arrive in a later version; until then fallback_image is shown");
+            t.warning("monitor", "a video without fallback_image leaves that monitor's wallpaper as it was "
+                                 "while the video is paused or cannot play");
         }
     }
 

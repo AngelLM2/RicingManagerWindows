@@ -1016,6 +1016,45 @@ int run(std::span<const std::string> args)
             }
             out("Bar: " + state + " - Ctrl+Alt+Win+T brings Windows' taskbar back");
         }
+        const Json videoStatus = json::memberOr(*status, "video", Json::object());
+        if (json::boolOr(videoStatus, "configured", false))
+        {
+            std::string state = json::boolOr(videoStatus, "disabled", false)
+                                    ? "stopped after failing too often"
+                                : json::boolOr(videoStatus, "running", false)
+                                    ? std::format("running (pid {})", json::intOr(videoStatus, "pid", 0))
+                                    : "starting";
+            if (const auto restarts = json::intOr(videoStatus, "restarts", 0); restarts > 0)
+            {
+                state += std::format(", restarted {} time(s)", restarts);
+            }
+            if (const auto adapter = json::stringOr(videoStatus, "adapter", ""); !adapter.empty())
+            {
+                state += ", on " + adapter;
+            }
+            out("Video wallpaper: " + state);
+            if (const auto error = json::stringOr(videoStatus, "error", ""); !error.empty())
+            {
+                out("  " + error + " (the rice's fallback image shows)");
+            }
+            for (const auto& monitor : json::memberOr(videoStatus, "monitors", Json::array()))
+            {
+                std::string line = json::stringOr(monitor, "state", "?");
+                if (const auto paused = json::stringOr(monitor, "paused", ""); !paused.empty())
+                {
+                    line += " (" + paused + ")";
+                }
+                if (const auto video = json::stringOr(monitor, "video", ""); !video.empty())
+                {
+                    line += ": " + video;
+                }
+                if (const auto error = json::stringOr(monitor, "error", ""); !error.empty())
+                {
+                    line += ": " + error;
+                }
+                out(std::format("  {}: {}", json::stringOr(monitor, "monitor", "?"), line));
+            }
+        }
         if (const auto slideshows = json::intOr(*status, "slideshows", 0); slideshows > 0)
         {
             out(std::format("Slideshow turned by Ricing Manager on {} monitor(s)", slideshows));

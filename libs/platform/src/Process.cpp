@@ -306,6 +306,38 @@ Result<void> applyStrictMitigations() noexcept
 #endif
 }
 
+Result<void> applyMediaMitigations() noexcept
+{
+#if defined(__SANITIZE_ADDRESS__)
+    return {}; // ASan patches code and loads its runtime late
+#else
+    std::array<wchar_t, 8> flag{};
+    if (GetEnvironmentVariableW(L"RMW_DISABLE_MITIGATIONS", flag.data(), static_cast<DWORD>(flag.size())) >
+            0 &&
+        flag[0] == L'1')
+    {
+        log::warn("process mitigations disabled by RMW_DISABLE_MITIGATIONS");
+        return {};
+    }
+    PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY extensionPoints{};
+    extensionPoints.DisableExtensionPoints = 1;
+    if (SetProcessMitigationPolicy(ProcessExtensionPointDisablePolicy, &extensionPoints,
+                                   sizeof(extensionPoints)) == FALSE)
+    {
+        return std::unexpected(lastError("mitigation policy 'extension points'"));
+    }
+    PROCESS_MITIGATION_IMAGE_LOAD_POLICY imageLoad{};
+    imageLoad.NoRemoteImages = 1;
+    imageLoad.NoLowMandatoryLabelImages = 1;
+    imageLoad.PreferSystem32Images = 1;
+    if (SetProcessMitigationPolicy(ProcessImageLoadPolicy, &imageLoad, sizeof(imageLoad)) == FALSE)
+    {
+        return std::unexpected(lastError("mitigation policy 'image load'"));
+    }
+    return {};
+#endif
+}
+
 // ---- single instance and paths ---------------------------------------------------------------------
 
 Result<SingleInstance> SingleInstance::acquire(std::wstring_view purpose)

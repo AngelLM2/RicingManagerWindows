@@ -33,6 +33,7 @@ add_executable(rmw_unit_tests
     unit/TrayTests.cpp
     unit/TweaksModuleTests.cpp
     unit/UtfTests.cpp
+    unit/VideoTests.cpp
     unit/WallpaperModuleTests.cpp
     unit/WidgetSourceTests.cpp
     unit/Win32PortsTests.cpp
@@ -51,6 +52,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::plugins
     rmw::scripting
     rmw::storage
+    rmw::video
     GTest::gtest
     GTest::gtest_main
     unofficial::sqlite3::sqlite3
@@ -73,6 +75,13 @@ target_link_libraries(rmw_tray_test_app PRIVATE shell32 user32)
 target_link_options(rmw_tray_test_app PRIVATE /ENTRY:wmainCRTStartup) # no console window: only a tray icon
 rmw_configure_target(rmw_tray_test_app)
 add_dependencies(rmw_unit_tests rmw_tray_test_app)
+
+# A test video and windows that cover the desktop, for the M6 Sandbox tests (video-tests.ps1).
+find_package(wil CONFIG REQUIRED)
+add_executable(rmw_video_test_tool support/VideoTestTool.cpp)
+target_link_libraries(rmw_video_test_tool PRIVATE WIL::WIL mf mfplat mfreadwrite mfuuid ole32 user32 gdi32)
+rmw_configure_target(rmw_video_test_tool)
+add_dependencies(rmw_unit_tests rmw_video_test_tool)
 
 # NO_PRETTY_VALUES: parameterized tests keep their generated names instead of raw parameter bytes.
 gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)

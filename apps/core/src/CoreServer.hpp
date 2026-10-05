@@ -129,6 +129,12 @@ public:
     [[nodiscard]] Result<void> startBar();
     void stopBar();
     [[nodiscard]] ipc::Json barStatus() const;
+    // Video wallpapers: the plan rmw-wallpaper plays (JSON, also in <data>\wallpaper\video.json).
+    [[nodiscard]] std::optional<std::string> videoPlan() const;
+    // The rmw-wallpaper worker (window thread).
+    [[nodiscard]] Result<void> startVideo();
+    void stopVideo();
+    [[nodiscard]] ipc::Json videoStatus() const;
     // Window thread: writes the plugin host's plan and starts or stops rmw-plugin-host to match.
     void syncPluginHost();
     // Some plugin runs: the core stays resident for it.
@@ -181,6 +187,10 @@ private:
     void setBarPlan(const std::optional<std::string>& plan);
     void setBarOff(bool off);
     void setBarSource(const std::optional<std::filesystem::path>& folder);
+    void setVideoPlan(const std::optional<std::string>& plan);
+    // The rice's video wallpapers, their files copied into the store; nullopt when it plays none.
+    [[nodiscard]] Result<std::optional<std::string>> videoPlanFor(const domain::Rice& rice,
+                                                                  const std::filesystem::path& folder);
     void onWorkerEvent(const platform::WorkerEvent& event);
 
     CoreOptions m_options;
@@ -203,6 +213,7 @@ private:
     std::optional<std::string> m_barPlan;                 // mirrors meta "bar_plan"
     bool m_barOff = false;                                // mirrors meta "bar_off"
     std::optional<std::filesystem::path> m_barSource;     // mirrors meta "bar_source"
+    std::optional<std::string> m_videoPlan;               // mirrors meta "video_plan"
     std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
 
     // Plugins (docs/12). The pipes are named once per run: the bar serves the bridge, the host
