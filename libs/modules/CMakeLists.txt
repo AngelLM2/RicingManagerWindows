@@ -3,6 +3,7 @@
 rmw_add_library(modules
     SOURCES
         src/Appearance.cpp
+        src/Cursors.cpp
         src/RegistryFields.cpp
         src/Taskbar.cpp
     PUBLIC_DEPS

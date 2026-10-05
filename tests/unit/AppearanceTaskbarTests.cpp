@@ -30,6 +30,10 @@ public:
     {
         return rmw::fail(rmw::ErrorCode::Unsupported, "no assets");
     }
+    rmw::Result<std::vector<std::byte>> readPackageFile(std::string_view, std::uint64_t) override
+    {
+        return rmw::fail(rmw::ErrorCode::Unsupported, "no assets");
+    }
     rmw::Result<std::filesystem::path> fromSystem(const std::filesystem::path&, std::string_view) override
     {
         return rmw::fail(rmw::ErrorCode::Unsupported, "no assets");

@@ -43,10 +43,15 @@ public:
     StoreAssetSink(ContentStore& store, std::filesystem::path packageRoot);
 
     [[nodiscard]] Result<std::filesystem::path> fromPackage(std::string_view relativePath) override;
+    [[nodiscard]] Result<std::vector<std::byte>> readPackageFile(std::string_view relativePath,
+                                                                 std::uint64_t maxBytes) override;
     [[nodiscard]] Result<std::filesystem::path> fromSystem(const std::filesystem::path& file,
                                                            std::string_view extension) override;
 
 private:
+    // The file's final path, refusing anything that resolves outside the package.
+    [[nodiscard]] Result<std::filesystem::path> resolve(std::string_view relativePath) const;
+
     ContentStore& m_store;
     std::filesystem::path m_packageRoot;
 };

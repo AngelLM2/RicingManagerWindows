@@ -4,10 +4,13 @@
 #include "rmw/domain/Rice.hpp"
 #include "rmw/json/Json.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // The module contract (docs/03 §4), split by where each half runs.
 //
@@ -43,6 +46,9 @@ public:
     virtual ~IAssetSink() = default;
     // A path inside the rice package (already checked by PathRules).
     [[nodiscard]] virtual Result<std::filesystem::path> fromPackage(std::string_view relativePath) = 0;
+    // The bytes of a package file, to validate it (or read install.inf). Same containment rules.
+    [[nodiscard]] virtual Result<std::vector<std::byte>> readPackageFile(std::string_view relativePath,
+                                                                         std::uint64_t maxBytes) = 0;
     // A file the system uses right now (e.g. the current wallpaper), for snapshots. `extension`
     // (without dot) names the type when the file has none; empty keeps the file's own.
     [[nodiscard]] virtual Result<std::filesystem::path> fromSystem(const std::filesystem::path& file,
