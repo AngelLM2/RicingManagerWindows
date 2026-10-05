@@ -1,0 +1,40 @@
+---
+Language: Cpp
+BasedOnStyle: Microsoft
+Standard: Latest
+ColumnLimit: 110
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+NamespaceIndentation: None
+FixNamespaceComments: true
+PointerAlignment: Left
+ReferenceAlignment: Left
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AlwaysBreakTemplateDeclarations: Yes
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
+SpaceAfterTemplateKeyword: true
+IncludeBlocks: Regroup
+SortIncludes: CaseSensitive
+IncludeCategories:
+  # Order: own/local headers, project headers, <windows.h> (must precede every other Windows
+  # header), other Windows and Windows-only headers, third-party headers, standard library.
+  - Regex: '^"rmw/'
+    Priority: 2
+  - Regex: '^<windows\.h>$'
+    Priority: 3
+  - Regex: '^<(winnt|winuser|wil/|shobjidl|shlobj|shellapi|dwmapi|d3d|dxgi|dcomp|mf|wincodec|intrin)'
+    Priority: 4
+  - Regex: '^<.*\.h(pp)?>'
+    Priority: 5
+  - Regex: '^<'
+    Priority: 6
+  - Regex: '.*'
+    Priority: 1
+InsertNewlineAtEOF: true
+...

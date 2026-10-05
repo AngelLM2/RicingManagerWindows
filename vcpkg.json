@@ -1,5 +1,16 @@
 {
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "ricing-manager-windows",
+  "version": "0.1.0",
+  "description": "Open-source, lightweight and reversible Windows customizer",
+  "homepage": "https://github.com/AngelLM2/RicingManagerWindows",
+  "license": "GPL-3.0-or-later",
+  "supports": "windows & x64",
   "dependencies": [
-    "sqlite3"
+    "gtest",
+    "nlohmann-json",
+    "sqlite3",
+    "tomlplusplus",
+    "wil"
   ]
 }
