@@ -29,22 +29,52 @@ slint::Color colorOf(const domain::Color& color, double opacity)
     return slint::Color::from_argb_uint8(alpha, color.r, color.g, color.b);
 }
 
-// What the bar's own surface looks like: a solid bar is opaque unless told otherwise; transparent,
-// acrylic and mica let what is behind show unless a tint is given.
-slint::Brush backgroundOf(const domain::BarConfig& bar)
+// Windows' light or dark mode: the colors a rice leaves out follow it.
+bool systemLight()
+{
+    DWORD light = 0;
+    DWORD size = sizeof(light);
+    return RegGetValueW(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\CurrentVersion\Themes\Personalize)",
+                        L"SystemUsesLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &size) == ERROR_SUCCESS &&
+           light != 0;
+}
+
+// What the bar's own surface looks like. A solid bar is opaque unless told otherwise; transparent
+// and acrylic let what is behind show unless a tint is given; mica is acrylic under a thick tint
+// of the theme (DWM's own mica only shows on the focused window, and a bar never has the focus).
+slint::Brush backgroundOf(const domain::BarConfig& bar, bool light)
 {
     const auto& background = bar.background;
     const auto* tint = background.tint ? std::get_if<domain::Color>(&background.tint->value) : nullptr;
-    const bool solid = background.kind == domain::BarBackground::Kind::Solid;
-    const domain::Color base = tint != nullptr ? *tint : domain::Color{0x1f, 0x1f, 0x1f, 255};
-    const double opacity = background.opacity.value_or(solid ? 1.0 : (tint != nullptr ? 0.5 : 0.0));
-    return {colorOf(base, opacity)};
+    const domain::Color theme =
+        light ? domain::Color{0xf3, 0xf3, 0xf3, 255} : domain::Color{0x20, 0x20, 0x20, 255};
+    const domain::Color base = tint != nullptr ? *tint : theme;
+    double opacity = 0.0;
+    switch (background.kind)
+    {
+    case domain::BarBackground::Kind::Solid:
+        opacity = 1.0;
+        break;
+    case domain::BarBackground::Kind::Mica:
+        opacity = 0.8;
+        break;
+    case domain::BarBackground::Kind::Transparent:
+    case domain::BarBackground::Kind::Acrylic:
+        opacity = tint != nullptr ? 0.5 : 0.0;
+        break;
+    }
+    return {colorOf(base, background.opacity.value_or(opacity))};
 }
 
-slint::Color foregroundOf(const domain::BarConfig& bar)
+slint::Color foregroundOf(const domain::BarConfig& bar, bool light)
 {
     const auto* color = bar.foreground ? std::get_if<domain::Color>(&bar.foreground->value) : nullptr;
-    return color != nullptr ? colorOf(*color, 1.0) : slint::Color::from_rgb_uint8(0xf3, 0xf3, 0xf3);
+    if (color != nullptr)
+    {
+        return colorOf(*color, 1.0);
+    }
+    return light ? slint::Color::from_rgb_uint8(0x1b, 0x1b, 0x1b)
+                 : slint::Color::from_rgb_uint8(0xf3, 0xf3, 0xf3);
 }
 
 } // namespace
@@ -57,7 +87,10 @@ struct BarApp::Access
             GetWindowLongPtrW(window, GWLP_USERDATA));
         if (self != nullptr)
         {
-            if (message == WM_DISPLAYCHANGE ||
+            const auto* area = reinterpret_cast<const wchar_t*>(lParam); // NOLINT(performance-no-int-to-ptr)
+            const bool themeChanged =
+                message == WM_SETTINGCHANGE && area != nullptr && lstrcmpiW(area, L"ImmersiveColorSet") == 0;
+            if (message == WM_DISPLAYCHANGE || themeChanged ||
                 (message == self->m_taskbarCreated && self->m_taskbarCreated != 0))
             {
                 self->scheduleRebuild();
@@ -211,6 +244,7 @@ bool BarApp::rebuild()
     }
 
     std::vector<void*> hideOn;
+    const bool light = systemLight();
     for (const auto& config : plan->bars)
     {
         const bar::GeneratedBar generated = bar::generateBarSource(config, builtinKinds(), builtinSources());
@@ -254,9 +288,9 @@ bool BarApp::rebuild()
                 });
                 m_created = nullptr;
             }
-            instance->set_property("bar-background", Value(backgroundOf(config)));
+            instance->set_property("bar-background", Value(backgroundOf(config, light)));
             instance->set_property("bar-radius", Value(static_cast<double>(config.radius)));
-            instance->set_property("bar-foreground", Value(slint::Brush(foregroundOf(config))));
+            instance->set_property("bar-foreground", Value(slint::Brush(foregroundOf(config, light))));
             auto shown = std::make_unique<Shown>(Shown{instance, {}});
             for (const auto& slot : generated.slots)
             {

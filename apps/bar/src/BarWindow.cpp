@@ -434,14 +434,9 @@ void BarWindow::applyBackdrop()
     DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof(corners));
     const MARGINS everywhere{-1, -1, -1, -1};
     DwmExtendFrameIntoClientArea(hwnd, &everywhere);
-    if (m_config.background.kind == domain::BarBackground::Kind::Mica)
-    {
-        const DWM_SYSTEMBACKDROP_TYPE type = DWMSBT_MAINWINDOW;
-        if (SUCCEEDED(DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &type, sizeof(type))))
-        {
-            return;
-        }
-    }
+    // Mica too: DWM's system backdrop shows only while the window has the focus, and a bar never
+    // has it (seen on a real desktop: a flat, light surface). Acrylic under a thick theme tint
+    // (drawn by Slint, see BarApp) gives the same look and keeps it.
     const HMODULE user32 = GetModuleHandleW(L"user32.dll");
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): GetProcAddress's contract
     const auto setComposition =
