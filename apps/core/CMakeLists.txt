@@ -4,6 +4,7 @@ add_executable(rmw_core
     src/ApplyHelper.cpp
     src/Composition.cpp
     src/CoreServer.cpp
+    src/Resident.cpp
     src/main.cpp
 )
 set_target_properties(rmw_core PROPERTIES OUTPUT_NAME "rmw-core")

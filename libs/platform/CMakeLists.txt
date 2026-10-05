@@ -4,9 +4,11 @@ find_package(wil CONFIG REQUIRED)
 
 rmw_add_library(platform
     SOURCES
+        src/Autostart.cpp
         src/Console.cpp
         src/Customizers.cpp
         src/FileSystem.cpp
+        src/MessageWindow.cpp
         src/Pipe.cpp
         src/Process.cpp
         src/ProcessHardening.cpp
@@ -27,4 +29,5 @@ rmw_add_library(platform
         oleaut32
         shell32
         user32
+        wtsapi32
 )

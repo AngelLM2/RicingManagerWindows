@@ -92,12 +92,17 @@ action = "restore.original"
 TEST(Settings, ReportsMistakesWithLocations)
 {
     const char* bad[] = {
-        "[[hotkey]]\nkeys = \"Win+Alt+D\"\naction = \"launch.rocket\"\n", // unknown action
-        "[[hotkey]]\nkeys = \"D\"\naction = \"appearance.toggle\"\n",     // no modifier
-        "[[hotkey]]\naction = \"appearance.toggle\"\n",                   // no keys
-        "[[hotkey]]\nkeys = \"Win+Alt+D\"\naction = \"rice.apply\"\n",    // rice.apply without rice
-        "[[hotkey]]\nkeys = \"Win+Alt+D\"\naction = \"appearance.toggle\"\n"
-        "[[hotkey]]\nkeys = \"Alt+Win+D\"\naction = \"restore.original\"\n",       // same chord twice
+        "[[hotkey]]\nkeys = \"Win+Alt+D\"\naction = \"launch.rocket\"\n",          // unknown action
+        "[[hotkey]]\nkeys = \"D\"\naction = \"appearance.toggle\"\n",              // no modifier
+        "[[hotkey]]\naction = \"appearance.toggle\"\n",                            // no keys
+        "[[hotkey]]\nkeys = \"Win+Alt+D\"\naction = \"rice.apply\"\n",             // rice.apply without rice
+        R"([[hotkey]]
+keys = "Win+Alt+D"
+action = "appearance.toggle"
+[[hotkey]]
+keys = "Alt+Win+D"
+action = "restore.original"
+)",                                                                                // same chord twice
         "[[rule]]\nwhen = \"time\"\naction = \"appearance.toggle\"\n",             // time without at
         "[[rule]]\nwhen = \"sunrise\"\naction = \"appearance.toggle\"\n",          // unknown trigger
         "[[rule]]\nwhen = \"monitor-connected\"\naction = \"restore.original\"\n", // no monitor
@@ -115,6 +120,20 @@ TEST(Settings, ReportsMistakesWithLocations)
     ASSERT_FALSE(located.has_value());
     EXPECT_EQ(diagnostics.all()[0].line, 5u);
     EXPECT_EQ(diagnostics.all()[0].key, "hotkey[0].action");
+}
+
+TEST(DailyTime, CountsToTheNextAndFromTheLastOccurrence)
+{
+    const TimeOfDay seven{19, 0};
+    EXPECT_EQ(secondsUntil(seven, (18 * 3600) + (59 * 60) + 59), 1);
+    EXPECT_EQ(secondsUntil(seven, 19 * 3600), kSecondsPerDay); // exactly now: tomorrow
+    EXPECT_EQ(secondsUntil(seven, (19 * 3600) + 1), kSecondsPerDay - 1);
+    EXPECT_EQ(secondsUntil(TimeOfDay{0, 0}, kSecondsPerDay - 1), 1); // across midnight
+
+    EXPECT_EQ(secondsSince(seven, 19 * 3600), 0);
+    EXPECT_EQ(secondsSince(seven, (19 * 3600) + 90), 90);
+    EXPECT_EQ(secondsSince(seven, (18 * 3600) + (59 * 60) + 59), kSecondsPerDay - 1);
+    EXPECT_EQ(secondsSince(TimeOfDay{23, 59}, 30), 90); // across midnight
 }
 
 } // namespace

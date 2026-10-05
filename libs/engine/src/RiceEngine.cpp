@@ -304,7 +304,7 @@ Result<OperationReport> RiceEngine::applyAutomatic(const domain::Rice& rice,
     {
         return propagate(steps);
     }
-    return run("automatic", label, std::move(*steps), AppliedUpdate::Merge, {}, false);
+    return run("automatic", label, std::move(*steps), AppliedUpdate::Merge, {}, true);
 }
 
 Result<std::vector<std::string>> RiceEngine::driftedFields(std::string_view moduleId)
@@ -354,7 +354,7 @@ Result<void> RiceEngine::detach(std::string_view moduleId, const std::vector<std
     return m_state.setApplied(moduleId, *applied);
 }
 
-Result<OperationReport> RiceEngine::reapplyManaged()
+Result<OperationReport> RiceEngine::reapplyManaged(std::span<const std::string> modules)
 {
     if (auto clean = undoOpenJournalIfAny(); !clean)
     {
@@ -363,6 +363,10 @@ Result<OperationReport> RiceEngine::reapplyManaged()
     std::vector<Step> steps;
     for (const auto* module : m_catalog.ordered())
     {
+        if (!modules.empty() && std::ranges::find(modules, module->id()) == modules.end())
+        {
+            continue;
+        }
         auto applied = m_state.applied(module->id());
         if (!applied)
         {
@@ -378,7 +382,7 @@ Result<OperationReport> RiceEngine::reapplyManaged()
         return OperationReport{};
     }
     return run("reapply", "Reapplied after a system change", std::move(steps), AppliedUpdate::Merge, {},
-               false);
+               true);
 }
 
 Result<OperationReport> RiceEngine::restoreOriginal(const RestoreOptions& options)
@@ -480,7 +484,7 @@ Result<OperationReport> RiceEngine::restoreTo(const Json& targetModules, const s
 
 Result<OperationReport> RiceEngine::run(std::string_view operation, const std::string& label,
                                         std::vector<Step> steps, AppliedUpdate update, OperationReport report,
-                                        bool recordHistory)
+                                        bool automatic)
 {
     // 2. current state of every module involved
     Json beforeModules = Json::object();
@@ -503,6 +507,29 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         }
         beforeModules[id] = snapshotEntry(*step.current);
         desiredAll[id] = step.desired;
+    }
+    if (automatic)
+    {
+        // Nothing to do where Windows already shows what we want.
+        std::erase_if(steps, [&](const Step& step) {
+            const Json& now = step.current->state;
+            for (const auto& [field, value] : step.desired.items())
+            {
+                const auto found = now.find(field);
+                if (found == now.end() || !step.module->fieldEquivalent(field, *found, value))
+                {
+                    return false;
+                }
+            }
+            const std::string id(step.module->id());
+            beforeModules.erase(id);
+            desiredAll.erase(id);
+            return true;
+        });
+        if (steps.empty())
+        {
+            return report;
+        }
     }
 
     // 3. durable "in progress" marker
@@ -613,7 +640,7 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         }
     }
     std::int64_t historyId = 0;
-    if (recordHistory)
+    if (!automatic)
     {
         auto added = m_state.addHistory(snapshotId, label, kHistoryLimit);
         if (!added)
@@ -626,7 +653,7 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
     {
         return propagate(closed);
     }
-    if (!recordHistory)
+    if (automatic)
     {
         // Nothing will go back to this snapshot: drop it with the journal.
         if (auto dropped = m_state.deleteSnapshot(snapshotId); !dropped)
