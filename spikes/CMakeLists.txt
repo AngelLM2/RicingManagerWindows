@@ -1,2 +1,3 @@
 add_subdirectory(s3-taskbar)
+add_subdirectory(s5-monitors-snapshot)
 add_subdirectory(s6-mitigations)

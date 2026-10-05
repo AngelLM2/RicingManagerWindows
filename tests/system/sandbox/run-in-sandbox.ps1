@@ -8,6 +8,7 @@ param(
     [ValidateSet('unit', 'system', 'spike')]
     [string] $Suite = 'unit',
     [string] $Spike,
+    [string] $SpikeArgs = '',
     [switch] $Shutdown
 )
 
@@ -36,7 +37,8 @@ try {
             $exe = Join-Path $work (Split-Path $Spike -Leaf)
             New-Item -ItemType Directory -Force $work | Out-Null
             Copy-Item (Join-Path 'C:\rmw\build' $Spike) $exe -Force
-            & $exe *> $log
+            [string[]] $argList = if ($SpikeArgs) { $SpikeArgs.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) } else { @() }
+            & $exe @argList *> $log
             $exitCode = $LASTEXITCODE
         }
     }
