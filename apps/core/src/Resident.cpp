@@ -753,6 +753,14 @@ void Resident::emergency()
     notify(text.barOffTitle, std::wstring(text.barOffText));
 }
 
+void Resident::onPluginStopped(const std::string& name, const std::string& id)
+{
+    const UiStrings& text = uiStrings();
+    notify(text.pluginStoppedTitle,
+           formatted(text.pluginStoppedText, utf8To16Lossy(name), utf8To16Lossy(id)));
+    refresh(); // the next plugin host runs without it
+}
+
 void Resident::onBarDisabled()
 {
     const UiStrings& text = uiStrings();
