@@ -17,6 +17,8 @@ param(
     [string] $Suite = 'unit',
     # For -Suite spike: executable path relative to the build folder, e.g. spikes\s3-taskbar\spike_s3_taskbar.exe
     [string] $Spike,
+    # Arguments for the spike executable (letters, digits, spaces and dashes only)
+    [string] $SpikeArgs = '',
     [int] $TimeoutMinutes = 20,
     [switch] $KeepOpen
 )
@@ -45,10 +47,13 @@ if ($Suite -eq 'spike') {
         throw '-Spike must be a relative path to an .exe inside the build folder.'
     }
     if (-not (Test-Path (Join-Path $buildDir $Spike))) { throw "Spike not found: $Spike" }
+    if ($SpikeArgs -notmatch '^[\w\- ]*$') { throw '-SpikeArgs may contain only letters, digits, spaces and dashes.' }
 }
 
 $shutdown = if ($KeepOpen) { '' } else { ' -Shutdown' }
 $spikeArg = if ($Suite -eq 'spike') { " -Spike $Spike" } else { '' }
+# Double quotes: with "powershell -File" single quotes would reach the script literally.
+if ($Suite -eq 'spike' -and $SpikeArgs) { $spikeArg += " -SpikeArgs `"$SpikeArgs`"" }
 $logon = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\rmw\runner\run-in-sandbox.ps1 -Suite $Suite$spikeArg$shutdown"
 
 function Escape-Xml([string] $text) { [System.Security.SecurityElement]::Escape($text) }
