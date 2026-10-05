@@ -73,28 +73,86 @@ Result<ChildProcess> ChildProcess::spawn(const std::filesystem::path& executable
         {
             return std::unexpected(lastError("SetInformationJobObject"));
         }
+#if !defined(__SANITIZE_ADDRESS__)
+        if (options.memoryNotifyBytes > 0)
+        {
+            JOBOBJECT_NOTIFICATION_LIMIT_INFORMATION notify{};
+            notify.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
+            notify.JobMemoryLimit = options.memoryNotifyBytes;
+            if (SetInformationJobObject(job.get(), JobObjectNotificationLimitInformation, &notify,
+                                        sizeof(notify)) == FALSE)
+            {
+                return std::unexpected(lastError("SetInformationJobObject(notification limit)"));
+            }
+        }
+#endif
+        if (options.completionPort != nullptr)
+        {
+            // Before the process joins, so no message is missed.
+            JOBOBJECT_ASSOCIATE_COMPLETION_PORT port{};
+            port.CompletionKey =
+                reinterpret_cast<void*>(options.completionKey); // NOLINT(performance-no-int-to-ptr)
+            port.CompletionPort = options.completionPort;
+            if (SetInformationJobObject(job.get(), JobObjectAssociateCompletionPortInformation, &port,
+                                        sizeof(port)) == FALSE)
+            {
+                return std::unexpected(lastError("SetInformationJobObject(completion port)"));
+            }
+        }
         child.m_job = job.release();
     }
 
     // CreateProcess may write into the command line buffer.
     std::wstring commandLine = std::format(L"\"{}\" {}", executable.native(), arguments);
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
+    STARTUPINFOEXW startup{};
+    startup.StartupInfo.cb = sizeof(startup);
     PROCESS_INFORMATION info{};
-    DWORD flags = CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT;
+    DWORD flags =
+        CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT;
     if (options.breakawayFromJob)
     {
         flags |= CREATE_BREAKAWAY_FROM_JOB;
     }
-    BOOL created = CreateProcessW(executable.c_str(), commandLine.data(), nullptr, nullptr, FALSE, flags,
-                                  nullptr, nullptr, &startup, &info);
+    // An explicit list: the child gets exactly these handles, never whatever else is inheritable.
+    std::vector<std::byte> attributeBuffer;
+    std::vector<HANDLE> inherit(options.inheritHandles.begin(), options.inheritHandles.end());
+    const bool inherits = !inherit.empty();
+    if (inherits)
+    {
+        SIZE_T size = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &size);
+        attributeBuffer.resize(size);
+        startup.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributeBuffer.data());
+        if (InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &size) == FALSE)
+        {
+            return std::unexpected(lastError("InitializeProcThreadAttributeList"));
+        }
+        if (UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                      inherit.data(), inherit.size() * sizeof(HANDLE), nullptr,
+                                      nullptr) == FALSE)
+        {
+            Error error = lastError("UpdateProcThreadAttribute");
+            DeleteProcThreadAttributeList(startup.lpAttributeList);
+            return std::unexpected(std::move(error));
+        }
+    }
+    const auto create = [&] {
+        return CreateProcessW(executable.c_str(), commandLine.data(), nullptr, nullptr,
+                              inherits ? TRUE : FALSE, flags, nullptr, nullptr, &startup.StartupInfo, &info);
+    };
+    BOOL created = create();
     if (created == FALSE && options.breakawayFromJob && GetLastError() == ERROR_ACCESS_DENIED)
     {
         // The parent's job forbids breakaway: start inside it rather than not at all.
         flags &= ~static_cast<DWORD>(CREATE_BREAKAWAY_FROM_JOB);
-        created = CreateProcessW(executable.c_str(), commandLine.data(), nullptr, nullptr, FALSE, flags,
-                                 nullptr, nullptr, &startup, &info);
+        created = create();
     }
+    const DWORD createError = GetLastError();
+    if (inherits)
+    {
+        DeleteProcThreadAttributeList(startup.lpAttributeList);
+    }
+    SetLastError(createError);
     if (created == FALSE)
     {
         return std::unexpected(lastError(std::format("start {}", executable.filename().string())));
