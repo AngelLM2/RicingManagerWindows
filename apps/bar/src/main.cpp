@@ -1,5 +1,5 @@
 // rmw-bar.exe — the custom taskbar (docs/04 M3). A worker the core supervises:
-//   rmw-bar --plan <data>\bar\bars.json [--heartbeat <handle>] [--core <handle>]
+//   rmw-bar --plan <data>\bar\bars.json [--bridge <pipe>] [--heartbeat <handle>] [--core <handle>]
 // It never runs plugin code (docs/12 §3). When the core goes away it shows Windows' taskbar again
 // and exits, so a crash of the core never leaves the user without a taskbar.
 
@@ -110,7 +110,15 @@ int run(std::span<const std::wstring_view> args)
         });
     }
 
-    barapp::BarApp bar(loop, planFile);
+    std::wstring bridge;
+    for (std::size_t i = 0; i + 1 < args.size(); ++i)
+    {
+        if (args[i] == L"--bridge")
+        {
+            bridge = std::wstring(args[i + 1]);
+        }
+    }
+    barapp::BarApp bar(loop, planFile, std::move(bridge));
     app = &bar;
     if (!bar.start())
     {

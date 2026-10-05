@@ -12,6 +12,8 @@ add_library(rmw_bar_ui STATIC
     src/BarApp.cpp
     src/BarWindow.cpp
     src/MediaWidget.cpp
+    src/PluginBridge.cpp
+    src/PluginWidgets.cpp
     src/SlintPlatform.cpp
     src/Surface.cpp
     src/SystemWidgets.cpp
@@ -24,6 +26,7 @@ target_link_libraries(rmw_bar_ui PUBLIC
     rmw::base
     rmw::domain
     rmw::platform
+    rmw::plugins
     rmw::providers
     Slint::Slint
     dwmapi

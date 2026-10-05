@@ -1,6 +1,6 @@
 #include "rmw/domain/PluginManifest.hpp"
-#include "rmw/plugins/Runtime.hpp"
 #include "rmw/plugins/Url.hpp"
+#include "rmw/scripting/Runtime.hpp"
 
 #include <gtest/gtest.h>
 
@@ -14,10 +14,10 @@ namespace
 
 using namespace rmw;
 using namespace std::chrono_literals;
-using plugins::Clock;
-using plugins::LogLevel;
+using scripting::Clock;
+using scripting::LogLevel;
 
-struct FakeHost final : plugins::IPluginHost
+struct FakeHost final : scripting::IPluginHost
 {
     struct Action
     {
@@ -48,7 +48,7 @@ struct FakeHost final : plugins::IPluginHost
     {
         widgets.emplace_back(instance, properties);
     }
-    void http(plugins::HttpRequest request) override { requests.push_back(std::move(request)); }
+    void http(scripting::HttpRequest request) override { requests.push_back(std::move(request)); }
     void log(const std::string& plugin, LogLevel level, std::string_view text) override
     {
         logs.push_back(std::format("{}|{}|{}", plugin, static_cast<int>(level), text));
@@ -78,7 +78,7 @@ struct FakeHost final : plugins::IPluginHost
     std::vector<std::string> watched;
     std::vector<Action> actions;
     std::vector<std::pair<std::string, domain::Value>> widgets;
-    std::vector<plugins::HttpRequest> requests;
+    std::vector<scripting::HttpRequest> requests;
     std::vector<std::string> logs;
     std::vector<std::string> failures;
     std::string current;
@@ -117,13 +117,13 @@ clicked = []
 picked = ["int"]
 )toml";
 
-plugins::PluginSpec spec(std::string_view name, std::string source, bool grantAll = true)
+scripting::PluginSpec spec(std::string_view name, std::string source, bool grantAll = true)
 {
     domain::Diagnostics diagnostics;
     auto manifest =
         domain::parsePluginManifest(std::vformat(kManifest, std::make_format_args(name)), diagnostics, {});
     EXPECT_TRUE(manifest.has_value()) << (manifest ? "" : manifest.error().message());
-    plugins::PluginSpec result;
+    scripting::PluginSpec result;
     result.manifest = *manifest;
     result.granted = grantAll ? manifest->permissions : domain::PluginPermissions{};
     result.source = std::move(source);
@@ -140,7 +140,7 @@ class PluginRuntime : public ::testing::Test
 {
 protected:
     FakeHost host;
-    plugins::Runtime runtime{host};
+    scripting::Runtime runtime{host};
     Clock::time_point now = Clock::time_point{} + 1h;
 
     void load(std::string_view name, std::string source, bool grantAll = true)
@@ -172,7 +172,7 @@ rmw.widget(function(w)
     end)
 end)
 )lua");
-    const std::vector<plugins::InstanceSpec> instances{{"bar0/w1", "io.github.test.clock", {}}};
+    const std::vector<scripting::InstanceSpec> instances{{"bar0/w1", "io.github.test.clock", {}}};
     runtime.setInstances(instances, now);
     ASSERT_EQ(host.widgets.size(), 1u) << host.allLogs();
     EXPECT_EQ(host.widgets[0].first, "bar0/w1");
@@ -201,7 +201,7 @@ rmw.widget(function(w)
     rmw.every(250, function() n += 1; w:set("count", n) end)
 end)
 )lua");
-    const std::vector<plugins::InstanceSpec> instances{{"k", "io.github.test.busy", {}}};
+    const std::vector<scripting::InstanceSpec> instances{{"k", "io.github.test.busy", {}}};
     runtime.setInstances(instances, now);
     for (int i = 0; i < 8; ++i)
     {
@@ -234,7 +234,7 @@ rmw.every(250, function() rmw.log("alive") end)
     EXPECT_TRUE(host.logged("io.github.test.good|0|alive"));
     const auto status = runtime.status();
     const auto loop =
-        std::ranges::find(status, std::string("io.github.test.loop"), &plugins::PluginStatus::id);
+        std::ranges::find(status, std::string("io.github.test.loop"), &scripting::PluginStatus::id);
     ASSERT_NE(loop, status.end());
     EXPECT_TRUE(loop->failed);
     EXPECT_EQ(loop->memoryBytes, 0u); // its VM is gone
@@ -287,7 +287,7 @@ rmw.onaction("focus", function(args) rmw.log("focus " .. tostring(args.level)) e
     for (std::size_t i = 0; i < attempts.size(); ++i)
     {
         FakeHost local;
-        plugins::Runtime isolated(local);
+        scripting::Runtime isolated(local);
         auto loaded = isolated.load(spec(std::format("p{}", i), attempts[i], false), now);
         ASSERT_FALSE(loaded.has_value()) << attempts[i];
         EXPECT_NE(loaded.error().message().find("permission denied"), std::string::npos)
@@ -323,7 +323,7 @@ rmw.widget(function(w)
     w:set({ items = { { title = "a", icon = "window:42" } }, icon = "icons/a.png" })
 end)
 )lua");
-    const std::vector<plugins::InstanceSpec> instances{{"k", "io.github.test.types", {}}};
+    const std::vector<scripting::InstanceSpec> instances{{"k", "io.github.test.types", {}}};
     runtime.setInstances(instances, now);
     EXPECT_TRUE(host.logged("false false false false false")) << host.allLogs();
     ASSERT_EQ(host.widgets.size(), 1u) << host.allLogs();
@@ -372,7 +372,7 @@ rmw.log(string.format("blocked %s %s %s", tostring(blocked), tostring(plain), to
     EXPECT_EQ(host.requests[0].target, "/v1/weather?city=Lisboa");
     ASSERT_EQ(host.requests[0].headers.size(), 1u);
 
-    plugins::HttpResponse response;
+    scripting::HttpResponse response;
     response.status = 200;
     response.body = R"({"temp": 21})";
     runtime.httpDone("io.github.test.net", host.requests[0].id, response, now);
@@ -411,8 +411,8 @@ rmw.widget(function(w)
 end)
 )lua");
     const domain::Value lisbon{domain::Value::Table{{"city", domain::Value{std::string("Lisboa")}}}};
-    std::vector<plugins::InstanceSpec> instances{{"a", "io.github.test.life", lisbon},
-                                                 {"b", "io.github.test.life", {}}};
+    std::vector<scripting::InstanceSpec> instances{{"a", "io.github.test.life", lisbon},
+                                                   {"b", "io.github.test.life", {}}};
     runtime.setInstances(instances, now);
     EXPECT_TRUE(host.logged("open a Lisboa"));
     EXPECT_TRUE(host.logged("open b nil"));

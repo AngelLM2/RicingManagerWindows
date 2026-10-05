@@ -5,6 +5,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <vector>
 
 namespace rmw::domain
@@ -23,5 +25,10 @@ struct Size
     std::uint32_t height = 0;
 };
 [[nodiscard]] Size reducedAspect(std::uint32_t width, std::uint32_t height) noexcept;
+
+// The pixel size a PNG or JPEG declares in its header, read from the file's first bytes without
+// decoding: a small file can declare a huge image (a decompression bomb). nullopt when the bytes
+// are neither, or the header is cut short.
+[[nodiscard]] std::optional<Size> rasterImageSize(std::span<const std::byte> head) noexcept;
 
 } // namespace rmw::domain

@@ -44,6 +44,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::modules
     rmw::platform
     rmw::plugins
+    rmw::scripting
     rmw::storage
     GTest::gtest
     GTest::gtest_main

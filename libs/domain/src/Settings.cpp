@@ -3,6 +3,8 @@
 #include "EnumNames.hpp"
 #include "TomlReader.hpp"
 
+#include "rmw/domain/PluginApi.hpp"
+
 #include <algorithm>
 #include <array>
 #include <format>
@@ -206,7 +208,9 @@ private:
             }
             return std::nullopt;
         }
-        if (std::ranges::find(m_actions, std::string_view(*name)) == m_actions.end())
+        // A plugin's action ("<plugin id>:<action>") is checked when it runs: plugins come and go.
+        if (std::ranges::find(m_actions, std::string_view(*name)) == m_actions.end() &&
+            !parsePluginActionName(*name))
         {
             std::string known;
             for (const auto action : m_actions)

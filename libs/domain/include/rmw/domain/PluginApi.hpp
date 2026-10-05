@@ -2,6 +2,7 @@
 
 #include "rmw/domain/SemVer.hpp"
 
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -36,6 +37,15 @@ struct PluginCapability
 [[nodiscard]] bool isValidNetworkDomain(std::string_view domain) noexcept;
 // Whether `host` (from a URL, any case) is one of `domains` or a subdomain of a "*." entry.
 [[nodiscard]] bool networkDomainAllowed(std::string_view host, std::span<const std::string> domains) noexcept;
+
+// "io.github.someone.focus-mode:focus": an action a plugin declares ([[action]]), as hotkeys, rules
+// and the CLI name it.
+struct PluginActionName
+{
+    std::string plugin;
+    std::string action;
+};
+[[nodiscard]] std::optional<PluginActionName> parsePluginActionName(std::string_view name);
 
 // A plugin's own action ("focus" in "io.github.someone.focus-mode:focus"), widget property or
 // callback name: lower-case [a-z][a-z0-9-]*, no "--", at most 32 bytes.

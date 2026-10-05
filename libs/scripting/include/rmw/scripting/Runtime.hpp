@@ -27,7 +27,7 @@ struct lua_State;
 // longer than limits::kPluginCallbackMaxMs; an allocator caps each VM at limits::kPluginVmMaxBytes;
 // and the process watchdog (the supervisor's heartbeat) ends the host when a C function runs long
 // (a pathological string pattern), with entering()/left() saying whom to blame.
-namespace rmw::plugins
+namespace rmw::scripting
 {
 
 using Clock = std::chrono::steady_clock;
@@ -174,4 +174,7 @@ private:
     Clock::time_point m_now{};
 };
 
-} // namespace rmw::plugins
+// Compiles a script without running it (rmw plugin validate): its syntax errors, with lines.
+[[nodiscard]] Result<void> checkScript(std::string_view source, std::string_view name);
+
+} // namespace rmw::scripting
