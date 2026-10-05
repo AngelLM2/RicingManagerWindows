@@ -1,0 +1,22 @@
+// The widget's look. The bar gives every widget `foreground` and `vertical`; the rest is yours
+// ([widget.properties] and [widget.callbacks] in plugin.toml).
+export component MyWidget inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <string> text: "…";
+    callback clicked();
+    min-width: label.preferred-width + 16px;
+    min-height: 32px;
+    border-radius: 6px;
+    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    label := Text {
+        text: root.text;
+        color: root.foreground;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}

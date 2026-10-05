@@ -2,6 +2,8 @@
 
 #include "rmw/base/Limits.hpp"
 
+#include <algorithm>
+#include <array>
 #include <format>
 #include <numeric>
 
@@ -79,6 +81,54 @@ Size reducedAspect(std::uint32_t width, std::uint32_t height) noexcept
         size.height = (size.height + 1) / 2;
     }
     return size;
+}
+
+std::optional<Size> rasterImageSize(std::span<const std::byte> head) noexcept
+{
+    const auto byte = [&](std::size_t i) { return static_cast<std::uint32_t>(head[i]); };
+    const auto big16 = [&](std::size_t i) { return (byte(i) << 8) | byte(i + 1); };
+    const auto big32 = [&](std::size_t i) { return (big16(i) << 16) | big16(i + 2); };
+    constexpr std::array<std::uint8_t, 8> kPng = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (head.size() >= 24 &&
+        std::equal(kPng.begin(), kPng.end(), head.begin(),
+                   [](std::uint8_t a, std::byte b) { return a == static_cast<std::uint8_t>(b); }))
+    {
+        // The IHDR chunk comes first: length, "IHDR", width, height (big-endian).
+        if (byte(12) != 'I' || byte(13) != 'H' || byte(14) != 'D' || byte(15) != 'R')
+        {
+            return std::nullopt;
+        }
+        return Size{big32(16), big32(20)};
+    }
+    if (head.size() >= 4 && byte(0) == 0xFF && byte(1) == 0xD8)
+    {
+        // JPEG: walk the segments to the first start-of-frame (SOF0..SOF15 but DHT, JPG and DAC).
+        std::size_t at = 2;
+        while (at + 9 <= head.size())
+        {
+            if (byte(at) != 0xFF)
+            {
+                return std::nullopt;
+            }
+            const std::uint32_t marker = byte(at + 1);
+            if (marker == 0xFF)
+            {
+                ++at; // fill byte
+                continue;
+            }
+            if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC)
+            {
+                return Size{big16(at + 7), big16(at + 5)};
+            }
+            if (marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD7) || marker == 0x01)
+            {
+                at += 2; // markers without a length
+                continue;
+            }
+            at += 2 + big16(at + 2);
+        }
+    }
+    return std::nullopt;
 }
 
 } // namespace rmw::domain

@@ -31,6 +31,9 @@ struct WidgetKind
     // Another component for vertical bars (a list laid out top to bottom); empty = the same.
     // NOLINTNEXTLINE(readability-redundant-member-init): lets a kind leave it out
     std::string_view verticalComponent = {};
+    // Whether the component declares `foreground` and `vertical` (built-ins do; a plugin's may not).
+    bool takesForeground = true;
+    bool takesVertical = true;
 };
 
 struct Slot

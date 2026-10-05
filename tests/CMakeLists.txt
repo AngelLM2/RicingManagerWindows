@@ -1,5 +1,6 @@
 find_package(GTest CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(unofficial-luau CONFIG REQUIRED)
 include(GoogleTest)
 
 add_executable(rmw_unit_tests
@@ -19,14 +20,20 @@ add_executable(rmw_unit_tests
     unit/LogTests.cpp
     unit/MonitorSelectorTests.cpp
     unit/PathRulesTests.cpp
+    unit/PluginManifestTests.cpp
+    unit/PluginPlumbingTests.cpp
+    unit/PluginRuntimeTests.cpp
+    unit/PluginTypesTests.cpp
     unit/RiceEngineTests.cpp
     unit/RiceParserTests.cpp
     unit/ScopeExitTests.cpp
     unit/SettingsTests.cpp
     unit/StatementTests.cpp
     unit/SupervisorTests.cpp
+    unit/TweaksModuleTests.cpp
     unit/UtfTests.cpp
     unit/WallpaperModuleTests.cpp
+    unit/WidgetSourceTests.cpp
     unit/Win32PortsTests.cpp
     unit/WinErrorTests.cpp
 )
@@ -40,11 +47,17 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::json
     rmw::modules
     rmw::platform
+    rmw::plugins
+    rmw::scripting
     rmw::storage
     GTest::gtest
     GTest::gtest_main
     unofficial::sqlite3::sqlite3
+    # Luau's analyzer: type-checks the shipped plugin scripts against rmw.d.luau (tests only).
+    unofficial::luau::Luau.Analysis
 )
+# The shipped plugins and their type definitions are read from the source tree.
+target_compile_definitions(rmw_unit_tests PRIVATE RMW_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 rmw_configure_target(rmw_unit_tests)
 
 # A worker that leaks, hangs, crashes or exits on purpose, for the supervisor tests.
@@ -60,6 +73,8 @@ gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)
 if(TARGET rmw_bar_ui)
     add_executable(rmw_bar_tests bar/BarUiTests.cpp)
     target_link_libraries(rmw_bar_tests PRIVATE rmw_bar_ui GTest::gtest GTest::gtest_main)
+    # The example plugins are compiled into a bar by the tests.
+    target_compile_definitions(rmw_bar_tests PRIVATE RMW_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     rmw_use_slint_runtime(rmw_bar_tests)
     rmw_configure_target(rmw_bar_tests)
     gtest_discover_tests(rmw_bar_tests DISCOVERY_MODE PRE_TEST)

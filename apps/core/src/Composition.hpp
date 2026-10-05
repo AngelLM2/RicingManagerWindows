@@ -4,6 +4,7 @@
 #include "rmw/modules/Appearance.hpp"
 #include "rmw/modules/Cursors.hpp"
 #include "rmw/modules/Taskbar.hpp"
+#include "rmw/modules/Tweaks.hpp"
 #include "rmw/modules/Wallpaper.hpp"
 #include "rmw/platform/Win32Ports.hpp"
 
@@ -22,6 +23,7 @@ struct ModuleLogic
     modules::TaskbarLogic taskbar;
     modules::CursorsLogic cursors;
     modules::WallpaperLogic wallpaper{topology};
+    modules::TweaksLogic tweaks;
     engine::ModuleCatalog catalog;
 
     ModuleLogic() = default;
@@ -46,6 +48,7 @@ struct ModuleSystems
     modules::TaskbarSystem taskbar{registry, shell};
     modules::CursorsSystem cursors{registry, shell};
     modules::WallpaperSystem wallpaper{topology, wallpaperApi, registry};
+    modules::TweaksSystem tweaks{registry, shell};
     engine::LocalModuleRunner runner;
 
     ModuleSystems();

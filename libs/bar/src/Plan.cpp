@@ -1,7 +1,10 @@
 #include "rmw/bar/Plan.hpp"
 
 #include "rmw/base/Limits.hpp"
+#include "rmw/base/Utf.hpp"
+#include "rmw/domain/Identifiers.hpp"
 #include "rmw/json/Json.hpp"
+#include "rmw/json/Value.hpp"
 
 #include <algorithm>
 #include <format>
@@ -13,97 +16,6 @@ namespace
 {
 
 using json::Json;
-
-constexpr std::size_t kMaxValueDepth = 16;
-
-Json valueToJson(const domain::Value& value)
-{
-    return std::visit(
-        [](const auto& data) -> Json {
-            using T = std::decay_t<decltype(data)>;
-            if constexpr (std::is_same_v<T, std::monostate>)
-            {
-                return nullptr;
-            }
-            else if constexpr (std::is_same_v<T, domain::Value::Array>)
-            {
-                Json array = Json::array();
-                for (const auto& item : data)
-                {
-                    array.push_back(valueToJson(item));
-                }
-                return array;
-            }
-            else if constexpr (std::is_same_v<T, domain::Value::Table>)
-            {
-                Json object = Json::object();
-                for (const auto& member : data)
-                {
-                    object[member.key] = valueToJson(member.value);
-                }
-                return object;
-            }
-            else
-            {
-                return data;
-            }
-        },
-        value.data);
-}
-
-Result<domain::Value> valueFromJson(const Json& json, std::size_t depth)
-{
-    if (depth > kMaxValueDepth)
-    {
-        return fail(ErrorCode::LimitExceeded, "widget settings are nested too deeply");
-    }
-    domain::Value value;
-    if (json.is_boolean())
-    {
-        value.data = json.get<bool>();
-    }
-    else if (json.is_number_integer())
-    {
-        value.data = json.get<std::int64_t>();
-    }
-    else if (json.is_number())
-    {
-        value.data = json.get<double>();
-    }
-    else if (json.is_string())
-    {
-        value.data = json.get<std::string>();
-    }
-    else if (json.is_array())
-    {
-        domain::Value::Array array;
-        for (const auto& item : json)
-        {
-            auto converted = valueFromJson(item, depth + 1);
-            if (!converted)
-            {
-                return converted;
-            }
-            array.push_back(std::move(*converted));
-        }
-        value.data = std::move(array);
-    }
-    else if (json.is_object())
-    {
-        domain::Value::Table table;
-        for (const auto& [key, item] : json.items())
-        {
-            auto converted = valueFromJson(item, depth + 1);
-            if (!converted)
-            {
-                return converted;
-            }
-            table.push_back({key, std::move(*converted)});
-        }
-        value.data = std::move(table);
-    }
-    return value;
-}
 
 Json colorJson(const std::optional<domain::ColorRef>& color)
 {
@@ -275,7 +187,7 @@ private:
             {
                 return bad(path, "every item needs an id");
             }
-            auto config = valueFromJson(json::memberOr(entry, "config", Json()), 0);
+            auto config = json::toValue(json::memberOr(entry, "config", Json()), 0);
             if (!config)
             {
                 return bad(path, config.error().message());
@@ -302,7 +214,8 @@ Result<Plan> planFromRice(const domain::Rice& rice)
             std::ranges::find_if(rice.palette, [&](const domain::PaletteEntry& e) { return e.name == name; });
         if (entry == rice.palette.end())
         {
-            return fail(ErrorCode::InvalidData, std::format("the palette has no color '{}'", name));
+            color.reset(); // from a skin: this rice has no such color
+            return {};
         }
         color->value = entry->color;
         return {};
@@ -334,7 +247,7 @@ std::string toJson(const Plan& plan)
             Json items = Json::array();
             for (const auto& item : *zone)
             {
-                items.push_back({{"id", item.id}, {"config", valueToJson(item.config)}});
+                items.push_back({{"id", item.id}, {"config", json::fromValue(item.config)}});
             }
             zones[key] = std::move(items);
         }
@@ -357,7 +270,16 @@ std::string toJson(const Plan& plan)
              {"center", zones["center"]},
              {"right", zones["right"]}});
     }
-    return json::dumpPretty({{"version", kPlanVersion}, {"rice", plan.riceName}, {"bars", std::move(bars)}});
+    Json plugins = Json::array();
+    for (const auto& plugin : plan.plugins)
+    {
+        plugins.push_back(
+            {{"id", plugin.id}, {"folder", utf16To8Lossy(plugin.folder.native())}, {"dev", plugin.dev}});
+    }
+    return json::dumpPretty({{"version", kPlanVersion},
+                             {"rice", plan.riceName},
+                             {"bars", std::move(bars)},
+                             {"plugins", std::move(plugins)}});
 }
 
 Result<Plan> planFromJson(std::string_view text)
@@ -388,6 +310,28 @@ Result<Plan> planFromJson(std::string_view text)
             return std::unexpected(std::move(bar.error()));
         }
         plan.bars.push_back(std::move(*bar));
+    }
+    const Json plugins = json::memberOr(root, "plugins", Json::array());
+    if (!plugins.is_array() || plugins.size() > limits::kRiceMaxPluginRequirements)
+    {
+        return fail(ErrorCode::InvalidData, "bar plan: plugins: expected a short list");
+    }
+    for (const auto& entry : plugins)
+    {
+        PlanPlugin plugin;
+        plugin.id = json::stringOr(entry, "id", "");
+        auto folder = utf8To16(json::stringOr(entry, "folder", ""));
+        if (!domain::isValidPackageId(plugin.id) || !folder || folder->empty())
+        {
+            return fail(ErrorCode::InvalidData, "bar plan: plugins: invalid entry");
+        }
+        plugin.folder = std::filesystem::path(std::move(*folder));
+        plugin.dev = json::boolOr(entry, "dev", false);
+        if (!plugin.folder.is_absolute())
+        {
+            return fail(ErrorCode::InvalidData, "bar plan: plugins: the folder must be absolute");
+        }
+        plan.plugins.push_back(std::move(plugin));
     }
     return plan;
 }

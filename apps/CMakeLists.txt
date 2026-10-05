@@ -1,3 +1,4 @@
 add_subdirectory(cli)
 add_subdirectory(core)
 add_subdirectory(bar)
+add_subdirectory(plugin-host)

@@ -4,6 +4,7 @@ add_executable(rmw_core
     src/ApplyHelper.cpp
     src/Composition.cpp
     src/CoreServer.cpp
+    src/Plugins.cpp
     src/Resident.cpp
     src/main.cpp
 )
@@ -17,5 +18,6 @@ target_link_libraries(rmw_core PRIVATE
     rmw::json
     rmw::modules
     rmw::platform
+    rmw::plugins
 )
 rmw_configure_target(rmw_core)

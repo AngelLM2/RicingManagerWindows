@@ -67,6 +67,8 @@ public:
     [[nodiscard]] Result<std::optional<SnapshotRecord>> snapshot(std::int64_t id);
     [[nodiscard]] Result<std::optional<SnapshotRecord>> baseSnapshot();
     [[nodiscard]] Result<void> deleteSnapshot(std::int64_t id);
+    // Replaces the modules of a snapshot (the base one learns originals of fields set later).
+    [[nodiscard]] Result<void> setSnapshotModules(std::int64_t id, const Json& modules);
 
     // Journal: at most one open entry.
     [[nodiscard]] Result<void> beginJournal(std::string_view operation, std::int64_t snapshotId,

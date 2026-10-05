@@ -1,0 +1,43 @@
+schema = 1
+
+[plugin]
+id          = "io.github.angellm2.window-list"
+name        = "Window list"
+version     = "1.0.0"
+api         = "^1.0"
+authors     = ["Ricing Manager"]
+license     = "GPL-3.0-or-later"
+homepage    = "https://github.com/AngelLM2/RicingManagerWindows"
+description = "Your open windows as compact chips: click to bring one forward, again to minimize it."
+kind        = ["bar.widget"]
+
+# Window titles are private: the install prompt highlights windows.list.
+[permissions]
+providers = ["windows.list"]
+actions   = ["window.activate"]
+
+[entry]
+script = "main.luau"
+
+[widget]
+ui                 = "widget.slint"
+component          = "WindowList"
+vertical_component = "WindowColumn"
+
+[widget.structs.Entry]
+id     = "int"
+title  = "string"
+icon   = "image"
+active = "bool"
+
+[widget.properties]
+windows = "[Entry]"
+labels  = "bool"
+
+[widget.callbacks]
+pick = ["int"]
+
+[config]
+labels    = { type = "bool", default = true, label = "Show the titles" }
+max       = { type = "int", default = 12, min = 1, max = 40, label = "Windows shown at most" }
+title_max = { type = "int", default = 24, min = 4, max = 80, label = "Title length at most" }

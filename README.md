@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: alpha (v0.3.0, milestone M3 "Barra").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows; a custom, fully resizable taskbar. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
+**Status: alpha (v0.4.0, milestone M4 "Plugins").** The engine works from the command line: apply a rice, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows; a custom, fully resizable taskbar; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. No settings window yet (see [docs/04-mvp.md](docs/04-mvp.md)).
 
 ---
 
@@ -18,7 +18,7 @@ Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: w
 
 Planejamento completo: [docs/README.md](docs/README.md).
 
-### Usar (linha de comando, v0.3)
+### Usar (linha de comando, v0.4)
 
 Um rice é uma pasta com um `rice.toml` e seus arquivos:
 
@@ -83,7 +83,7 @@ when = "battery"             # "time" (com at = "HH:MM"), "battery", "ac", "moni
 action = "appearance.dark"
 ```
 
-Ações: `rice.apply`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`. Com atalhos, regras ou agendamento, o app fica residente (ícone na bandeja); sem nada disso, ele aplica e sai.
+Ações: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next` — e as dos plugins, como `<id do plugin>:<ação>`. Com atalhos, regras ou agendamento, o app fica residente (ícone na bandeja); sem nada disso, ele aplica e sai.
 
 ```powershell
 rmw autostart on               # iniciar com o Windows (desligado até você pedir)
@@ -114,6 +114,25 @@ right = ["media", "cpu", "memory", "network", "volume", "battery", "notification
 
 Salvar o `rice.toml` atualiza a barra na hora. Se algo der errado, **Ctrl+Alt+Win+T** desliga a barra e traz a do Windows de volta (`rmw action bar.on` religa). Se a barra travar ou cair, a do Windows volta em menos de um segundo.
 
+**Plugins** — widgets da barra, skins, tweaks, ações e regras feitos pela comunidade. Scripts em Luau rodam isolados num processo próprio, só com as permissões que você aprovou; a barra e o core nunca executam código de plugin.
+
+```powershell
+rmw plugin install .\now-playing     # mostra o que o plugin pede e pergunta
+rmw plugin list                      # instalados, aprovados, ligados, parados
+rmw plugin new widget .\meu-widget   # um plugin novo, com os tipos para o editor
+rmw plugin dev .\meu-widget          # roda da pasta, recarrega ao salvar, mostra o log
+```
+
+```toml
+[plugins]
+requires = ["io.github.angellm2.now-playing"]
+
+[[bar]]
+right = ["io.github.angellm2.now-playing", "clock"]
+```
+
+Sete exemplos em [`plugins/examples`](plugins/examples) (tocando agora, clima, gráfico de CPU, lista de janelas, modo foco, relógio, bateria); guia para quem escreve plugins em [docs/plugins](docs/plugins/README.md).
+
 ### Compilar
 
 Requisitos: Windows 11, Visual Studio 2022+ ou Build Tools com *Desktop development with C++*, componentes *MSVC Spectre-mitigated libs*, *C++ Clang tools for Windows* e *vcpkg*.
@@ -139,7 +158,7 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 
 The planning documents (in Portuguese) are in [docs/](docs/README.md).
 
-### Use (command line, v0.3)
+### Use (command line, v0.4)
 
 A rice is a folder with a `rice.toml` (example above) and its files.
 
@@ -156,7 +175,7 @@ rmw status                     # what is managed, schedule, hotkeys, safe mode
 
 Settings you change yourself after applying stop following the rice (your change stays) and are not undone by mistake (`--force` restores them anyway).
 
-**Hotkeys and rules** live in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (example above; re-read as soon as you save it). Actions: `rice.apply`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`. With hotkeys, rules or a schedule the app stays resident (tray icon); otherwise it applies and exits.
+**Hotkeys and rules** live in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (example above; re-read as soon as you save it). Actions: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next` — and plugins' own, as `<plugin id>:<action>`. With hotkeys, rules or a schedule the app stays resident (tray icon); otherwise it applies and exits.
 
 ```powershell
 rmw autostart on               # start with Windows (off until you ask)
@@ -166,6 +185,8 @@ rmw settings reload            # re-read settings.toml
 If the app stops unexpectedly 3 starts in a row (or `Shift` is held at sign-in), it opens in **safe mode**: nothing is applied automatically and "Restore original Windows" is at hand.
 
 **A taskbar of your own** — as many as you like, on any edge and monitor, any size: see the `[[bar]]` example above (widgets: `start`, `windows`, `desktops`, `clock`, `media`, `cpu`, `memory`, `network`, `volume`, `battery`, `notifications`). Saving `rice.toml` updates it live. If anything goes wrong, **Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back (`rmw action bar.on` turns it on again); if the bar hangs or crashes, Windows' taskbar is back in under a second.
+
+**Plugins** — bar widgets, skins, tweaks, actions and rules made by the community. Luau scripts run isolated in a process of their own, with only the permissions you approved; the bar and the core never run plugin code. `rmw plugin install <folder>` shows what a plugin asks for and asks you; `rmw plugin new widget <folder>` starts one (with the API's types for your editor) and `rmw plugin dev <folder>` runs it from the folder, reloading on save. A rice asks for plugins in `[plugins] requires` and puts widgets in a `[[bar]]` by their id. Seven examples are in [`plugins/examples`](plugins/examples); the plugin author's guide (in Portuguese) is in [docs/plugins](docs/plugins/README.md).
 
 ### Build
 

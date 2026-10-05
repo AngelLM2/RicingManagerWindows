@@ -11,11 +11,13 @@
 ## Como compilar e testar
 
 ```powershell
-.\scripts\build.ps1 -Preset debug -Test      # build + 222 testes de unidade
+.\scripts\build.ps1 -Preset debug -Test      # build + 290 testes (283 de unidade + 7 da barra, sem janela)
 .\scripts\build.ps1 -Preset release -Test    # LTO, PDB, Spectre
 .\scripts\build.ps1 -Preset asan -Test       # AddressSanitizer (dependências também instrumentadas)
 .\scripts\sandbox.ps1 -Preset debug          # testes de unidade dentro do Windows Sandbox
 .\scripts\sandbox.ps1 -Preset debug -Suite system   # aceites M1 + M2 no Windows Sandbox (54 verificações)
+.\scripts\sandbox.ps1 -Preset debug -Suite bar      # aceites M3 (barra própria)
+.\scripts\sandbox.ps1 -Preset debug -Suite plugins  # aceites M4 (plugins, 43 verificações)
 .\scripts\tidy.ps1                             # clang-tidy completo (-Path aceita UMA pasta por vez)
 .\scripts\fetch-deps.ps1 -Name slint         # SDK do Slint fixado (hash verificado, nunca executa instalador)
 .\scripts\build.ps1 -Preset release -CMakeArgs '-DRMW_BUILD_SPIKES=ON'   # spikes
@@ -32,7 +34,8 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | **Spikes** | ✅ 8 de 9 concluídos (ADR-0002 a ADR-0009); **S0 (CI) aguarda push** |
 | **M1 — Motor** | ✅ `v0.1.0-alpha` (tag local): core + `--apply-helper` + CLI; 4 módulos; 203 testes de unidade (debug/ASan/Sandbox) + suíte de sistema na Sandbox com os 4 critérios de aceite |
 | **M2 — Residente** | ✅ `v0.2.0-alpha` (tag local): core residente (janela + eventos do sistema), `settings.toml` com atalhos e regras, aparência agendada, slideshow por monitor, drift ao vivo, bandeja só quando residente, `--startup`/autostart, supervisor de workers, modo seguro; 222 testes de unidade (debug/release/ASan/Sandbox) + 54 verificações de sistema na Sandbox |
-| **M3 — Barra** | ✅ `v0.3.0-alpha` (tag local) — testado no seu PC (sem DPI misto nem 2 monitores, que o PC não tem) — implementado (ADR-0010): `rmw-bar` com janela própria (AppBar, DPI, camada com alfa / acrylic / mica), 11 widgets embutidos, barra nativa escondida e sempre devolvida, atalho de emergência, auto-ocultar, recarga ao salvar o rice; aceites verificados na Sandbox. M4 — Plugins é o próximo |
+| **M3 — Barra** | ✅ `v0.3.0-alpha` (tag local) — testado no seu PC (sem DPI misto nem 2 monitores, que o PC não tem) — implementado (ADR-0010): `rmw-bar` com janela própria (AppBar, DPI, camada com alfa / acrylic / mica), 11 widgets embutidos, barra nativa escondida e sempre devolvida, atalho de emergência, auto-ocultar, recarga ao salvar o rice; aceites verificados na Sandbox |
+| **M4 — Plugins** | ✅ `v0.4.0-alpha` (tag local) — implementado (ADR-0011): `rmw-plugin-host` (Luau em sandbox, uma VM por plugin, culpa por plugin), widgets `.slint` validados e compilados pela barra, skins, tweaks (módulo do motor, com desfazer), ações e regras; permissões aprovadas pelo usuário; `rmw plugin new/dev/validate/pack/install/approve/enable/disable/remove/list/status`; 7 exemplos; guia em `docs/plugins/` com `rmw.d.luau` conferido pelos testes; 290 testes (debug/release/ASan) + aceites na Sandbox (suíte `plugins`, 43 verificações). M5 — Bandeja é o próximo |
 
 ### Resultado dos spikes
 
@@ -81,6 +84,12 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 
 | 2026-10-05 | M3 — teste real no seu PC | `fix/bar-real-test` | ✅ barra, widgets, ícones dos seus apps, mídia do Spotify, kill → nativa de volta em 153 ms, emergência, `restore` completo. **Achados:** a lista de janelas passava por baixo do relógio do centro; a mica do DWM fica clara e chapada numa janela sem foco. Os dois foram corrigidos e conferidos no seu PC |
 
+| 2026-10-05 | M4 — manifesto e validador de widgets | `feat/plugins` | `plugin.toml` (tipos, permissões, esquema de configuração, `[widget]` com structs/propriedades/callbacks, skins, tweaks, ações) com diagnósticos por caminho; validador do `.slint` com *tokenizer* próprio (imports, `@image-url`, `Timer`, janelas, prefixos `Rmwp<n>-`) |
+| 2026-10-05 | M4 — runtime Luau e host | `feat/plugins` | `rmw::scripting` (VMs em sandbox, API `rmw.*` 1.0, timers, provedores, ações, widgets, storage, HTTP pelo host, JSON); `rmw-plugin-host` (provedores compartilhados com a barra, WinHTTP sem redirecionamento/cookies e sem endereços locais, pipes de controle e de ponte, registro de culpa); barra com widgets de plugin e cache de valores; core com `PluginManager`, aprovação e plano do host; CLI `rmw plugin …` |
+| 2026-10-05 | M4 — tweaks e exemplos | `feat/plugins` | módulo `tweaks` (allowlist/block-list de `HKCU`), motor lembra originais de campos novos; 7 plugins de exemplo; cores `palette.*` resolvidas com a paleta do rice |
+| 2026-10-05 | M4 — aceites na Sandbox | `feat/plugins` | ✅ suíte `plugins` 43/43: exemplos instalados e rodando, valores na barra, bomba de memória / laço infinito / padrão patológico parados sem afetar os outros, host morto e reiniciado, permissões negadas, aprovação de permissões novas, tweak aplicado e restaurado, `Run` recusado, modo foco, recarga < 1 s (221–317 ms), host 7,4 MB e barra 10,9 MB com 6 plugins. **Achados:** qualquer restrição de UI no Job esconde as janelas dos outros processos (`windows.list` vazio) — removidas; o host recebe eventos de janela com segundos de atraso → `window.activate` decidido pela barra e lista lida também a cada 1 s; o Luau interrompe até `string.find` patológico; scripts salvos com BOM não compilavam |
+| 2026-10-05 | M4 — documentação e modelo | `feat/plugins` | guia `docs/plugins/` (manifesto, API, widgets, tweaks, segurança), `plugins/template` (que o `rmw plugin new` embute), `rmw.d.luau` conferido pelo analisador do Luau contra todos os exemplos, ADR-0011. **Achados:** a conferência de tipos pegou exemplos usando valores que podem ser `nil`; um erro do Slint num widget derrubava todos os widgets de plugin da barra e apontava a linha do fonte gerado → agora cada widget é tentado sozinho, só o quebrado sai, e o erro aponta a linha do `widget.slint` |
+
 ## Pendências conhecidas
 
 - **S0 (CI)** só pode rodar com push — aguardando autorização ("OK com push").
@@ -90,3 +99,4 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 - Slideshow por monitor feito pelo core: coberto por testes de unidade; o teste de ponta a ponta precisa de 2 monitores (a Sandbox tem 1) — conferir no teste real do fim do M3.
 - Regras de bateria/tomada e de monitor conectado: lógica pronta, sem teste de sistema (a Sandbox não simula bateria nem monitor novo).
 - Regras de horário perdidas durante o sono não rodam depois (só a aparência agendada é corrigida ao acordar).
+- Plugins: instalar de `.rmwp` (M8, com libzip); `launch.app` e a página de configurações gerada do esquema (M7); notificação na tela quando um plugin é parado (M5, bandeja); alvos de *fuzzing* para o manifesto, o validador do `.slint`, os tweaks e a ponte (com os demais, antes da beta).

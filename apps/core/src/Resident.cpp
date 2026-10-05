@@ -653,8 +653,10 @@ void Resident::applySettings(LoadedSettings loaded)
 
 void Resident::refresh()
 {
+    m_core->syncPluginHost();
     const bool resident = safe() || m_loaded.settings.needsResidency() || m_core->schedule().has_value() ||
-                          !m_core->rotation().empty() || m_core->barPlan().has_value();
+                          !m_core->rotation().empty() || m_core->barPlan().has_value() ||
+                          m_core->pluginsWanted();
     if (resident != m_resident)
     {
         log::info("{}", resident ? "resident" : "not resident: exits when idle");

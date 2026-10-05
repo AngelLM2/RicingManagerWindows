@@ -1,0 +1,84 @@
+// Window chips: icon and title; the active one is filled.
+export struct Entry {
+    id: int,
+    title: string,
+    icon: image,
+    active: bool,
+}
+
+component Chip inherits Rectangle {
+    in property <Entry> entry;
+    in property <color> foreground;
+    in property <bool> labels;
+    callback pick(int);
+    min-width: 32px;
+    min-height: 28px;
+    preferred-width: root.labels ? row.preferred-width : 32px;
+    max-width: root.labels ? 200px : 32px;
+    border-radius: 14px;
+    background: root.entry.active ? root.foreground.transparentize(80%) : touch.has-hover ? root.foreground.transparentize(90%) : transparent;
+    border-width: 1px;
+    border-color: root.foreground.transparentize(root.entry.active ? 60% : 85%);
+    row := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: root.labels ? 10px : 8px;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.entry.icon;
+                width: 16px;
+                height: 16px;
+                image-fit: contain;
+            }
+        }
+        if root.labels: Text {
+            text: root.entry.title;
+            color: root.foreground;
+            font-size: 12px;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.pick(root.entry.id); }
+    }
+}
+
+export component WindowList inherits HorizontalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[Entry]> windows;
+    in property <bool> labels: true;
+    callback pick(int);
+    spacing: 4px;
+    alignment: start;
+    for entry in root.windows: VerticalLayout {
+        alignment: center;
+        Chip {
+            entry: entry;
+            foreground: root.foreground;
+            labels: root.labels;
+            pick(id) => { root.pick(id); }
+        }
+    }
+}
+
+// On a vertical bar: icons only, one under the other.
+export component WindowColumn inherits VerticalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <[Entry]> windows;
+    in property <bool> labels;
+    callback pick(int);
+    spacing: 4px;
+    for entry in root.windows: HorizontalLayout {
+        alignment: center;
+        Chip {
+            entry: entry;
+            foreground: root.foreground;
+            labels: false;
+            pick(id) => { root.pick(id); }
+        }
+    }
+}
