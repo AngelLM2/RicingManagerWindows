@@ -215,16 +215,26 @@ private:
             {
                 return std::unexpected(std::move(core.error()).withContext("start rmw-core"));
             }
-            core->detach();
-            for (int i = 0; i < 50; ++i)
+            // A core that starts after a crash first undoes the interrupted operation (it may
+            // take a while); one that exits says why in its log.
+            const auto deadline = std::chrono::steady_clock::now() + 30s;
+            while (true)
             {
                 connection = platform::connectPipe(m_pipe, 2s, m_coreExe);
-                if (connection || connection.error().code() != ErrorCode::NotFound)
+                if (connection || connection.error().code() != ErrorCode::NotFound ||
+                    std::chrono::steady_clock::now() > deadline)
                 {
                     break;
                 }
+                if (const auto exited = core->wait(0ms); exited && *exited != 0)
+                {
+                    return fail(
+                        ErrorCode::System,
+                        std::format("rmw-core stopped at start (code {}); see logs\\core.log", *exited));
+                }
                 std::this_thread::sleep_for(200ms);
             }
+            core->detach();
         }
         if (!connection)
         {
