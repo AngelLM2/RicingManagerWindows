@@ -2,6 +2,7 @@
 
 #include "rmw/modules/RegistryFields.hpp"
 
+#include <algorithm>
 #include <array>
 #include <format>
 
@@ -41,6 +42,13 @@ Result<engine::Json> TaskbarLogic::desiredFromRice(const domain::Rice& rice,
                                                    engine::IAssetSink& /*assets*/) const
 {
     engine::Json desired = engine::Json::object();
+    // A bar that replaces the native taskbar needs its space: auto-hide gives it back (ADR-0003),
+    // and as a field of this module it is undone like any other change.
+    const bool replaced = std::ranges::any_of(rice.bars, &domain::BarConfig::hideNativeTaskbar);
+    if (replaced)
+    {
+        desired["autohide"] = true;
+    }
     if (!rice.taskbar)
     {
         return desired;
@@ -58,7 +66,7 @@ Result<engine::Json> TaskbarLogic::desiredFromRice(const domain::Rice& rice,
     {
         desired["search"] = searchMode(*taskbar.search);
     }
-    if (taskbar.autohide)
+    if (taskbar.autohide && !replaced)
     {
         desired["autohide"] = *taskbar.autohide;
     }

@@ -36,6 +36,9 @@ struct WorkerSpec
     std::chrono::milliseconds firstBackoff{1000};
     int maxFailures = 3;
     std::chrono::milliseconds failureWindow{std::chrono::minutes(5)};
+    // false: the worker survives a crash of the core long enough to clean up — it gets
+    // --core <handle> (the core's process) and must exit when that handle is signaled.
+    bool endsWithCore = true;
 };
 
 enum class WorkerEventKind

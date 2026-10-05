@@ -309,6 +309,14 @@ void MessageWindow::unregisterHotkeys() noexcept
     m_hotkeys.clear();
 }
 
+void MessageWindow::unregisterHotkey(std::uint32_t id) noexcept
+{
+    if (std::erase(m_hotkeys, id) > 0)
+    {
+        UnregisterHotKey(static_cast<HWND>(m_window), static_cast<int>(id));
+    }
+}
+
 void MessageWindow::addTrayIcon() noexcept
 {
     NOTIFYICONDATAW data{};
@@ -420,6 +428,18 @@ Result<void> MessageWindow::watchFolder(std::uint32_t id, const std::filesystem:
     }
     m_watches.push_back({id, handle});
     return {};
+}
+
+void MessageWindow::unwatchFolder(std::uint32_t id) noexcept
+{
+    std::erase_if(m_watches, [id](const Watch& watch) {
+        if (watch.id != id)
+        {
+            return false;
+        }
+        FindCloseChangeNotification(watch.handle);
+        return true;
+    });
 }
 
 int MessageWindow::run()

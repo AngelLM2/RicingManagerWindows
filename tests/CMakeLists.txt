@@ -4,6 +4,7 @@ include(GoogleTest)
 
 add_executable(rmw_unit_tests
     unit/AppearanceTaskbarTests.cpp
+    unit/BarTests.cpp
     unit/CheckedCastTests.cpp
     unit/ConsoleTests.cpp
     unit/CursorFilesTests.cpp
@@ -31,6 +32,7 @@ add_executable(rmw_unit_tests
 )
 target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
 target_link_libraries(rmw_unit_tests PRIVATE
+    rmw::bar
     rmw::base
     rmw::domain
     rmw::engine
@@ -53,3 +55,12 @@ add_dependencies(rmw_unit_tests rmw_test_worker)
 
 # NO_PRETTY_VALUES: parameterized tests keep their generated names instead of raw parameter bytes.
 gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)
+
+# The bar's drawing, without windows (needs the Slint SDK, like rmw-bar).
+if(TARGET rmw_bar_ui)
+    add_executable(rmw_bar_tests bar/BarUiTests.cpp)
+    target_link_libraries(rmw_bar_tests PRIVATE rmw_bar_ui GTest::gtest GTest::gtest_main)
+    rmw_use_slint_runtime(rmw_bar_tests)
+    rmw_configure_target(rmw_bar_tests)
+    gtest_discover_tests(rmw_bar_tests DISCOVERY_MODE PRE_TEST)
+endif()

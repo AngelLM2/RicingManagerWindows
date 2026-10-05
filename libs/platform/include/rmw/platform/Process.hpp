@@ -19,8 +19,11 @@ struct ChildOptions
     // Start outside any job the parent belongs to (the core must outlive the terminal that
     // started it, docs/03 §2.1).
     bool breakawayFromJob = false;
-    // Put the child in a job of its own that kills it when the handle closes (workers).
+    // Put the child in a job of its own (workers)...
     bool ownJob = true;
+    // ...that kills it when our handle closes. Off for a worker that must clean up after the core
+    // is gone (the bar shows Windows' taskbar again): it watches the core and exits by itself.
+    bool killOnClose = true;
     // The job reports JOB_OBJECT_MSG_NOTIFICATION_LIMIT once committed memory passes this (0 =
     // none): the hard ceiling only makes allocations fail, it never ends the process (docs/03 §2.4).
     std::uint64_t memoryNotifyBytes = 0;

@@ -9,6 +9,7 @@ rmw_add_library(platform
         src/Customizers.cpp
         src/FileSystem.cpp
         src/MessageWindow.cpp
+        src/NativeTaskbar.cpp
         src/Pipe.cpp
         src/Process.cpp
         src/Supervisor.cpp
