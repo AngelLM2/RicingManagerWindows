@@ -7,7 +7,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('debug', 'release', 'asan', 'tidy')]
+    [ValidateSet('debug', 'release', 'asan')]
     [string] $Preset = 'debug',
     [switch] $Test,
     [switch] $Fresh,

@@ -41,14 +41,3 @@ function(rmw_relax_generated_sources target pattern)
         endif()
     endforeach()
 endfunction()
-
-function(rmw_enable_clang_tidy)
-    find_program(
-        RMW_CLANG_TIDY_EXE clang-tidy
-        HINTS "$ENV{VCINSTALLDIR}Tools/Llvm/x64/bin"
-        REQUIRED
-    )
-    # MSVC-only flags are unknown to clang; do not fail on them.
-    set(CMAKE_CXX_CLANG_TIDY "${RMW_CLANG_TIDY_EXE};--extra-arg=-Wno-unknown-argument;--quiet"
-        PARENT_SCOPE)
-endfunction()

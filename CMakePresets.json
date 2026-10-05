@@ -52,11 +52,10 @@
     {
       "name": "tidy",
       "displayName": "clang-tidy",
-      "description": "Debug build that runs clang-tidy on every first-party file",
+      "description": "Debug configuration whose compile_commands.json feeds scripts/tidy.ps1",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "RMW_CLANG_TIDY": "ON",
         "RMW_HARDENING": "OFF"
       }
     }
@@ -64,8 +63,7 @@
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "asan", "configurePreset": "asan" },
-    { "name": "tidy", "configurePreset": "tidy" }
+    { "name": "asan", "configurePreset": "asan" }
   ],
   "testPresets": [
     {

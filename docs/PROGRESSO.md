@@ -28,7 +28,8 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | Planejamento (docs 01–13) | ✅ aprovado ("OK" em 2026-10-05), sem push |
 | **Fase 0 — fundação (F0.1–F0.9)** | ✅ build moderno, libs, CLI, 47 testes (debug/release/ASan/Sandbox), CI pronto, comunidade, ADR-0001 |
 | **Spikes** | ✅ 8 de 9 concluídos (ADR-0002 a ADR-0009); **S0 (CI) aguarda push** |
-| M1 — Motor | 🔜 próximo |
+| **M1 — Motor** | ✅ `v0.1.0-alpha` (tag local): core + `--apply-helper` + CLI; 4 módulos; 203 testes de unidade (debug/ASan/Sandbox) + suíte de sistema na Sandbox com os 4 critérios de aceite |
+| M2 — Residente | 🔜 próximo |
 
 ### Resultado dos spikes
 
@@ -58,9 +59,17 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 | 2026-10-05 | S2 (host + Sandbox) | `spike/s2-ui` | ADR-0007 + `fetch-deps.ps1` |
 | 2026-10-05 | S7 (host + Sandbox) | `spike/s7-bar-plugins` | ADR-0008 + Luau no vcpkg |
 | 2026-10-05 | S8 (Sandbox) | `spike/s8-tray` | ADR-0009 |
+| 2026-10-05 | M1 — domínio | `feat/domain-rice` | `rice.toml` com diagnósticos (linha/coluna), PathRules, seletores de monitor; **achado:** o toml++ percorre aninhamentos de forma recursiva → profundidade medida antes do parse (arquivo de 64 KB com `a.a.a…` derrubaria o processo) |
+| 2026-10-05 | M1 — clang-tidy | `feat/domain-rice` | o preset `tidy` nunca tinha rodado de fato (o CMake perde as flags `/…` do `cl.exe`); agora `scripts/tidy.ps1` + job no CI, zero achados |
+| 2026-10-05 | M1 — storage, JSON, arquivos | `feat/domain-rice` | `Statement`/`Transaction`/migrations; JSON com limites; SHA-256, cópia sem links, troca atômica |
+| 2026-10-05 | M1 — engine | `feat/domain-rice` | `RiceEngine` transacional (diário durável, desfazer em ordem inversa, recuperação após queda, restauração em 3 vias, histórico de 20), Store por conteúdo, `state.db` v1 |
+| 2026-10-05 | M1 — módulos | `feat/domain-rice` | aparência (`IThemeManager2`), barra nativa, cursores (validação RIFF/ICO própria + `install.inf`), wallpaper estático; **achado:** no seu PC o `QueryDisplayConfig` devolve caminho de monitor vazio → identidade e casamento por retângulo (adendo no ADR-0004) |
+| 2026-10-05 | M1 — IPC, core, CLI | `feat/domain-rice` | pipe com DACL e checagem do servidor, JSON-RPC, `rmw-core` (instância única, ocioso → sai, recupera ao iniciar), `--apply-helper` em Job com timeout de 15 s, CLI completa (`apply/validate/status/history/restore/export/monitors/inspect/action`) |
+| 2026-10-05 | M1 — teste de sistema (Sandbox) | `feat/domain-rice` | ✅ aplica os 4 módulos e restaura tudo; `busy`; matar o core no meio → desfeito no próximo início; export válido. **Achados:** `SPI_SETCURSORS` com `SPIF_UPDATEINIFILE\|SPIF_SENDCHANGE` retorna FALSE mesmo funcionando (agora sem flags; doc 09 corrigido); cursores do Windows gravados com caminho absoluto eram copiados para o Store |
 
 ## Pendências conhecidas
 
 - **S0 (CI)** só pode rodar com push — aguardando autorização ("OK com push").
 - Testes reais na sua máquina (fim do M3, M5, M6) — vou pedir permissão na hora.
 - Meta de 90 MB do renderizador de vídeo (M6).
+- Wallpaper: ajuste diferente por monitor precisa de pré-renderização (WIC no `--apply-helper`); por enquanto vale o ajuste da primeira regra (o parser avisa). Slideshow diferente por monitor depende do agendador (M2).

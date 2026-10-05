@@ -24,7 +24,7 @@ Este documento define **como** o código é escrito e verificado. A maior parte 
 | `release` | build de distribuição (LTO, PDB separado, hardening completo) |
 | `asan` | testes com AddressSanitizer do MSVC (`/fsanitize=address`), baseado em RelWithDebInfo com `CMAKE_MSVC_RUNTIME_CHECKS` vazio (o `/RTC1` padrão do Debug é incompatível) |
 | `fuzz` | alvos de fuzzing (`/fsanitize=fuzzer` ou clang-cl + libFuzzer) |
-| `tidy` | gera `compile_commands.json` para `clang-tidy` |
+| `tidy` | só configura: gera o `compile_commands.json` que o `scripts/tidy.ps1` usa. O tidy roda **fora** do build (`CMAKE_CXX_CLANG_TIDY` perde as flags `/…` do `cl.exe`, como `/EHsc`, e dá erros falsos); qualquer achado falha. `tests/.clang-tidy` desliga três checks que leem mal o GoogleTest |
 
 ## 2. Dependências planejadas
 

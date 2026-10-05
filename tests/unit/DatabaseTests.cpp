@@ -26,7 +26,7 @@ std::int64_t queryInt(sqlite3* db, const char* sql)
 
 TEST(Database, CreatesDirectoryAndOpens)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     rmw::storage::Database db(dir.path() / "nested" / "state.db");
     ASSERT_TRUE(db.open().has_value());
     EXPECT_TRUE(db.isOpen());
@@ -35,7 +35,7 @@ TEST(Database, CreatesDirectoryAndOpens)
 
 TEST(Database, OpensUnicodePaths)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     rmw::storage::Database db(dir.path() / L"夜景 Índice" / L"state.db");
     const auto opened = db.open();
     ASSERT_TRUE(opened.has_value()) << opened.error().toString();
@@ -43,7 +43,7 @@ TEST(Database, OpensUnicodePaths)
 
 TEST(Database, AppliesDurabilityAndSafetyPragmas)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     rmw::storage::Database db(dir.path() / "state.db");
     ASSERT_TRUE(db.open().has_value());
     EXPECT_EQ(queryInt(db.handle(), "PRAGMA synchronous;"), 2); // FULL
@@ -56,7 +56,7 @@ TEST(Database, AppliesDurabilityAndSafetyPragmas)
 
 TEST(Database, NormalSynchronousForCaches)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     rmw::storage::Database db(dir.path() / "library.db", {.synchronous = rmw::storage::Synchronous::Normal});
     ASSERT_TRUE(db.open().has_value());
     EXPECT_EQ(queryInt(db.handle(), "PRAGMA synchronous;"), 1); // NORMAL
@@ -64,7 +64,7 @@ TEST(Database, NormalSynchronousForCaches)
 
 TEST(Database, ExecuteAndTransactions)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     rmw::storage::Database db(dir.path() / "state.db");
     ASSERT_TRUE(db.open().has_value());
     ASSERT_TRUE(db.execute("CREATE TABLE t(v INTEGER);").has_value());
@@ -82,7 +82,7 @@ TEST(Database, ExecuteAndTransactions)
 
 TEST(Database, ReportsSqlErrors)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     rmw::storage::Database db(dir.path() / "state.db");
     ASSERT_TRUE(db.open().has_value());
     const auto result = db.execute("THIS IS NOT SQL;");
@@ -101,7 +101,7 @@ TEST(Database, RejectsUseBeforeOpenAndEmptyPath)
 
 TEST(Database, MoveTransfersOwnership)
 {
-    rmw::test::TempDir dir;
+    const rmw::test::TempDir dir;
     rmw::storage::Database first(dir.path() / "state.db");
     ASSERT_TRUE(first.open().has_value());
 
