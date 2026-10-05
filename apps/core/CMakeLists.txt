@@ -9,6 +9,7 @@ add_executable(rmw_core
 )
 set_target_properties(rmw_core PROPERTIES OUTPUT_NAME "rmw-core")
 target_link_libraries(rmw_core PRIVATE
+    rmw::bar
     rmw::base
     rmw::domain
     rmw::engine

@@ -309,6 +309,14 @@ void MessageWindow::unregisterHotkeys() noexcept
     m_hotkeys.clear();
 }
 
+void MessageWindow::unregisterHotkey(std::uint32_t id) noexcept
+{
+    if (std::erase(m_hotkeys, id) > 0)
+    {
+        UnregisterHotKey(static_cast<HWND>(m_window), static_cast<int>(id));
+    }
+}
+
 void MessageWindow::addTrayIcon() noexcept
 {
     NOTIFYICONDATAW data{};

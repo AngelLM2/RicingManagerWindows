@@ -170,4 +170,20 @@ TEST(BarSource, EveryItemGetsItsOwnSlot)
     EXPECT_NE(generateBarSource(bar, kKinds, "").source.find("VerticalLayout"), std::string::npos);
 }
 
+TEST(BarSource, CallbacksPassTheirArgumentsThrough)
+{
+    static constexpr std::array<std::string_view, 2> kCallbacks = {"activate(int)", "moved(int, string)"};
+    static constexpr std::array<WidgetKind, 1> kList = {
+        {{"windows", "RmwWindows", {}, kCallbacks, "RmwWindowsColumn"}}};
+    BarConfig bar = bottomBar();
+    bar.center = {{"windows", {}}};
+    const std::string source = generateBarSource(bar, kList, "").source;
+    bar.position = BarPosition::Left;
+    EXPECT_NE(generateBarSource(bar, kList, "").source.find("RmwWindowsColumn {"), std::string::npos);
+    EXPECT_NE(source.find("callback w0-activate(int);"), std::string::npos);
+    EXPECT_NE(source.find("callback w0-moved(int, string);"), std::string::npos);
+    EXPECT_NE(source.find("activate(a0) => { root.w0-activate(a0); }"), std::string::npos);
+    EXPECT_NE(source.find("moved(a0, a1) => { root.w0-moved(a0, a1); }"), std::string::npos);
+}
+
 } // namespace

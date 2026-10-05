@@ -60,7 +60,8 @@ Result<ChildProcess> ChildProcess::spawn(const std::filesystem::path& executable
             return std::unexpected(lastError("CreateJobObject"));
         }
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        limits.BasicLimitInformation.LimitFlags =
+            options.killOnClose ? JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE : 0;
 #if !defined(__SANITIZE_ADDRESS__)
         if (options.memoryLimitBytes > 0)
         {
@@ -174,7 +175,7 @@ ChildProcess::~ChildProcess()
 {
     if (m_job != nullptr)
     {
-        CloseHandle(m_job); // KILL_ON_JOB_CLOSE ends the child
+        CloseHandle(m_job); // with KILL_ON_JOB_CLOSE this ends the child
     }
     if (m_process != nullptr)
     {

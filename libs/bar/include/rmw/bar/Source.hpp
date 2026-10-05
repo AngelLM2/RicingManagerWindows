@@ -27,7 +27,10 @@ struct WidgetKind
     std::string_view id;        // as written in the rice: "clock"
     std::string_view component; // the component in the widget sources: "RmwClock"
     std::span<const WidgetProperty> properties;
-    std::span<const std::string_view> callbacks; // no arguments, e.g. "clicked"
+    std::span<const std::string_view> callbacks; // "clicked", or with argument types: "activate(int)"
+    // Another component for vertical bars (a list laid out top to bottom); empty = the same.
+    // NOLINTNEXTLINE(readability-redundant-member-init): lets a kind leave it out
+    std::string_view verticalComponent = {};
 };
 
 struct Slot
@@ -45,7 +48,8 @@ struct GeneratedBar
 };
 
 // `widgetSources` defines every component and struct the kinds refer to. The root has properties
-// "bar-background" (brush), "bar-radius" (length) and "bar-foreground" (color).
+// "bar-background" (brush), "bar-radius" (length), "bar-foreground" (color) and "bar-matte" (the
+// window background the bar's renderer switches between black and white).
 [[nodiscard]] GeneratedBar generateBarSource(const domain::BarConfig& bar, std::span<const WidgetKind> kinds,
                                              std::string_view widgetSources);
 

@@ -4,6 +4,7 @@
 #include "Resident.hpp"
 #include "WorkQueue.hpp"
 
+#include "rmw/bar/Plan.hpp"
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
@@ -14,6 +15,7 @@
 #include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/Customizers.hpp"
 #include "rmw/platform/FileSystem.hpp"
+#include "rmw/platform/NativeTaskbar.hpp"
 
 #include <windows.h>
 
@@ -43,6 +45,10 @@ constexpr std::array<std::string_view, 14> kMethods = {
 };
 constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
+constexpr std::string_view kBarPlanMeta = "bar_plan";
+constexpr std::string_view kBarOffMeta = "bar_off";
+constexpr std::string_view kBarWorker = "bar";
+constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20; // the bar's budget is 25 MB
 // Outside state.db on purpose: a damaged database must not hide a crash loop.
 constexpr std::wstring_view kStartupAttemptsFile = L"startup-attempts";
 
@@ -272,6 +278,14 @@ Result<void> CoreServer::initialize()
     {
         m_schedule = parseScheduleText(**saved);
     }
+    if (auto saved = m_state->meta(kBarPlanMeta); saved && *saved)
+    {
+        m_barPlan = **saved;
+    }
+    if (auto saved = m_state->meta(kBarOffMeta); saved && *saved)
+    {
+        m_barOff = **saved == "1";
+    }
     if (auto saved = m_state->meta(kRotationMeta); saved && *saved)
     {
         auto plan = json::parse(**saved);
@@ -301,7 +315,7 @@ Result<void> CoreServer::initialize()
 
 bool CoreServer::wantsResidency() const
 {
-    if (m_safeMode != SafeModeReason::None || schedule() || !rotation().empty())
+    if (m_safeMode != SafeModeReason::None || schedule() || !rotation().empty() || barPlan())
     {
         return true;
     }
@@ -329,6 +343,15 @@ int CoreServer::run(platform::PipeServer& server)
         return 1;
     }
     m_window = window->get();
+    if (auto supervisor = platform::Supervisor::create(
+            [this](const platform::WorkerEvent& event) { onWorkerEvent(event); }))
+    {
+        m_supervisor = std::move(*supervisor);
+    }
+    else
+    {
+        log::warn("no worker supervisor: {}", supervisor.error().toString());
+    }
     WorkQueue work;
     Resident resident(*this, *m_window, work);
     m_resident = &resident;
@@ -341,6 +364,11 @@ int CoreServer::run(platform::PipeServer& server)
         m_stop = true;
     } // joins the accept thread, which joins every client thread
     work.stop();
+    m_supervisor.reset(); // ends the bar...
+    if (barPlan())
+    {
+        platform::showNativeTaskbars(); // ...so Windows' taskbar comes back
+    }
     m_resident = nullptr;
     m_window = nullptr;
     if (m_helper)
@@ -451,6 +479,150 @@ void CoreServer::setRotation(const Json& plan)
     }
     log::info("slideshows turned by the core: {}", plan.size());
     notifyResident();
+}
+
+std::optional<std::string> CoreServer::barPlan() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_barPlan;
+}
+
+bool CoreServer::barOff() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_barOff;
+}
+
+void CoreServer::setBarPlan(const std::optional<std::string>& plan)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_barPlan == plan)
+        {
+            return;
+        }
+        m_barPlan = plan;
+        if (plan)
+        {
+            m_barOff = false; // a new bar is meant to be seen
+        }
+    }
+    if (auto saved =
+            m_state->setMeta(kBarPlanMeta, plan ? std::optional<std::string_view>(*plan) : std::nullopt);
+        !saved)
+    {
+        log::warn("cannot save the bar plan: {}", saved.error().toString());
+    }
+    if (plan)
+    {
+        [[maybe_unused]] const auto cleared = m_state->setMeta(kBarOffMeta, std::nullopt);
+    }
+    // rmw-bar follows the file: rewritten, it rebuilds its bars; gone, it leaves.
+    const auto file = m_options.dataDirectory / L"bar" / L"bars.json";
+    std::error_code ec;
+    if (plan)
+    {
+        std::filesystem::create_directories(file.parent_path(), ec);
+        const auto* bytes = reinterpret_cast<const std::byte*>(plan->data());
+        if (auto written = platform::writeFileAtomic(file, std::span(bytes, plan->size())); !written)
+        {
+            log::error("cannot write the bar plan: {}", written.error().toString());
+        }
+    }
+    else
+    {
+        std::filesystem::remove(file, ec);
+    }
+    log::info("bar plan: {}", plan ? "set" : "none");
+    notifyResident();
+}
+
+void CoreServer::setBarOff(bool off)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_barOff == off)
+        {
+            return;
+        }
+        m_barOff = off;
+    }
+    if (auto saved = m_state->setMeta(kBarOffMeta, off ? std::optional<std::string_view>("1") : std::nullopt);
+        !saved)
+    {
+        log::warn("cannot save the bar switch: {}", saved.error().toString());
+    }
+    log::info("bar: {}", off ? "off" : "on");
+    notifyResident();
+}
+
+Result<void> CoreServer::startBar()
+{
+    if (!m_supervisor)
+    {
+        return fail(ErrorCode::Unsupported, "no worker supervisor");
+    }
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return std::unexpected(std::move(self.error()));
+    }
+    platform::WorkerSpec spec;
+    spec.name = std::string(kBarWorker);
+    spec.executable = self->parent_path() / L"rmw-bar.exe";
+    spec.arguments =
+        std::format(L"--plan \"{}\"", (m_options.dataDirectory / L"bar" / L"bars.json").native());
+    spec.memoryLimitBytes = kBarMemoryLimit;
+    spec.hangAfter = std::chrono::milliseconds(2000);
+    spec.startGrace = std::chrono::milliseconds(10'000);
+    spec.endsWithCore = false; // it shows Windows' taskbar again if the core dies
+    log::info("starting the bar");
+    return m_supervisor->start(std::move(spec));
+}
+
+void CoreServer::stopBar()
+{
+    if (m_supervisor)
+    {
+        m_supervisor->stop(kBarWorker);
+    }
+}
+
+Json CoreServer::barStatus() const
+{
+    Json status{{"configured", barPlan().has_value()}, {"off", barOff()}, {"running", false}};
+    if (!m_supervisor)
+    {
+        return status;
+    }
+    for (const auto& worker : m_supervisor->status())
+    {
+        if (worker.name != kBarWorker)
+        {
+            continue;
+        }
+        status["running"] = worker.running;
+        status["pid"] = worker.pid;
+        status["restarts"] = worker.restarts;
+        status["disabled"] = worker.disabled;
+        status["lastFailure"] = static_cast<int>(worker.lastFailure);
+    }
+    return status;
+}
+
+void CoreServer::onWorkerEvent(const platform::WorkerEvent& event)
+{
+    if (event.name != kBarWorker || event.kind == platform::WorkerEventKind::Started)
+    {
+        return;
+    }
+    // The bar is gone — crashed, hung, leaked or left: Windows' taskbar must not stay hidden.
+    platform::showNativeTaskbars();
+    if (event.kind == platform::WorkerEventKind::Disabled && m_window != nullptr && m_resident != nullptr)
+    {
+        Resident* resident = m_resident;
+        m_window->post([resident] { resident->onBarDisabled(); });
+    }
 }
 
 void CoreServer::notifyResident()
@@ -837,6 +1009,7 @@ Result<Json> CoreServer::status()
                 {"safeMode", std::move(safeMode)},
                 {"schedule", std::move(schedule)},
                 {"slideshows", slideshows},
+                {"bar", barStatus()},
                 {"resident", m_resident != nullptr ? m_resident->status() : Json(nullptr)},
                 {"otherTools", platform::detectOtherCustomizers()},
                 {"history", std::move(lastOperations)}};
@@ -867,6 +1040,11 @@ Result<Json> CoreServer::runAction(std::string_view name, const Json& params, Or
     if (name == "appearance.toggle" || name == "appearance.dark" || name == "appearance.light")
     {
         return setAppearance(name, origin);
+    }
+    if (name == "bar.on" || name == "bar.off")
+    {
+        setBarOff(name == "bar.off");
+        return Json{{"bar", name == "bar.off" ? "off" : "on"}};
     }
     return fail(ErrorCode::NotFound, std::format("unknown action '{}'", name));
 }
@@ -916,6 +1094,18 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     {
         setRotation(previousRotation);
         return std::unexpected(std::move(report.error()));
+    }
+    if (!rice.bars.empty())
+    {
+        // The custom taskbar: rmw-bar shows this plan (palette resolved).
+        if (auto plan = bar::planFromRice(rice))
+        {
+            setBarPlan(bar::toJson(*plan));
+        }
+        else
+        {
+            report->warnings.push_back(std::format("bar: {}", plan.error().message()));
+        }
     }
     if (rice.appearance)
     {
@@ -980,6 +1170,7 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     }
     setSchedule(std::nullopt); // going back ends any schedule and slideshow
     setRotation(Json::object());
+    setBarPlan(std::nullopt);
     return reportJson(*report);
 }
 
