@@ -168,6 +168,19 @@ TEST(Taskbar, RiceBecomesRegistryValues)
               (Json{{"alignment", 0}, {"autohide", true}, {"taskView", 0}, {"search", 0}}));
 }
 
+TEST(Taskbar, ABarThatReplacesItFreesItsSpace)
+{
+    rmw::domain::Rice rice;
+    rice.bars.emplace_back().hideNativeTaskbar = true;
+    NoAssets assets;
+    EXPECT_EQ(TaskbarLogic().desiredFromRice(rice, assets).value(), (Json{{"autohide", true}}));
+
+    // The bar wins over an explicit "no auto-hide": the space is needed.
+    rice.taskbar = rmw::domain::TaskbarConfig{};
+    rice.taskbar->autohide = false;
+    EXPECT_EQ(TaskbarLogic().desiredFromRice(rice, assets).value(), (Json{{"autohide", true}}));
+}
+
 TEST(Taskbar, AbsentValuesAreCapturedAsNullAndRestoredByDeleting)
 {
     FakeRegistry registry;

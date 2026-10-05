@@ -181,6 +181,24 @@ TEST(Supervisor, MissingExecutableFailsToStartAndIsRetried)
     EXPECT_EQ(events->count(WorkerEventKind::Failed, WorkerFailure::StartFailed), 3);
 }
 
+TEST(Supervisor, AWorkerThatOutlivesTheCoreIsStillEndedOnStop)
+{
+    auto events = std::make_shared<EventLog>();
+    auto supervisor = Supervisor::create([events](const WorkerEvent& event) { events->add(event); });
+    ASSERT_TRUE(supervisor.has_value());
+    WorkerSpec spec = testWorker(L"ok");
+    spec.endsWithCore = false; // gets --core: the test process
+    ASSERT_TRUE((*supervisor)->start(spec).has_value());
+    ASSERT_TRUE(events->waitFor(WorkerEventKind::Started));
+    std::this_thread::sleep_for(800ms);
+    const auto status = (*supervisor)->status();
+    ASSERT_EQ(status.size(), 1u);
+    EXPECT_TRUE(status[0].running); // --core was understood: it did not exit
+    (*supervisor)->stop("test");
+    std::this_thread::sleep_for(300ms);
+    EXPECT_EQ(events->count(WorkerEventKind::Failed), 0);
+}
+
 TEST(Heartbeat, WithoutTheFlagItDoesNothing)
 {
     auto heartbeat = Heartbeat::fromArguments({});

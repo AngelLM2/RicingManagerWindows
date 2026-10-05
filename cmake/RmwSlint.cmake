@@ -2,6 +2,8 @@
 include_guard(GLOBAL)
 
 set(RMW_SLINT_DIR "${PROJECT_SOURCE_DIR}/build/.deps/slint-1.18.1")
+# Directory variables stay in the scope that included this file first; the function reads this.
+set_property(GLOBAL PROPERTY RMW_SLINT_DIR "${RMW_SLINT_DIR}")
 set(RMW_HAVE_SLINT FALSE)
 if(EXISTS "${RMW_SLINT_DIR}/lib/cmake/Slint/SlintConfig.cmake")
     find_package(Slint CONFIG REQUIRED PATHS "${RMW_SLINT_DIR}/lib/cmake/Slint" NO_DEFAULT_PATH)
@@ -14,6 +16,7 @@ endif()
 # the executable load DLLs from its own folder (docs/06 §5).
 function(rmw_use_slint_runtime target)
     set_target_properties(${target} PROPERTIES RMW_APP_DIR_DLLS ON)
+    get_property(slint_dir GLOBAL PROPERTY RMW_SLINT_DIR)
     file(TO_CMAKE_PATH "$ENV{VCToolsRedistDir}" redist)
     file(GLOB runtime "${redist}/x64/Microsoft.VC*.CRT/msvcp140.dll"
                       "${redist}/x64/Microsoft.VC*.CRT/vcruntime140.dll"
@@ -22,7 +25,7 @@ function(rmw_use_slint_runtime target)
         message(WARNING "VC++ runtime DLLs not found under '${redist}'; slint_cpp.dll needs them app-local.")
     endif()
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RMW_SLINT_DIR}/lib/slint_cpp.dll" ${runtime}
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${slint_dir}/lib/slint_cpp.dll" ${runtime}
                 "$<TARGET_FILE_DIR:${target}>"
     )
 endfunction()

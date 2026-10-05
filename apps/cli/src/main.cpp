@@ -46,7 +46,8 @@ Commands:
   inspect <module>                      What Windows has now for a module (appearance,
                                         taskbar, cursors, wallpaper), as JSON
   action <name> [--path <folder>]       Run an action: rice.apply, restore.original,
-                                        appearance.toggle, appearance.dark, appearance.light
+                                        appearance.toggle, appearance.dark, appearance.light,
+                                        bar.on, bar.off
   settings reload                       Re-read config\settings.toml (hotkeys, rules, tray)
   autostart on|off|status               Start with Windows (a per-user Run entry; off until
                                         you turn it on)
@@ -123,9 +124,14 @@ public:
                 {
                     return compatible;
                 }
-                return checkDataDirectory(*hello);
+                // Same protocol but another build (an update left the old core running): it
+                // would not know newer commands, so it is replaced too.
+                if (json::stringOr(*hello, "buildId", "") == kVersion || attempt > 0)
+                {
+                    return checkDataDirectory(*hello);
+                }
             }
-            if (hello.error().code() != ErrorCode::Unsupported)
+            else if (hello.error().code() != ErrorCode::Unsupported)
             {
                 return std::unexpected(std::move(hello.error()));
             }
@@ -209,16 +215,26 @@ private:
             {
                 return std::unexpected(std::move(core.error()).withContext("start rmw-core"));
             }
-            core->detach();
-            for (int i = 0; i < 50; ++i)
+            // A core that starts after a crash first undoes the interrupted operation (it may
+            // take a while); one that exits says why in its log.
+            const auto deadline = std::chrono::steady_clock::now() + 30s;
+            while (true)
             {
                 connection = platform::connectPipe(m_pipe, 2s, m_coreExe);
-                if (connection || connection.error().code() != ErrorCode::NotFound)
+                if (connection || connection.error().code() != ErrorCode::NotFound ||
+                    std::chrono::steady_clock::now() > deadline)
                 {
                     break;
                 }
+                if (const auto exited = core->wait(0ms); exited && *exited != 0)
+                {
+                    return fail(
+                        ErrorCode::System,
+                        std::format("rmw-core stopped at start (code {}); see logs\\core.log", *exited));
+                }
                 std::this_thread::sleep_for(200ms);
             }
+            core->detach();
         }
         if (!connection)
         {
@@ -537,6 +553,21 @@ int run(std::span<const std::string> args)
             out(std::format("Appearance schedule: light at {}, dark at {}",
                             json::stringOr(schedule, "lightAt", "?"),
                             json::stringOr(schedule, "darkAt", "?")));
+        }
+        const Json barStatus = json::memberOr(*status, "bar", Json::object());
+        if (json::boolOr(barStatus, "configured", false))
+        {
+            std::string state = json::boolOr(barStatus, "off", false) ? "off (rmw action bar.on)"
+                                : json::boolOr(barStatus, "disabled", false)
+                                    ? "stopped after failing too often"
+                                : json::boolOr(barStatus, "running", false)
+                                    ? std::format("running (pid {})", json::intOr(barStatus, "pid", 0))
+                                    : "starting";
+            if (const auto restarts = json::intOr(barStatus, "restarts", 0); restarts > 0)
+            {
+                state += std::format(", restarted {} time(s)", restarts);
+            }
+            out("Bar: " + state + " - Ctrl+Alt+Win+T brings Windows' taskbar back");
         }
         if (const auto slideshows = json::intOr(*status, "slideshows", 0); slideshows > 0)
         {

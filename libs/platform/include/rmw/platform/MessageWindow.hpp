@@ -71,6 +71,7 @@ public:
     [[nodiscard]] Result<void> registerHotkey(std::uint32_t id, std::uint32_t modifiers,
                                               std::uint32_t virtualKey);
     void unregisterHotkeys() noexcept;
+    void unregisterHotkey(std::uint32_t id) noexcept;
     [[nodiscard]] Result<void> showTray(std::wstring_view tooltip, std::vector<TrayItem> menu);
     void hideTray() noexcept;
     void notify(std::wstring_view title, std::wstring_view text) noexcept;     // tray balloon
@@ -78,6 +79,7 @@ public:
     void killTimer(std::uint32_t id) noexcept;
     // Signals FolderChanged when a file in `folder` (not its subfolders) is created, renamed or written.
     [[nodiscard]] Result<void> watchFolder(std::uint32_t id, const std::filesystem::path& folder);
+    void unwatchFolder(std::uint32_t id) noexcept;
 
     // Pumps messages (and folder watches) until quit(). Returns the exit code passed to quit().
     int run();
