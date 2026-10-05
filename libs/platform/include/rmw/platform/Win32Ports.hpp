@@ -48,6 +48,7 @@ public:
     [[nodiscard]] Result<void> broadcastSettingChange(std::string_view area) override;
     [[nodiscard]] Result<void> reloadCursors() override;
     [[nodiscard]] Result<void> setCursorSize(std::uint32_t pixels) override;
+    [[nodiscard]] bool isWindowsFile(std::string_view file) override;
     [[nodiscard]] Result<bool> taskbarAutoHide() override;
     [[nodiscard]] Result<void> setTaskbarAutoHide(bool enabled) override;
 

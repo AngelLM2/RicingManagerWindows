@@ -23,14 +23,20 @@ try {
             # Copy out of the read-only mapping: tests create temp files next to nothing but
             # %TEMP%, yet a local copy avoids any surprise with mapped-folder semantics.
             $work = 'C:\rmw\work'
-            Copy-Item 'C:\rmw\build\tests' $work -Recurse -Force
+            Copy-Item 'C:\rmw\build\bin' $work -Recurse -Force
             & (Join-Path $work 'rmw_unit_tests.exe') "--gtest_output=xml:$out\unit.xml" *> $log
             $exitCode = $LASTEXITCODE
         }
         'system' {
-            # System tests (real registry, cursors, wallpaper, theme) arrive with milestone M1.
-            'No system tests yet.' | Out-File $log -Encoding utf8
-            $exitCode = 0
+            # Real registry, theme, cursors, wallpaper and taskbar - inside the Sandbox only.
+            $work = 'C:\rmw\work'
+            New-Item -ItemType Directory -Force $work | Out-Null
+            Copy-Item 'C:\rmw\build\bin' (Join-Path $work 'bin') -Recurse -Force
+            # Explorer must be up: the theme and wallpaper APIs talk to it.
+            for ($i = 0; $i -lt 60 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
+            Start-Sleep -Seconds 5
+            & (Join-Path $PSScriptRoot 'system-tests.ps1') -Bin (Join-Path $work 'bin') -Work $work -Out $out *> $log
+            $exitCode = $LASTEXITCODE
         }
         'spike' {
             # Copy the spike's whole folder: some spikes ship DLLs next to the exe (Slint, VC runtime).

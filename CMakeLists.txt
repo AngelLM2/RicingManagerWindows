@@ -19,6 +19,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # No C++20 modules here: skip the per-file dependency scan (faster builds, and clean
 # compile_commands.json for scripts/tidy.ps1).
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+# Every executable side by side (rmw.exe looks for rmw-core.exe next to itself).
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # Static CRT by choice (docs/06 §5). Must match the vcpkg triplet in cmake/triplets.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

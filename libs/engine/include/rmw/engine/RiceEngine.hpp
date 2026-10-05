@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -73,6 +74,12 @@ public:
 
     [[nodiscard]] Result<bool> needsRestore();
 
+    // Test hook (system tests only): called after each module's apply succeeds, before the next.
+    void setAfterModuleHook(std::function<void(std::string_view module)> hook)
+    {
+        m_afterModule = std::move(hook);
+    }
+
 private:
     struct Step
     {
@@ -102,6 +109,7 @@ private:
     ContentStore& m_store;
     const ModuleCatalog& m_catalog;
     IModuleRunner& m_runner;
+    std::function<void(std::string_view)> m_afterModule;
 };
 
 } // namespace rmw::engine

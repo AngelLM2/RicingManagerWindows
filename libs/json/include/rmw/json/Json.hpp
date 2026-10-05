@@ -30,6 +30,8 @@ struct ParseLimits
 
 // Compact text. Invalid UTF-8 in strings is replaced instead of throwing.
 [[nodiscard]] std::string dump(const Json& value);
+// Indented, for people.
+[[nodiscard]] std::string dumpPretty(const Json& value);
 
 // Read-only view of a JSON object with a path for error messages. Every getter fails with
 // InvalidData (never throws) when the key is missing or has the wrong type.

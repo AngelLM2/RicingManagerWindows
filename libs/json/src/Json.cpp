@@ -173,6 +173,11 @@ Json memberOr(const Json& object, std::string_view key, Json fallback)
     return fallback;
 }
 
+std::string dumpPretty(const Json& value)
+{
+    return value.dump(2, ' ', false, Json::error_handler_t::replace);
+}
+
 std::string dump(const Json& value)
 {
     return value.dump(-1, ' ', false, Json::error_handler_t::replace);

@@ -85,6 +85,10 @@ public:
         cursorSize = pixels;
         return {};
     }
+    bool isWindowsFile(std::string_view file) override
+    {
+        return file.starts_with(R"(C:\Windows\)") || file.starts_with("%SystemRoot%");
+    }
     Result<bool> taskbarAutoHide() override { return autohide; }
     Result<void> setTaskbarAutoHide(bool enabled) override
     {
