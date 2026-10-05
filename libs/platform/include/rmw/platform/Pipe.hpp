@@ -34,6 +34,8 @@ public:
     [[nodiscard]] Result<std::string> receive(std::chrono::milliseconds timeout);
 
     [[nodiscard]] bool isOpen() const noexcept { return m_pipe != nullptr; }
+    // Ends the reads and writes in progress (from any thread); they fail at once.
+    void cancel() noexcept;
     // Process at the other end.
     [[nodiscard]] std::uint32_t peerProcessId() const noexcept { return m_peer; }
     void close() noexcept;
@@ -47,8 +49,10 @@ private:
     [[nodiscard]] Result<std::size_t> transfer(bool write, void* buffer, std::size_t bytes,
                                                std::chrono::milliseconds timeout);
 
-    void* m_pipe = nullptr;  // HANDLE
-    void* m_event = nullptr; // HANDLE for overlapped I/O
+    // One thread may receive while another sends: each direction has its own event.
+    void* m_pipe = nullptr;       // HANDLE
+    void* m_event = nullptr;      // HANDLE for overlapped reads
+    void* m_writeEvent = nullptr; // HANDLE for overlapped writes
     std::uint32_t m_peer = 0;
     ipc::FrameDecoder m_decoder;
 };
@@ -91,5 +95,10 @@ private:
 
 // The full path of this process's executable.
 [[nodiscard]] Result<std::filesystem::path> currentExecutable();
+
+// The full path of another process's executable (PROCESS_QUERY_LIMITED_INFORMATION).
+[[nodiscard]] Result<std::filesystem::path> processImagePath(std::uint32_t pid);
+// Paths compared ordinally, ignoring case.
+[[nodiscard]] bool samePath(const std::filesystem::path& a, const std::filesystem::path& b);
 
 } // namespace rmw::platform

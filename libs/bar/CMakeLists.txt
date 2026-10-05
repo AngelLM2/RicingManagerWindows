@@ -4,6 +4,7 @@
 
 rmw_add_library(bar
     SOURCES
+        src/Bridge.cpp
         src/Geometry.cpp
         src/Plan.cpp
         src/Source.cpp

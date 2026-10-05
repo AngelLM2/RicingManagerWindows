@@ -1,4 +1,4 @@
-#include "rmw/plugins/Runtime.hpp"
+#include "rmw/scripting/Runtime.hpp"
 
 #include "rmw/base/Utf.hpp"
 #include "rmw/domain/PluginApi.hpp"
@@ -17,8 +17,11 @@
 #include <format>
 #include <functional>
 
-namespace rmw::plugins
+namespace rmw::scripting
 {
+
+using plugins::checkHttpHeader;
+using plugins::parseHttpsUrl;
 namespace
 {
 
@@ -37,6 +40,7 @@ constexpr std::size_t kLogBurst = 50;
 constexpr std::chrono::seconds kLogWindow{10};
 constexpr std::size_t kStorageKeyMaxBytes = 128;
 constexpr double kMaxTimerMs = 24.0 * 60 * 60 * 1000;
+constexpr std::string_view kByteOrderMark = "\xEF\xBB\xBF";
 
 // Each VM's allocator, interrupt deadline and memory use.
 struct Vm
@@ -1041,6 +1045,11 @@ Result<void> Runtime::load(PluginSpec spec, Clock::time_point now)
         return fail(ErrorCode::LimitExceeded,
                     std::format("{}: the script is larger than {} KB", id, kScriptMaxBytes >> 10));
     }
+
+    if (spec.source.starts_with(kByteOrderMark))
+    {
+        spec.source.erase(0, kByteOrderMark.size()); // editors that save "UTF-8 with BOM"
+    }
     unload(id);
 
     auto plugin = std::make_unique<Plugin>();
@@ -1635,4 +1644,31 @@ void Runtime::reap()
     }
 }
 
-} // namespace rmw::plugins
+Result<void> checkScript(std::string_view source, std::string_view name)
+{
+    if (source.size() > kScriptMaxBytes)
+    {
+        return fail(ErrorCode::LimitExceeded,
+                    std::format("{}: larger than {} KB", name, kScriptMaxBytes >> 10));
+    }
+    if (source.starts_with(kByteOrderMark))
+    {
+        source.remove_prefix(kByteOrderMark.size());
+    }
+    std::size_t size = 0;
+    const std::unique_ptr<char, decltype(&std::free)> bytecode(
+        luau_compile(source.data(), source.size(), nullptr, &size), &std::free);
+    if (bytecode == nullptr || size == 0)
+    {
+        return fail(ErrorCode::System, "the Luau compiler failed");
+    }
+    // Luau's convention: a first byte of 0 means the rest is the error message.
+    if (bytecode.get()[0] == 0)
+    {
+        return fail(ErrorCode::InvalidData,
+                    std::format("{}{}", name, std::string_view(bytecode.get() + 1, size - 1)));
+    }
+    return {};
+}
+
+} // namespace rmw::scripting

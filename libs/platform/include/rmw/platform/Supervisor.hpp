@@ -39,6 +39,11 @@ struct WorkerSpec
     // false: the worker survives a crash of the core long enough to clean up — it gets
     // --core <handle> (the core's process) and must exit when that handle is signaled.
     bool endsWithCore = true;
+    // More handles the worker inherits (inheritable; their values go in `arguments`).
+    std::vector<void*> inheritHandles;
+    // Job limits for workers that run code we did not write (ChildOptions).
+    bool noChildProcesses = false;
+    bool restrictUi = false;
 };
 
 enum class WorkerEventKind

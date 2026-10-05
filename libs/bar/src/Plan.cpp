@@ -1,6 +1,8 @@
 #include "rmw/bar/Plan.hpp"
 
 #include "rmw/base/Limits.hpp"
+#include "rmw/base/Utf.hpp"
+#include "rmw/domain/Identifiers.hpp"
 #include "rmw/json/Json.hpp"
 #include "rmw/json/Value.hpp"
 
@@ -212,7 +214,8 @@ Result<Plan> planFromRice(const domain::Rice& rice)
             std::ranges::find_if(rice.palette, [&](const domain::PaletteEntry& e) { return e.name == name; });
         if (entry == rice.palette.end())
         {
-            return fail(ErrorCode::InvalidData, std::format("the palette has no color '{}'", name));
+            color.reset(); // from a skin: this rice has no such color
+            return {};
         }
         color->value = entry->color;
         return {};
@@ -267,7 +270,16 @@ std::string toJson(const Plan& plan)
              {"center", zones["center"]},
              {"right", zones["right"]}});
     }
-    return json::dumpPretty({{"version", kPlanVersion}, {"rice", plan.riceName}, {"bars", std::move(bars)}});
+    Json plugins = Json::array();
+    for (const auto& plugin : plan.plugins)
+    {
+        plugins.push_back(
+            {{"id", plugin.id}, {"folder", utf16To8Lossy(plugin.folder.native())}, {"dev", plugin.dev}});
+    }
+    return json::dumpPretty({{"version", kPlanVersion},
+                             {"rice", plan.riceName},
+                             {"bars", std::move(bars)},
+                             {"plugins", std::move(plugins)}});
 }
 
 Result<Plan> planFromJson(std::string_view text)
@@ -298,6 +310,28 @@ Result<Plan> planFromJson(std::string_view text)
             return std::unexpected(std::move(bar.error()));
         }
         plan.bars.push_back(std::move(*bar));
+    }
+    const Json plugins = json::memberOr(root, "plugins", Json::array());
+    if (!plugins.is_array() || plugins.size() > limits::kRiceMaxPluginRequirements)
+    {
+        return fail(ErrorCode::InvalidData, "bar plan: plugins: expected a short list");
+    }
+    for (const auto& entry : plugins)
+    {
+        PlanPlugin plugin;
+        plugin.id = json::stringOr(entry, "id", "");
+        auto folder = utf8To16(json::stringOr(entry, "folder", ""));
+        if (!domain::isValidPackageId(plugin.id) || !folder || folder->empty())
+        {
+            return fail(ErrorCode::InvalidData, "bar plan: plugins: invalid entry");
+        }
+        plugin.folder = std::filesystem::path(std::move(*folder));
+        plugin.dev = json::boolOr(entry, "dev", false);
+        if (!plugin.folder.is_absolute())
+        {
+            return fail(ErrorCode::InvalidData, "bar plan: plugins: the folder must be absolute");
+        }
+        plan.plugins.push_back(std::move(plugin));
     }
     return plan;
 }

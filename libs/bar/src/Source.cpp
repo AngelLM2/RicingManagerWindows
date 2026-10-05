@@ -73,9 +73,16 @@ GeneratedBar generateBarSource(const domain::BarConfig& bar, std::span<const Wid
             }
             const std::string_view component =
                 !horizontal && !kind->verticalComponent.empty() ? kind->verticalComponent : kind->component;
-            zones[zone] +=
-                std::format("            {} {{ foreground: root.bar-foreground; vertical: {};{} }}\n",
-                            component, horizontal ? "false" : "true", bindings);
+            std::string common;
+            if (kind->takesForeground)
+            {
+                common += " foreground: root.bar-foreground;";
+            }
+            if (kind->takesVertical)
+            {
+                common += std::format(" vertical: {};", horizontal ? "false" : "true");
+            }
+            zones[zone] += std::format("            {} {{{}{} }}\n", component, common, bindings);
             generated.slots.push_back({prefix, &item, &*kind});
         }
     }

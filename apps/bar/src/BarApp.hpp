@@ -1,14 +1,18 @@
 #pragma once
 
 #include "BarWindow.hpp"
+#include "PluginBridge.hpp"
+#include "PluginWidgets.hpp"
 #include "SlintPlatform.hpp"
 #include "Widgets.hpp"
 
 #include "rmw/platform/NativeTaskbar.hpp"
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace rmw::barapp
@@ -21,7 +25,8 @@ namespace rmw::barapp
 class BarApp
 {
 public:
-    BarApp(Win32Platform& loop, std::filesystem::path planFile);
+    // `bridgePipe`: where the plugin host reaches us (empty: no plugin widgets get data).
+    BarApp(Win32Platform& loop, std::filesystem::path planFile, std::wstring bridgePipe = {});
     ~BarApp();
     BarApp(const BarApp&) = delete;
     BarApp& operator=(const BarApp&) = delete;
@@ -46,10 +51,25 @@ private:
         domain::BarConfig config;
         void* monitor = nullptr;
     };
+    // A plugin widget on screen: what the host addresses as `key` ("<bar>/<slot>").
+    struct PluginSlot
+    {
+        std::string key;
+        const PluginWidget* widget = nullptr;
+        std::string prefix;
+        slint::ComponentWeakHandle<slint::interpreter::ComponentInstance> instance;
+        domain::Value config;
+    };
 
     [[nodiscard]] bool rebuild();
     void clear();
     void scheduleRebuild();
+    void scheduleReload(); // a plugin being written changed: rebuild soon
+    void watchDevPlugins(const std::vector<bar::PlanPlugin>& plugins);
+    void onPluginMessage(bar::bridge::Message message);
+    void sendInstances();
+    void applyProperties(const PluginSlot& slot, const domain::Value::Table& properties);
+    void windowAction(const bar::bridge::Action& action);
 
     Win32Platform* m_loop;
     std::filesystem::path m_planFile;
@@ -60,6 +80,14 @@ private:
     void* m_events = nullptr;    // HWND: display changes, Explorer restarts, the rebuild timer
     void* m_planWatch = nullptr; // change notification on the plan's folder
     unsigned m_taskbarCreated = 0;
+
+    PluginWidgets m_plugins;
+    std::vector<PluginSlot> m_pluginSlots;
+    // What the host last set on each widget: shown again after a rebuild.
+    std::map<std::string, domain::Value::Table, std::less<>> m_pluginValues;
+    std::vector<std::pair<std::filesystem::path, void*>> m_devWatches; // folder, change notification
+    std::size_t m_windowSubscription = 0;
+    std::unique_ptr<PluginBridge> m_bridge; // last: its callbacks reach everything above
 };
 
 } // namespace rmw::barapp

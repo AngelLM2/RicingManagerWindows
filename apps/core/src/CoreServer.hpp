@@ -2,7 +2,9 @@
 
 #include "ApplyHelper.hpp"
 #include "Composition.hpp"
+#include "Plugins.hpp"
 
+#include "rmw/domain/PluginApi.hpp"
 #include "rmw/domain/Settings.hpp"
 #include "rmw/engine/RiceEngine.hpp"
 #include "rmw/ipc/JsonRpc.hpp"
@@ -13,8 +15,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -48,10 +52,11 @@ struct CoreOptions
     std::chrono::milliseconds testPause{0};
 };
 
-// Actions are what hotkeys, rules, the tray, the CLI and (later) plugins call (docs/12).
-inline constexpr std::array<std::string_view, 7> kActions = {
-    "rice.apply",       "restore.original", "appearance.toggle", "appearance.dark",
-    "appearance.light", "bar.on",           "bar.off",
+// Actions are what hotkeys, rules, the tray, the CLI and plugins call (docs/12). A plugin's own
+// actions are "<plugin id>:<action>" and run in the plugin host.
+inline constexpr std::array<std::string_view, 10> kActions = {
+    "rice.apply",       "rice.undo", "restore.original", "appearance.toggle", "appearance.dark",
+    "appearance.light", "bar.on",    "bar.off",          "bar.toggle",        "wallpaper.next",
 };
 
 // Who asked: hotkeys, the tray and clients are the user (a history entry the user can go back
@@ -124,6 +129,10 @@ public:
     [[nodiscard]] Result<void> startBar();
     void stopBar();
     [[nodiscard]] ipc::Json barStatus() const;
+    // Window thread: writes the plugin host's plan and starts or stops rmw-plugin-host to match.
+    void syncPluginHost();
+    // Some plugin runs: the core stays resident for it.
+    [[nodiscard]] bool pluginsWanted() const noexcept { return m_pluginsWanted; }
     [[nodiscard]] SafeModeReason safeMode() const noexcept { return m_safeMode; }
     // An operation is running or ended moments ago: change events are probably our own.
     [[nodiscard]] bool ownChangesSettling() const noexcept;
@@ -155,6 +164,16 @@ private:
     [[nodiscard]] Result<ipc::Json> inspect(const ipc::Json& params);
     [[nodiscard]] Result<ipc::Json> exportRice(const ipc::Json& params);
     [[nodiscard]] Result<ipc::Json> autostart(const ipc::Json& params, bool change);
+    [[nodiscard]] Result<ipc::Json> pluginMethod(const ipc::Request& request);
+    [[nodiscard]] Result<ipc::Json> runPluginAction(const domain::PluginActionName& action,
+                                                    const ipc::Json& args, Origin origin);
+    [[nodiscard]] Result<ipc::Json> hostCall(std::string_view method, const ipc::Json& params,
+                                             std::chrono::milliseconds timeout);
+    [[nodiscard]] Result<void> turnPageLocked(const std::string& field);
+    [[nodiscard]] Result<void> startPluginHost();
+    void onPluginHostFailure(const platform::WorkerEvent& event);
+    // After plugins changed: the bars (their widgets) and the host follow.
+    void pluginsChanged();
     [[nodiscard]] engine::IModuleRunner& runner() noexcept;
     void setSchedule(std::optional<domain::AppearanceSchedule> schedule);
     void setRotation(const ipc::Json& plan);
@@ -184,6 +203,17 @@ private:
     bool m_barOff = false;                                // mirrors meta "bar_off"
     std::optional<std::filesystem::path> m_barSource;     // mirrors meta "bar_source"
     std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
+
+    // Plugins (docs/12). The pipes are named once per run: the bar serves the bridge, the host
+    // the control pipe; `m_blame` is the mapping where the host writes which plugin runs.
+    std::unique_ptr<PluginManager> m_plugins;
+    std::wstring m_bridgePipe;
+    std::wstring m_controlPipe;
+    void* m_blame = nullptr; // HANDLE
+    std::mutex m_blameMutex;
+    std::map<std::string, std::deque<std::chrono::steady_clock::time_point>, std::less<>> m_blames;
+    std::optional<std::string> m_hostPlan; // the plan the host was last started for (window thread)
+    std::atomic<bool> m_pluginsWanted{false};
 
     // Set before the accept thread starts and cleared after every client thread is joined.
     platform::MessageWindow* m_window = nullptr;

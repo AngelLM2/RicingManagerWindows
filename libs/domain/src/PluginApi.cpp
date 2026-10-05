@@ -1,5 +1,7 @@
 #include "rmw/domain/PluginApi.hpp"
 
+#include "rmw/domain/Identifiers.hpp"
+
 #include <algorithm>
 #include <array>
 
@@ -158,6 +160,22 @@ bool networkDomainAllowed(std::string_view host, std::span<const std::string> do
         }
     }
     return false;
+}
+
+std::optional<PluginActionName> parsePluginActionName(std::string_view name)
+{
+    const auto colon = name.find(':');
+    if (colon == std::string_view::npos)
+    {
+        return std::nullopt;
+    }
+    const std::string_view plugin = name.substr(0, colon);
+    const std::string_view action = name.substr(colon + 1);
+    if (!isValidPackageId(plugin) || !isValidPluginMemberName(action))
+    {
+        return std::nullopt;
+    }
+    return PluginActionName{std::string(plugin), std::string(action)};
 }
 
 bool isValidPluginMemberName(std::string_view name) noexcept

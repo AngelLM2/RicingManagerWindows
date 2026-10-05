@@ -9,6 +9,7 @@
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
+#include "rmw/domain/Identifiers.hpp"
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/modules/Export.hpp"
 #include "rmw/modules/Wallpaper.hpp"
@@ -16,6 +17,7 @@
 #include "rmw/platform/Customizers.hpp"
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
+#include "rmw/plugins/HostPlan.hpp"
 
 #include <windows.h>
 
@@ -38,10 +40,12 @@ constexpr auto kSendTimeout = 10s;
 // Windows keeps broadcasting our own change for a moment after an operation (docs/03 §5.2).
 constexpr auto kOwnChangesGrace = 4s;
 constexpr auto kWindowAnswer = 10s;
-constexpr std::array<std::string_view, 14> kMethods = {
-    "status.get",       "rice.validate",   "rice.apply",    "restore.original", "snapshot.list",
-    "snapshot.restore", "monitors.list",   "action.run",    "action.list",      "module.inspect",
-    "rice.export",      "settings.reload", "autostart.get", "autostart.set",
+constexpr std::array<std::string_view, 23> kMethods = {
+    "status.get",       "rice.validate",   "rice.apply",     "restore.original", "snapshot.list",
+    "snapshot.restore", "monitors.list",   "action.run",     "action.list",      "module.inspect",
+    "rice.export",      "settings.reload", "autostart.get",  "autostart.set",    "plugin.list",
+    "plugin.approve",   "plugin.enable",   "plugin.disable", "plugin.dev",       "plugin.install",
+    "plugin.remove",    "plugin.status",   "plugin.report",
 };
 constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
@@ -50,6 +54,15 @@ constexpr std::string_view kBarOffMeta = "bar_off";
 constexpr std::string_view kBarSourceMeta = "bar_source";
 constexpr std::string_view kBarWorker = "bar";
 constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20; // the bar's budget is 25 MB
+constexpr std::string_view kPluginWorker = "plugins";
+// 16 MB per plugin VM (docs/12 §6), a dozen plugins and the host itself.
+constexpr std::uint64_t kPluginHostMemoryLimit = std::uint64_t{256} << 20;
+// A plugin that brings the whole host down (hung in a C function, ate its memory) is stopped
+// sooner than one whose callbacks just fail (3 times, in the host): twice in five minutes.
+constexpr int kBlamesToDisable = 2;
+constexpr auto kBlameWindow = std::chrono::minutes(5);
+constexpr std::string_view kRiceCurrentMeta = "rice_current";   // the folder of the rice applied last
+constexpr std::string_view kRicePreviousMeta = "rice_previous"; // the one before it (rice.undo)
 // Outside state.db on purpose: a damaged database must not hide a crash loop.
 constexpr std::wstring_view kStartupAttemptsFile = L"startup-attempts";
 
@@ -200,6 +213,10 @@ CoreServer::~CoreServer()
     {
         m_helper->stop();
     }
+    if (m_blame != nullptr)
+    {
+        CloseHandle(m_blame);
+    }
 }
 
 Result<void> CoreServer::initialize()
@@ -238,6 +255,16 @@ Result<void> CoreServer::initialize()
     }
     m_state = std::make_unique<engine::StateDb>(std::move(*state));
     m_store = std::make_unique<engine::ContentStore>(m_options.dataDirectory / L"store");
+    m_plugins = std::make_unique<PluginManager>(m_options.dataDirectory, *m_state);
+    if (auto base = platform::corePipeName())
+    {
+        const std::string token = platform::randomHex(16).value_or(std::to_string(GetCurrentProcessId()));
+        m_bridgePipe = *base + L"-bridge-" + utf8To16Lossy(token);
+        m_controlPipe = *base + L"-plugins-" + utf8To16Lossy(token);
+    }
+    SECURITY_ATTRIBUTES inheritable{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+    m_blame = CreateFileMappingW(INVALID_HANDLE_VALUE, &inheritable, PAGE_READWRITE, 0,
+                                 sizeof(plugins::BlameRecord), nullptr);
 
     auto logic = makeModuleLogic();
     if (!logic)
@@ -335,6 +362,10 @@ bool CoreServer::wantsResidency() const
     if (m_safeMode != SafeModeReason::None || schedule() || !rotation().empty() || barPlan())
     {
         return true;
+    }
+    if (m_plugins && !m_plugins->hostPlan(std::nullopt).plugins.empty())
+    {
+        return true; // plugins switched on (actions, rules) run without a rice
     }
     return loadSettings(m_options.dataDirectory).settings.needsResidency();
 }
@@ -623,7 +654,7 @@ Result<void> CoreServer::reloadBars()
         log::info("bar: the rice has no [[bar]] anymore; apply it again (or restore) to remove the bars");
         return {};
     }
-    auto plan = bar::planFromRice(*loaded->rice);
+    auto plan = m_plugins->barPlan(*loaded->rice);
     if (!plan)
     {
         return std::unexpected(std::move(plan.error()));
@@ -648,6 +679,10 @@ Result<void> CoreServer::startBar()
     spec.executable = self->parent_path() / L"rmw-bar.exe";
     spec.arguments =
         std::format(L"--plan \"{}\"", (m_options.dataDirectory / L"bar" / L"bars.json").native());
+    if (!m_bridgePipe.empty())
+    {
+        spec.arguments += std::format(L" --bridge \"{}\"", m_bridgePipe);
+    }
     spec.memoryLimitBytes = kBarMemoryLimit;
     spec.hangAfter = std::chrono::milliseconds(2000);
     spec.startGrace = std::chrono::milliseconds(10'000);
@@ -688,6 +723,11 @@ Json CoreServer::barStatus() const
 
 void CoreServer::onWorkerEvent(const platform::WorkerEvent& event)
 {
+    if (event.name == kPluginWorker)
+    {
+        onPluginHostFailure(event);
+        return;
+    }
     if (event.name != kBarWorker || event.kind == platform::WorkerEventKind::Started)
     {
         return;
@@ -843,6 +883,11 @@ Result<Json> CoreServer::exclusive(const std::function<Result<Json>()>& operatio
 
 Result<Json> CoreServer::perform(const domain::ActionCall& action, Origin origin)
 {
+    if (auto plugin = domain::parsePluginActionName(action.name))
+    {
+        // Not under the operation lock: the plugin may call actions of ours in turn.
+        return runPluginAction(*plugin, Json::object(), origin);
+    }
     Json params = Json::object();
     if (!action.ricePath.empty())
     {
@@ -923,6 +968,12 @@ Result<bool> CoreServer::syncSchedule()
 Result<void> CoreServer::turnPage(const std::string& field)
 {
     const std::scoped_lock lock(m_operation);
+    const OperationMark mark(*this);
+    return turnPageLocked(field);
+}
+
+Result<void> CoreServer::turnPageLocked(const std::string& field)
+{
     Json plan = rotation();
     const auto entry = plan.find(field);
     if (entry == plan.end())
@@ -954,7 +1005,6 @@ Result<void> CoreServer::turnPage(const std::string& field)
     const auto index = static_cast<std::size_t>(at - items.begin()); // == size when not found
     const std::size_t next =
         modules::nextPage(items.size(), index, json::boolOr(*entry, "shuffle", false), m_random());
-    const OperationMark mark(*this);
     auto report = m_engine->applyFields("wallpaper", Json{{field, Json{{"file", items[next]}}}}, "Slideshow");
     if (!report)
     {
@@ -1041,9 +1091,33 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     {
         return autostart(request.params, method == "autostart.set");
     }
+    if (method.starts_with("plugin."))
+    {
+        return pluginMethod(request);
+    }
     // action.run
     const std::string name = json::stringOr(request.params, "name", "");
     const Json actionParams = json::memberOr(request.params, "params", Json::object());
+    if (auto plugin = domain::parsePluginActionName(name))
+    {
+        // Not under the operation lock: the plugin may call actions of ours in turn.
+        return runPluginAction(*plugin, actionParams, Origin::User);
+    }
+    if (const std::string plugin = json::stringOr(request.params, "plugin", ""); !plugin.empty())
+    {
+        // From the plugin host, for one plugin: only what plugins may call, and it waits for a
+        // running operation instead of failing.
+        if (domain::findPluginAction(name) == nullptr)
+        {
+            return fail(ErrorCode::AccessDenied, std::format("plugins cannot call '{}'", name));
+        }
+        const Origin origin =
+            json::boolOr(request.params, "byUser", false) ? Origin::User : Origin::Automatic;
+        log::info("plugin {} asks for {}", plugin, name);
+        const std::scoped_lock lock(m_operation);
+        const OperationMark mark(*this);
+        return runAction(name, actionParams, origin);
+    }
     return exclusive([&] { return runAction(name, actionParams, Origin::User); });
 }
 
@@ -1122,6 +1196,37 @@ Result<Json> CoreServer::runAction(std::string_view name, const Json& params, Or
         setBarOff(name == "bar.off");
         return Json{{"bar", name == "bar.off" ? "off" : "on"}};
     }
+    if (name == "bar.toggle")
+    {
+        setBarOff(!barOff());
+        return Json{{"bar", barOff() ? "off" : "on"}};
+    }
+    if (name == "rice.undo")
+    {
+        // The rice before the last one comes back (applying it again swaps them: a toggle).
+        auto previous = m_state->meta(kRicePreviousMeta);
+        if (!previous || !*previous || (*previous)->empty())
+        {
+            return fail(ErrorCode::NotFound, "no rice to go back to");
+        }
+        return applyRice(Json{{"path", **previous}}, origin);
+    }
+    if (name == "wallpaper.next")
+    {
+        const Json plan = rotation();
+        if (plan.empty())
+        {
+            return fail(ErrorCode::NotFound, "no slideshow is running");
+        }
+        for (const auto& [field, entry] : plan.items())
+        {
+            if (auto turned = turnPageLocked(field); !turned)
+            {
+                return std::unexpected(std::move(turned.error()));
+            }
+        }
+        return Json{{"turned", plan.size()}};
+    }
     return fail(ErrorCode::NotFound, std::format("unknown action '{}'", name));
 }
 
@@ -1171,11 +1276,28 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
         setRotation(previousRotation);
         return std::unexpected(std::move(report.error()));
     }
+    // What the rice asks of plugins; and which rice to go back to (rice.undo).
+    RicePlugins ricePlugins;
+    for (const auto& requirement : rice.pluginRequirements)
+    {
+        ricePlugins.required.push_back(requirement.id);
+    }
+    for (const auto& settings : rice.pluginSettings)
+    {
+        ricePlugins.settings.emplace_back(settings.id, settings.config);
+    }
+    m_plugins->setRicePlugins(std::move(ricePlugins));
+    const std::string folderText = utf8Path(loaded->folder);
+    if (auto current = m_state->meta(kRiceCurrentMeta); current && *current && **current != folderText)
+    {
+        [[maybe_unused]] auto saved = m_state->setMeta(kRicePreviousMeta, **current);
+    }
+    [[maybe_unused]] auto savedCurrent = m_state->setMeta(kRiceCurrentMeta, folderText);
     if (!rice.bars.empty())
     {
-        // The custom taskbar: rmw-bar shows this plan (palette resolved), and follows the rice's
-        // file as its author edits it.
-        if (auto plan = bar::planFromRice(rice))
+        // The custom taskbar: rmw-bar shows this plan (palette resolved, skins applied, plugin
+        // widgets found), and follows the rice's file as its author edits it.
+        if (auto plan = m_plugins->barPlan(rice))
         {
             setBarPlan(bar::toJson(*plan));
             setBarSource(loaded->folder);
@@ -1250,6 +1372,9 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     setRotation(Json::object());
     setBarPlan(std::nullopt);
     setBarSource(std::nullopt);
+    m_plugins->setRicePlugins({});
+    [[maybe_unused]] auto current = m_state->setMeta(kRiceCurrentMeta, std::nullopt);
+    notifyResident();
     return reportJson(*report);
 }
 
@@ -1435,6 +1560,313 @@ Result<Json> CoreServer::autostart(const Json& params, bool change)
                 {"current", state->current},
                 {"disabledByUser", state->disabledByUser},
                 {"command", utf16To8Lossy(state->command)}};
+}
+
+// ---- plugins (docs/12) ----------------------------------------------------------------------------
+
+Result<Json> CoreServer::hostCall(std::string_view method, const Json& params,
+                                  std::chrono::milliseconds timeout)
+{
+    auto self = platform::currentExecutable();
+    if (!self || m_controlPipe.empty())
+    {
+        return fail(ErrorCode::Unsupported, "plugins are not available");
+    }
+    auto connection = platform::connectPipe(m_controlPipe, 2s, self->parent_path() / L"rmw-plugin-host.exe");
+    if (!connection)
+    {
+        return fail(ErrorCode::Unsupported, "the plugin host is not running (no plugin with a script is on)");
+    }
+    if (auto sent = connection->send(ipc::requestText(1, method, params), kSendTimeout); !sent)
+    {
+        return std::unexpected(std::move(sent.error()));
+    }
+    auto text = connection->receive(timeout);
+    if (!text)
+    {
+        return std::unexpected(std::move(text.error()));
+    }
+    auto response = ipc::parseResponse(*text);
+    if (!response)
+    {
+        return std::unexpected(std::move(response.error()));
+    }
+    if (response->error)
+    {
+        return std::unexpected(ipc::fromRpcError(*response->error));
+    }
+    return response->result;
+}
+
+Result<Json> CoreServer::runPluginAction(const domain::PluginActionName& action, const Json& args,
+                                         Origin origin)
+{
+    log::info("action {}:{}", action.plugin, action.action);
+    return hostCall("plugin.action",
+                    Json{{"plugin", action.plugin},
+                         {"action", action.action},
+                         {"args", args.is_object() ? args : Json::object()},
+                         {"byUser", origin == Origin::User}},
+                    15s);
+}
+
+void CoreServer::pluginsChanged()
+{
+    // The bars show plugin widgets from the plan: read the rice again for new folders or settings.
+    if (barSource())
+    {
+        if (auto reloaded = reloadBars(); !reloaded)
+        {
+            log::warn("bar: {}", reloaded.error().toString());
+        }
+    }
+    notifyResident();
+}
+
+Result<Json> CoreServer::pluginMethod(const ipc::Request& request)
+{
+    const std::string& method = request.method;
+    const std::string id = json::stringOr(request.params, "id", "");
+    if (method == "plugin.list")
+    {
+        Json running = Json::object();
+        if (auto status = hostCall("status", Json::object(), 5s))
+        {
+            for (const auto& plugin : json::memberOr(*status, "plugins", Json::array()))
+            {
+                running[json::stringOr(plugin, "id", "")] = plugin;
+            }
+            for (const auto& [plugin, reason] : json::memberOr(*status, "errors", Json::object()).items())
+            {
+                running[plugin]["error"] = reason;
+            }
+        }
+        Json list = Json::array();
+        for (const auto& entry : m_plugins->list())
+        {
+            Json item = entry.toJson();
+            if (const auto found = running.find(entry.id); found != running.end())
+            {
+                item["host"] = *found;
+            }
+            list.push_back(std::move(item));
+        }
+        return list;
+    }
+    if (method == "plugin.status")
+    {
+        return hostCall("status", Json::object(), 5s);
+    }
+    if (method == "plugin.report")
+    {
+        // From the host: a plugin failed too often in it (errors, time, memory).
+        const std::string plugin = json::stringOr(request.params, "plugin", "");
+        if (!domain::isValidPackageId(plugin))
+        {
+            return fail(ErrorCode::InvalidArgument, "invalid plugin id");
+        }
+        m_plugins->disable(plugin, json::stringOr(request.params, "reason", "failed too often"));
+        notifyResident();
+        return Json{{"ok", true}};
+    }
+    Result<PluginEntry> entry = fail(ErrorCode::NotFound, std::format("unknown method '{}'", method));
+    if (method == "plugin.approve")
+    {
+        entry = m_plugins->approve(id);
+    }
+    else if (method == "plugin.enable" || method == "plugin.disable")
+    {
+        entry = m_plugins->setEnabled(id, method == "plugin.enable");
+    }
+    else if (method == "plugin.dev")
+    {
+        if (json::boolOr(request.params, "stop", false))
+        {
+            if (auto removed = m_plugins->removeDev(id); !removed)
+            {
+                return std::unexpected(std::move(removed.error()));
+            }
+            pluginsChanged();
+            return Json{{"ok", true}};
+        }
+        auto folder = utf8To16(json::stringOr(request.params, "path", ""));
+        if (!folder || folder->empty())
+        {
+            return fail(ErrorCode::InvalidArgument, "missing 'path' (the plugin's folder)");
+        }
+        entry = m_plugins->addDev(std::filesystem::path(*folder));
+        // The developer saw the permissions (the CLI shows them and asks): approve them.
+        if (entry && entry->needsApproval() && json::boolOr(request.params, "approve", false))
+        {
+            entry = m_plugins->approve(entry->id);
+        }
+    }
+    else if (method == "plugin.install")
+    {
+        auto folder = utf8To16(json::stringOr(request.params, "path", ""));
+        if (!folder || folder->empty())
+        {
+            return fail(ErrorCode::InvalidArgument, "missing 'path' (the plugin's folder)");
+        }
+        entry = m_plugins->install(std::filesystem::path(*folder));
+        if (entry && entry->needsApproval() && json::boolOr(request.params, "approve", false))
+        {
+            entry = m_plugins->approve(entry->id);
+        }
+    }
+    else if (method == "plugin.remove")
+    {
+        if (auto removed = m_plugins->remove(id); !removed)
+        {
+            return std::unexpected(std::move(removed.error()));
+        }
+        pluginsChanged();
+        return Json{{"ok", true}};
+    }
+    if (!entry)
+    {
+        return std::unexpected(std::move(entry.error()));
+    }
+    pluginsChanged();
+    return entry->toJson();
+}
+
+Result<void> CoreServer::startPluginHost()
+{
+    if (!m_supervisor)
+    {
+        return fail(ErrorCode::Unsupported, "no worker supervisor");
+    }
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return std::unexpected(std::move(self.error()));
+    }
+    platform::WorkerSpec spec;
+    spec.name = std::string(kPluginWorker);
+    spec.executable = self->parent_path() / L"rmw-plugin-host.exe";
+    spec.arguments = std::format(L"--data \"{}\" --bridge \"{}\" --control \"{}\"",
+                                 m_options.dataDirectory.native(), m_bridgePipe, m_controlPipe);
+    if (m_blame != nullptr)
+    {
+        spec.arguments += std::format(L" --blame {}", reinterpret_cast<std::uintptr_t>(m_blame));
+        spec.inheritHandles.push_back(m_blame);
+    }
+    spec.memoryLimitBytes = kPluginHostMemoryLimit;
+    spec.hangAfter = std::chrono::milliseconds(3000);
+    spec.startGrace = std::chrono::milliseconds(10'000);
+    spec.endsWithCore = true;
+    spec.noChildProcesses = true; // plugin code never starts programs
+    spec.restrictUi = true;       // nor reads the clipboard or changes system settings
+    log::info("starting the plugin host");
+    return m_supervisor->start(std::move(spec));
+}
+
+void CoreServer::syncPluginHost()
+{
+    plugins::HostPlan plan;
+    if (m_safeMode == SafeModeReason::None && m_plugins)
+    {
+        std::optional<bar::Plan> bars;
+        if (const auto text = barPlan(); text && !barOff())
+        {
+            if (auto parsed = bar::planFromJson(*text))
+            {
+                bars = std::move(*parsed);
+            }
+        }
+        plan = m_plugins->hostPlan(bars);
+    }
+    m_pluginsWanted = !plan.plugins.empty();
+    const std::string text = plugins::toJson(plan);
+    const auto file = m_options.dataDirectory / L"plugin-host" / L"plan.json";
+    std::error_code ec;
+    std::filesystem::create_directories(file.parent_path(), ec);
+    if (auto current = platform::readFileLimited(file, std::uint64_t{1} << 20);
+        !current || std::string_view(reinterpret_cast<const char*>(current->data()), current->size()) != text)
+    {
+        if (auto written = platform::writeFileAtomic(file, std::as_bytes(std::span(text))); !written)
+        {
+            log::error("plugins: cannot write the host's plan: {}", written.error().toString());
+        }
+    }
+    if (!m_supervisor)
+    {
+        return;
+    }
+    bool running = false;
+    for (const auto& worker : m_supervisor->status())
+    {
+        if (worker.name == kPluginWorker)
+        {
+            running = worker.running || (!worker.disabled && worker.restarts > 0);
+        }
+    }
+    if (plan.plugins.empty())
+    {
+        if (m_hostPlan)
+        {
+            [[maybe_unused]] auto stopped = hostCall("stop", Json::object(), 2s); // saves plugin storage
+            m_supervisor->stop(kPluginWorker);
+            m_hostPlan.reset();
+        }
+        return;
+    }
+    // A running host follows the plan file itself; a new plan restarts one that gave up.
+    if (m_hostPlan && (running || *m_hostPlan == text))
+    {
+        m_hostPlan = text;
+        return;
+    }
+    if (auto started = startPluginHost(); !started)
+    {
+        log::error("the plugin host did not start: {}", started.error().toString());
+    }
+    m_hostPlan = text;
+}
+
+void CoreServer::onPluginHostFailure(const platform::WorkerEvent& event)
+{
+    if (event.kind != platform::WorkerEventKind::Failed || m_blame == nullptr)
+    {
+        return;
+    }
+    std::string blamed;
+    if (auto* record = static_cast<plugins::BlameRecord*>(
+            MapViewOfFile(m_blame, FILE_MAP_WRITE, 0, 0, sizeof(plugins::BlameRecord))))
+    {
+        blamed.assign(record->plugin, strnlen(record->plugin, sizeof(record->plugin)));
+        record->plugin[0] = '\0';
+        UnmapViewOfFile(record);
+    }
+    if (!domain::isValidPackageId(blamed))
+    {
+        log::warn("the plugin host ended (failure {}) with no plugin running",
+                  static_cast<int>(event.failure));
+        return;
+    }
+    log::warn("the plugin host ended (failure {}) while {} ran", static_cast<int>(event.failure), blamed);
+    const auto now = std::chrono::steady_clock::now();
+    bool disable = false;
+    {
+        const std::scoped_lock lock(m_blameMutex);
+        auto& times = m_blames[blamed];
+        times.push_back(now);
+        while (!times.empty() && now - times.front() > kBlameWindow)
+        {
+            times.pop_front();
+        }
+        disable = static_cast<int>(times.size()) >= kBlamesToDisable;
+        if (disable)
+        {
+            times.clear();
+        }
+    }
+    if (disable)
+    {
+        m_plugins->disable(blamed, "it brought the plugin host down twice (hung or out of memory)");
+        notifyResident(); // the next host runs without it
+    }
 }
 
 } // namespace rmw::core
