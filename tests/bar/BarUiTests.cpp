@@ -332,6 +332,68 @@ TEST(PluginWidgetSource, EveryExampleWidgetCompilesInABar)
     HeadlessPlatform::last->draw(surface, false, matteOf(instance));
 }
 
+TEST(PluginWidgetSource, SlintErrorsPointAtThePluginsOwnLine)
+{
+    // What the checks let through but Slint refuses: the bar tries the widget alone and reports
+    // Slint's message at the line of widget.slint (BarApp::leaveOutBrokenWidgets).
+    const auto folder = std::filesystem::temp_directory_path() / "rmw-broken-widget-test";
+    std::filesystem::create_directories(folder);
+    {
+        std::ofstream(folder / "plugin.toml") << R"(schema = 1
+[plugin]
+id      = "io.github.test.broken"
+name    = "Broken"
+version = "1.0.0"
+api     = "^1.0"
+kind    = ["bar.widget"]
+[widget]
+ui        = "widget.slint"
+component = "Broken"
+[widget.properties]
+text = "string"
+)";
+        std::ofstream(folder / "widget.slint") << R"(// line 1
+/* a comment
+   on two lines */
+import { Button } from "std-widgets.slint";
+export component Broken inherits Rectangle {
+    in property <string> text;
+    Text { text: root.missing; }
+}
+)";
+    }
+    rmw::barapp::PluginWidgets widgets;
+    widgets.load({{"io.github.test.broken", folder, false}});
+    ASSERT_EQ(widgets.all().size(), 1u);
+    const auto& widget = *widgets.all().front();
+
+    rmw::domain::BarConfig config;
+    config.right.push_back({widget.id, {}});
+    std::vector<rmw::bar::WidgetKind> kinds(rmw::barapp::builtinKinds().begin(),
+                                            rmw::barapp::builtinKinds().end());
+    kinds.push_back(widget.kind);
+    const auto generated = rmw::bar::generateBarSource(
+        config, kinds, rmw::barapp::PluginWidgets::sourcesWith(widget, rmw::barapp::builtinSources()));
+    slint::interpreter::ComponentCompiler compiler;
+    EXPECT_FALSE(compiler.build_from_source(generated.source, "bar.slint").has_value());
+    const std::size_t before = rmw::barapp::PluginWidgets::lineBefore(generated.source, widget.id);
+    ASSERT_GT(before, 0u);
+    std::size_t errors = 0;
+    for (const auto& diagnostic : compiler.diagnostics())
+    {
+        if (diagnostic.level == slint::interpreter::DiagnosticLevel::Error)
+        {
+            ++errors;
+            EXPECT_EQ(diagnostic.line - before, 7u) << std::string_view(diagnostic.message);
+        }
+    }
+    EXPECT_GE(errors, 1u);
+
+    widgets.remove(widget.id);
+    EXPECT_TRUE(widgets.all().empty());
+    std::filesystem::remove_all(folder);
+}
+
 TEST(BarClock, FormatsSafely)
 {
     EXPECT_TRUE(std::regex_match(rmw::barapp::formatClock("%H:%M"), std::regex(R"(\d\d:\d\d)")));

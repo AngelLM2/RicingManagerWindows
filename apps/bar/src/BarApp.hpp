@@ -66,6 +66,7 @@ private:
     void scheduleRebuild();
     void scheduleReload(); // a plugin being written changed: rebuild soon
     void watchDevPlugins(const std::vector<bar::PlanPlugin>& plugins);
+    [[nodiscard]] bool leaveOutBrokenWidgets(const domain::BarConfig& config);
     void onPluginMessage(bar::bridge::Message message);
     void sendInstances();
     void applyProperties(const PluginSlot& slot, const domain::Value::Table& properties);

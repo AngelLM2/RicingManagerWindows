@@ -49,7 +49,7 @@ struct WidgetInterface
 
 struct CheckedWidgetSource
 {
-    std::string source;                  // ready to concatenate with the other widgets
+    std::string source;                  // ready to concatenate; line N holds line N of the file
     std::vector<std::string> stdWidgets; // names imported from "std-widgets.slint"
     std::string component;               // renamed
     std::string verticalComponent;       // renamed (empty when none)

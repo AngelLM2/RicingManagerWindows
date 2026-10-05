@@ -51,6 +51,13 @@ public:
     [[nodiscard]] std::vector<bar::WidgetKind> kinds() const;
     // std-widgets imports first, then the built-in sources, then every plugin's.
     [[nodiscard]] std::string sources(std::string_view builtin) const;
+    // The same with only `widget` of the plugins: the source to try it alone.
+    [[nodiscard]] static std::string sourcesWith(const PluginWidget& widget, std::string_view builtin);
+    // Where `id`'s source starts in a generated bar source: the line before its first line (0 when
+    // it is not there).
+    [[nodiscard]] static std::size_t lineBefore(std::string_view generated, std::string_view id);
+    // Leaves a widget out (Slint refused it); pointers to the others stay valid.
+    void remove(std::string_view id);
 
     // A property value from the plugin host, as Slint wants it. Images are files of the plugin
     // (checked again here) or "window:<id>" (that window's icon); a bad value is an error.
