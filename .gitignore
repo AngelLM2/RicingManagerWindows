@@ -1,2 +1,21 @@
+# Build output
 build/
+out/
+vcpkg_installed/
+
+# IDE / local settings
+.vs/
 .vscode/
+*.user
+CMakeUserPresets.json
+
+# Tooling caches
+.cache/
+__pycache__/
+*.pyc
+
+# Local test artifacts
+tests/system/sandbox/out/
+crash-*
+leak-*
+timeout-*

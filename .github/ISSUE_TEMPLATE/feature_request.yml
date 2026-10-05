@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a feature, a plugin extension point or a rice idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: Describe the result you want, not only the implementation.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wallpaper
+        - Appearance (colors, light/dark)
+        - Cursors / icons / fonts
+        - Bar (custom taskbar)
+        - Plugins / plugin API
+        - Rices / packages
+        - Settings UI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: plugin
+    attributes:
+      label: Could this be a plugin?
+      description: Everything in the app is meant to be extensible (docs/12). If a plugin cannot do this today, which provider/action/permission is missing?
