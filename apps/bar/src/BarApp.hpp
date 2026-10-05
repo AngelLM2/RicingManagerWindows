@@ -83,8 +83,13 @@ private:
 
     PluginWidgets m_plugins;
     std::vector<PluginSlot> m_pluginSlots;
-    // What the host last set on each widget: shown again after a rebuild.
-    std::map<std::string, domain::Value::Table, std::less<>> m_pluginValues;
+    // What the host last set on each widget (and for which plugin): shown again after a rebuild.
+    struct CachedValues
+    {
+        std::string plugin;
+        domain::Value::Table values;
+    };
+    std::map<std::string, CachedValues, std::less<>> m_pluginValues;
     std::vector<std::pair<std::filesystem::path, void*>> m_devWatches; // folder, change notification
     std::size_t m_windowSubscription = 0;
     std::unique_ptr<PluginBridge> m_bridge; // last: its callbacks reach everything above

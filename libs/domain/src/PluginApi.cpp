@@ -25,6 +25,7 @@ constexpr auto kProviders = std::to_array<PluginCapability>({
 
 constexpr auto kActions = std::to_array<PluginCapability>({
     {"media.control", false, "play, pause and skip what is playing"},
+    {"window.activate", false, "bring a window to the front, or minimize it when it already is"},
     {"window.focus", false, "bring a window to the front"},
     {"window.minimize", false, "minimize a window"},
     {"window.close", true, "close your windows"},

@@ -740,8 +740,9 @@ plugins::HostPlan PluginManager::hostPlan(const std::optional<bar::Plan>& bars)
         const bool onBar = bars && std::ranges::any_of(bars->plugins, [&](const bar::PlanPlugin& p) {
                                return p.id == entry.id;
                            });
-        const bool wanted =
-            entry.enabled || onBar || std::ranges::find(rice.required, entry.id) != rice.required.end();
+        // A plugin being written runs while it is: that is what `rmw plugin dev` is for.
+        const bool wanted = entry.enabled || entry.dev || onBar ||
+                            std::ranges::find(rice.required, entry.id) != rice.required.end();
         if (!wanted || !entry.manifest || !entry.manifest->hasScript())
         {
             continue;

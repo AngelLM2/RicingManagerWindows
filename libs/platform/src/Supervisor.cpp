@@ -126,7 +126,6 @@ struct Supervisor::State
         options.completionKey = key;
         options.killOnClose = worker.spec.endsWithCore;
         options.noChildProcesses = worker.spec.noChildProcesses;
-        options.restrictUi = worker.spec.restrictUi;
         options.inheritHandles = {mapping.get()};
         options.inheritHandles.insert(options.inheritHandles.end(), worker.spec.inheritHandles.begin(),
                                       worker.spec.inheritHandles.end());

@@ -13,7 +13,7 @@
 param(
     [ValidateSet('debug', 'release', 'asan')]
     [string] $Preset = 'debug',
-    [ValidateSet('unit', 'system', 'bar', 'spike')]
+    [ValidateSet('unit', 'system', 'bar', 'plugins', 'spike')]
     [string] $Suite = 'unit',
     # For -Suite spike: executable path relative to the build folder, e.g. spikes\s3-taskbar\spike_s3_taskbar.exe
     [string] $Spike,
@@ -33,6 +33,7 @@ if (-not (Test-Path $sandboxExe)) {
 $root = Split-Path $PSScriptRoot -Parent
 $buildDir = Join-Path $root "build\$Preset"
 $runnerDir = Join-Path $root 'tests\system\sandbox'
+$pluginsDir = Join-Path $root 'plugins'
 $outDir = Join-Path $root "build\sandbox\$Preset"
 
 if (-not (Test-Path (Join-Path $buildDir 'tests'))) {
@@ -88,6 +89,11 @@ $wsb = @"
     <MappedFolder>
       <HostFolder>$(Escape-Xml $runnerDir)</HostFolder>
       <SandboxFolder>C:\rmw\runner</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>$(Escape-Xml $pluginsDir)</HostFolder>
+      <SandboxFolder>C:\rmw\plugins</SandboxFolder>
       <ReadOnly>true</ReadOnly>
     </MappedFolder>
     <MappedFolder>

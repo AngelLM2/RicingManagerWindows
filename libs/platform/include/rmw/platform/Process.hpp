@@ -32,11 +32,9 @@ struct ChildOptions
     std::uintptr_t completionKey = 0;
     // The only handles the child inherits (each must be inheritable). Empty = none.
     std::vector<void*> inheritHandles;
-    // ownJob only: the child cannot start processes of its own...
+    // ownJob only: the child cannot start processes of its own. (No JOB_OBJECT_UILIMIT_*: any of
+    // them, even the clipboard ones alone, hides the other processes' windows from the child.)
     bool noChildProcesses = false;
-    // ...or touch the clipboard, global atoms, system settings, the display settings, other
-    // desktops, or log off (JOB_OBJECT_UILIMIT_*; it can still read other windows' titles).
-    bool restrictUi = false;
 };
 
 // A child process (RAII). With ownJob, destroying the object ends the child: workers never

@@ -1755,8 +1755,9 @@ Result<void> CoreServer::startPluginHost()
     spec.hangAfter = std::chrono::milliseconds(3000);
     spec.startGrace = std::chrono::milliseconds(10'000);
     spec.endsWithCore = true;
-    spec.noChildProcesses = true; // plugin code never starts programs
-    spec.restrictUi = true;       // nor reads the clipboard or changes system settings
+    // Plugin code never starts programs. No UI restrictions on the job: any of them hides the other
+    // processes' windows, and windows.list needs them (the Luau sandbox is the boundary there).
+    spec.noChildProcesses = true;
     log::info("starting the plugin host");
     return m_supervisor->start(std::move(spec));
 }
