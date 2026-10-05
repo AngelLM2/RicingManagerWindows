@@ -12,3 +12,4 @@ under `docs/adr/`, which is what matters.
 | S4 — live light/dark + accent via IThemeManager2 (Sandbox only) | `s4-appearance/` | [ADR-0005](../docs/adr/0005-s4-aparencia-ao-vivo.md) |
 | S1 — video wallpaper (`host` safe on the host; `desktop` Sandbox only) | `s1-video/` | [ADR-0006](../docs/adr/0006-s1-wallpaper-em-video.md) |
 | S2 — Slint gallery (needs `scripts/fetch-deps.ps1 -Name slint`) | `s2-ui/` | [ADR-0007](../docs/adr/0007-s2-ui-slint.md) |
+| S7 — bar with interpreted plugin widgets + Luau plugin host | `s7-bar-plugins/` | [ADR-0008](../docs/adr/0008-s7-barra-e-plugins.md) |
