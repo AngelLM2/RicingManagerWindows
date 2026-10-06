@@ -78,6 +78,9 @@ public:
     [[nodiscard]] virtual Result<std::string> wallpaper(std::string_view devicePath) = 0;
     // "" removes the image.
     [[nodiscard]] virtual Result<void> setWallpaper(std::string_view devicePath, std::string_view file) = 0;
+    // One picture on every monitor, the way Settings sets it (SPI_SETDESKWALLPAPER): Windows then names
+    // that file as the wallpaper (Control Panel\Desktop\WallPaper), not its own copy.
+    [[nodiscard]] virtual Result<void> setDesktopWallpaper(std::string_view file) = 0;
 
     [[nodiscard]] virtual Result<WallpaperPosition> position() = 0;
     [[nodiscard]] virtual Result<void> setPosition(WallpaperPosition position) = 0;

@@ -104,7 +104,7 @@ Note 'setup' "$(Split-Path $Setup -Leaf), $([math]::Round((Get-Item $Setup).Leng
 # ---- install ---------------------------------------------------------------------------------------------
 $r = Install 'setup-1.log'
 Check 'installer:installs' ($r.code -eq 0) "exit $($r.code) in $($r.seconds) s"
-$programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe', 'slint_cpp.dll', 'vcruntime140.dll'
+$programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe', 'rmw-elevated.exe', 'slint_cpp.dll', 'vcruntime140.dll'
 $missing = @($programs | Where-Object { -not (Test-Path (Join-Path $app $_)) })
 Check 'installer:programs-per-user' ($missing.Count -eq 0) ("in $app" + $(if ($missing) { '; missing ' + ($missing -join ', ') } else { '' }))
 Check 'installer:uninstall-entry-in-hkcu' (Test-Path $uninstallKey) ''

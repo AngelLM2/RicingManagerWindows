@@ -275,6 +275,9 @@ documents = "assets/icons/docs.ico"
 "firefox.exe" = "assets/icons/fox.ico"  # barra fixada) e o ícone dele na nossa barra e no nosso Iniciar
 [icons.types]                       # o ícone dos arquivos de um tipo (HKCU\Software\Classes\<ProgID>)
 txt = "assets/icons/txt.ico"
+[icons.machine]                     # avançado (settings.toml [icons] machine = true): o PC inteiro,
+folder = "assets/icons/folder.ico"  # por rmw-elevated e o UAC (Shell Icons de HKLM)
+drive  = "assets/icons/drive.ico"
 
 [lockscreen]                        # M14
 image = "assets/lock.jpg"           # .jpg | .png; ou spotlight = true (o Destaque do Windows), não os dois

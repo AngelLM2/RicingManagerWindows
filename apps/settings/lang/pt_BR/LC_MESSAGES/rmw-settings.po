@@ -1265,6 +1265,18 @@ msgstr "Escolher um ícone para o tipo de arquivo"
 msgid "Files of that type show the icon, for the program that opens them now."
 msgstr "Os arquivos desse tipo mostram o ícone, para o programa que os abre agora."
 
+msgid "Every folder and drive (advanced)"
+msgstr "Todas as pastas e unidades (avançado)"
+
+msgid "Every folder"
+msgstr "Todas as pastas"
+
+msgid "Every drive"
+msgstr "Todas as unidades"
+
+msgid "For every user of this PC. It needs \"Folder and drive icons for the whole PC\" on in Settings, and Windows asks for administrator each time."
+msgstr "Para todos os usuários deste PC. Precisa de \"Ícones de pastas e unidades para o PC inteiro\" ligado nas Configurações, e o Windows pede administrador a cada vez."
+
 msgid "Windows' own icons are not copied into the rice: a rice you share takes only your files."
 msgstr "Os ícones do próprio Windows não são copiados para o rice: um rice que você compartilha leva só os seus arquivos."
 
@@ -1390,6 +1402,12 @@ msgstr "A tecla Win abre o Iniciar do Ricing Manager"
 
 msgid "When the applied rice uses it. Win with any other key stays Windows' (Win+E, Win+L...)."
 msgstr "Quando o rice aplicado usa ele. Win com qualquer outra tecla continua do Windows (Win+E, Win+L...)."
+
+msgid "Folder and drive icons for the whole PC"
+msgstr "Ícones de pastas e unidades para o PC inteiro"
+
+msgid "Advanced: a rice may change every folder's and drive's icon, for every user of this PC. Windows asks for administrator each time."
+msgstr "Avançado: um rice pode mudar o ícone de todas as pastas e unidades, para todos os usuários deste PC. O Windows pede administrador a cada vez."
 
 msgid "Keep the icon in the tray"
 msgstr "Manter o ícone na bandeja"

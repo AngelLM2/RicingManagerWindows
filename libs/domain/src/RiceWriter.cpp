@@ -350,6 +350,14 @@ void writeIcons(Writer& w, const IconsConfig& icons)
             w.string(extension, file);
         }
     }
+    if (!icons.machine.empty())
+    {
+        w.header("icons.machine");
+        for (const auto& [icon, file] : icons.machine)
+        {
+            w.string(riceName(icon), file);
+        }
+    }
 }
 
 void writeLockScreen(Writer& w, const LockScreenConfig& lockscreen)

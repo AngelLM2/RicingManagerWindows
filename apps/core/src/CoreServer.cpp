@@ -10,6 +10,7 @@
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
+#include "rmw/domain/CursorFiles.hpp"
 #include "rmw/domain/Identifiers.hpp"
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/modules/Export.hpp"
@@ -25,6 +26,9 @@
 #include "rmw/video/Plan.hpp"
 
 #include <windows.h>
+
+#include <objbase.h>
+#include <shellapi.h>
 
 #include <array>
 #include <charconv>
@@ -56,6 +60,7 @@ constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
 constexpr std::string_view kBarPlanMeta = "bar_plan";
 constexpr std::string_view kWindowLookMeta = "window_look"; // the applied rice's [windows] (M14)
+constexpr std::string_view kMachineIconsMeta = "machine_icons"; // rmw-elevated changed Shell Icons (M14)
 constexpr std::string_view kBarOffMeta = "bar_off";
 constexpr std::string_view kBarSourceMeta = "bar_source";
 constexpr std::string_view kBarWorker = "bar";
@@ -200,6 +205,42 @@ Result<LoadedRice> loadRice(const Json& params)
     const std::string_view text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
     loaded.rice = domain::parseRice(text, loaded.diagnostics);
     return loaded;
+}
+
+// rmw-elevated's request for a rice's [icons.machine]: each .ico read from the rice's folder (the
+// parser checked its path), checked, and named by its hash (rmw-elevated checks the bytes it reads
+// against it).
+Result<machine::Command> machineCommand(const domain::Rice& rice, const std::filesystem::path& folder,
+                                        engine::ContentStore& store)
+{
+    machine::Command command{machine::Command::Kind::SetShellIcons, {}};
+    if (!rice.icons)
+    {
+        return command;
+    }
+    engine::StoreAssetSink sink(store, folder);
+    for (const auto& [icon, file] : rice.icons->machine)
+    {
+        auto bytes = sink.readPackageFile(file, limits::kIconMaxBytes);
+        if (!bytes)
+        {
+            return std::unexpected(std::move(bytes.error()));
+        }
+        if (auto valid = domain::validateIconFile(*bytes); !valid)
+        {
+            return std::unexpected(std::move(valid.error()).withContext(file));
+        }
+        auto digest = platform::sha256(*bytes);
+        auto relative = utf8To16(file);
+        if (!digest || !relative)
+        {
+            return fail(ErrorCode::InvalidData, std::format("cannot read {}", file));
+        }
+        std::error_code ec;
+        const auto source = std::filesystem::weakly_canonical(folder / *relative, ec);
+        command.icons.push_back({icon, platform::toHex(*digest), source.native()});
+    }
+    return command;
 }
 
 } // namespace
@@ -1006,6 +1047,99 @@ void CoreServer::refreshTilerPlan()
     notifyResident();
 }
 
+struct CoreServer::MachineJob
+{
+    bool restore = false;
+    std::atomic<bool> done{false};
+    std::atomic<DWORD> code{STILL_ACTIVE};
+};
+
+void CoreServer::setMachineIcons(bool allowed)
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    m_machineIconsAllowed = allowed;
+}
+
+void CoreServer::collectMachineJob()
+{
+    std::shared_ptr<MachineJob> job;
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        job = m_machineJob;
+    }
+    if (!job || !job->done.load())
+    {
+        return;
+    }
+    // A restore that worked: nothing of ours is left on the machine. (A set that failed keeps the
+    // mark: a restore later finds nothing to put back, which is harmless.)
+    if (job->restore && job->code.load() == 0)
+    {
+        [[maybe_unused]] auto cleared = m_state->setMeta(kMachineIconsMeta, std::nullopt);
+    }
+    const std::scoped_lock lock(m_scheduleMutex);
+    if (m_machineJob == job)
+    {
+        m_machineJob.reset();
+    }
+}
+
+void CoreServer::runMachineHelper(const machine::Command& command)
+{
+    collectMachineJob();
+    auto self = platform::currentExecutable();
+    auto line = machine::commandLine(command);
+    if (!self || !line)
+    {
+        log::error("machine icons: {}", !self ? self.error().toString() : line.error().toString());
+        return;
+    }
+    auto job = std::make_shared<MachineJob>();
+    job->restore = command.kind == machine::Command::Kind::RestoreDefaults;
+    if (!job->restore)
+    {
+        // Marked now: whatever happens to this core, a later restore asks rmw-elevated to put back.
+        [[maybe_unused]] auto marked = m_state->setMeta(kMachineIconsMeta, "1");
+    }
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        m_machineJob = job;
+    }
+    std::thread([job, executable = self->parent_path() / L"rmw-elevated.exe", parameters = std::move(*line)] {
+        try
+        {
+            if (SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)))
+            {
+                SHELLEXECUTEINFOW info{};
+                info.cbSize = sizeof(info);
+                info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+                info.lpVerb = L"runas";
+                info.lpFile = executable.c_str();
+                info.lpParameters = parameters.c_str();
+                info.nShow = SW_HIDE;
+                if (ShellExecuteExW(&info) != FALSE && info.hProcess != nullptr)
+                {
+                    WaitForSingleObject(info.hProcess, INFINITE);
+                    DWORD code = 1;
+                    GetExitCodeProcess(info.hProcess, &code);
+                    CloseHandle(info.hProcess);
+                    job->code = code;
+                    log::info("machine icons: rmw-elevated {} ended ({})", job->restore ? "restore" : "set", code);
+                }
+                else
+                {
+                    log::warn("machine icons: Windows did not start rmw-elevated ({}; declined?)", GetLastError());
+                }
+                CoUninitialize();
+            }
+        }
+        catch (...) // NOLINT(bugprone-empty-catch): the job just stays not done
+        {
+        }
+        job->done = true;
+    }).detach();
+}
+
 void CoreServer::setWindowLook(const std::optional<tiling::WindowLook>& look)
 {
     {
@@ -1778,7 +1912,8 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
 
     // Ricing Manager's bars and the window look are the core's, not a module's: a rice of bars (or
     // [windows]) only still does something.
-    const bool bars = !rice.bars.empty() || (rice.windows && !rice.windows->empty());
+    const bool bars = !rice.bars.empty() || (rice.windows && !rice.windows->empty()) ||
+                      (rice.icons && !rice.icons->machine.empty());
     auto report = origin == Origin::User
                       ? m_engine->apply(rice, loaded->folder, bars)
                       : m_engine->applyAutomatic(rice, loaded->folder,
@@ -1804,6 +1939,31 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     {
         // Other apps' windows: rmw-tiler paints them (a rice without [windows] leaves the look as is).
         setWindowLook(tiling::lookFromRice(*rice.windows, rice.palette, systemAccent()));
+    }
+    bool machineAsked = false;
+    if (rice.icons && !rice.icons->machine.empty())
+    {
+        bool allowed = false;
+        {
+            const std::scoped_lock lock(m_scheduleMutex);
+            allowed = m_machineIconsAllowed;
+        }
+        if (!allowed)
+        {
+            report->warnings.emplace_back("icons: the folder and drive icons of the whole PC are an advanced option: "
+                                          "turn it on in Settings (it asks for administrator)");
+        }
+        else if (auto command = machineCommand(rice, loaded->folder, *m_store); !command)
+        {
+            report->warnings.push_back(std::format("icons: {}", command.error().message()));
+        }
+        else
+        {
+            runMachineHelper(*command);
+            machineAsked = true;
+            report->warnings.emplace_back(
+                "icons: Windows asks for administrator to change the folder and drive icons of the whole PC");
+        }
     }
     if (!rice.bars.empty())
     {
@@ -1856,6 +2016,7 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     result["name"] = rice.meta.name;
     result["bars"] = rice.bars.size();
     result["windowLook"] = rice.windows && !rice.windows->empty();
+    result["machineIcons"] = machineAsked;
     return result;
 }
 
@@ -1907,11 +2068,21 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     setBarSource(std::nullopt);
     setVideoPlan(std::nullopt);
     setWindowLook(std::nullopt);
+    collectMachineJob();
+    bool machineAsked = false;
+    if (auto marked = m_state->meta(kMachineIconsMeta); marked && *marked)
+    {
+        runMachineHelper(machine::Command{machine::Command::Kind::RestoreDefaults, {}});
+        machineAsked = true;
+        report->warnings.emplace_back(
+            "icons: Windows asks for administrator to bring back the folder and drive icons of the whole PC");
+    }
     m_plugins->setRicePlugins({});
     [[maybe_unused]] auto current = m_state->setMeta(kRiceCurrentMeta, std::nullopt);
     notifyResident();
     Json result = reportJson(*report);
     result["windowLook"] = hadLook; // taken off other apps' windows
+    result["machineIcons"] = machineAsked;
     return result;
 }
 

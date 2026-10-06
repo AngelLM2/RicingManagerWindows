@@ -28,6 +28,52 @@ constexpr std::uint32_t kSolidColor = 1;
 constexpr std::uint32_t kSlideshow = 2;
 constexpr std::uint32_t kSpotlight = 3;
 constexpr std::uint32_t kDefaultSlideSeconds = 30 * 60;
+// Control Panel\Desktop\WallPaper: the file Windows says it shows. Setting a wallpaper makes it
+// Windows' TranscodedWallpaper; a restore writes the user's path back (the same picture either way).
+constexpr std::string_view kDesktopKey = R"(Control Panel\Desktop)";
+constexpr std::string_view kWallPaperField = "wallPaperValue";
+constexpr std::string_view kWhateverWindowsWrites = "windows";
+
+bool whateverWindowsWrites(const Json& value)
+{
+    return value.is_string() && value.get_ref<const std::string&>() == kWhateverWindowsWrites;
+}
+
+std::string lowerText(std::string_view text)
+{
+    std::string out(text);
+    for (char& c : out)
+    {
+        c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+    return out;
+}
+
+// A restore whose every monitor shows the picture Windows named (Control Panel\Desktop\WallPaper):
+// that file; otherwise nothing.
+std::optional<std::string> everywhereFile(const Json& desired)
+{
+    const auto value = desired.find(kWallPaperField);
+    if (value == desired.end() || !value->is_string() || whateverWindowsWrites(*value) ||
+        value->get_ref<const std::string&>().empty())
+    {
+        return std::nullopt;
+    }
+    const std::string named = value->get<std::string>();
+    bool any = false;
+    for (const auto& [field, monitor] : desired.items())
+    {
+        if (field.starts_with(kMonitorFieldPrefix))
+        {
+            if (lowerText(json::stringOr(monitor, "file", "")) != lowerText(named))
+            {
+                return std::nullopt;
+            }
+            any = true;
+        }
+    }
+    return any ? std::optional(named) : std::nullopt;
+}
 
 WallpaperPosition positionOf(domain::WallpaperFit fit) noexcept
 {
@@ -240,6 +286,16 @@ std::span<const std::string_view> WallpaperLogic::dependsOn() const noexcept
 
 Result<Json> WallpaperLogic::desiredFromRice(const domain::Rice& rice, engine::IAssetSink& assets) const
 {
+    auto desired = desiredFields(rice, assets);
+    if (desired && desired->contains("backgroundType"))
+    {
+        (*desired)[std::string(kWallPaperField)] = kWhateverWindowsWrites;
+    }
+    return desired;
+}
+
+Result<Json> WallpaperLogic::desiredFields(const domain::Rice& rice, engine::IAssetSink& assets) const
+{
     Json desired = Json::object();
     if (!rice.wallpaper)
     {
@@ -444,6 +500,11 @@ bool WallpaperLogic::fieldEquivalent(std::string_view field, const Json& a, cons
     {
         return rgbOf(a) == rgbOf(b);
     }
+    if (field == kWallPaperField)
+    {
+        // It follows the picture (Explorer writes it a moment after an apply): never "changed".
+        return true;
+    }
     return a == b;
 }
 
@@ -535,6 +596,13 @@ Result<engine::CaptureResult> WallpaperSystem::capture()
                                                          {"intervalMs", slideshow->intervalMs}}
                                                   : Json(nullptr);
     result.state["backgroundType"] = *backgroundType;
+    auto wallPaper = m_registry.read(kDesktopKey, "WallPaper");
+    if (!wallPaper)
+    {
+        return std::unexpected(std::move(wallPaper.error()));
+    }
+    result.state[std::string(kWallPaperField)] =
+        *wallPaper && (*wallPaper)->type == ports::RegistryValue::Type::String ? Json((*wallPaper)->text) : Json(nullptr);
     if (backgroundType->is_number_integer() && backgroundType->get<std::uint32_t>() == kSpotlight)
     {
         result.fidelity = engine::Fidelity::Lossy;
@@ -584,6 +652,16 @@ Result<void> WallpaperSystem::apply(const Json& desired)
         for (const auto& [field, value] : desired.items())
         {
             anyMonitor = anyMonitor || field.starts_with(kMonitorFieldPrefix);
+        }
+        // A restore of one picture on every monitor: set the way Settings sets it, and only so (a per-monitor
+        // set finishes in the background and makes Windows name its own copy, after us).
+        if (const auto named = everywhereFile(desired); anyMonitor && named)
+        {
+            if (auto set = m_wallpaper.setDesktopWallpaper(*named); !set)
+            {
+                return set;
+            }
+            anyMonitor = false;
         }
         if (anyMonitor)
         {
@@ -649,7 +727,10 @@ Result<void> WallpaperSystem::apply(const Json& desired)
     }
     if (const auto type = desired.find("backgroundType"); type != desired.end())
     {
-        return writeDwordField(m_registry, kBackgroundType, *type);
+        if (auto written = writeDwordField(m_registry, kBackgroundType, *type); !written)
+        {
+            return written;
+        }
     }
     return {};
 }

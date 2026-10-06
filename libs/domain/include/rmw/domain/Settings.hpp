@@ -194,6 +194,9 @@ struct Settings
     std::string language; // [ui] language: kLanguageEnglish, kLanguagePortuguese or empty
     // [start] win_key (M11): the Win key alone opens Ricing Manager's Start, when the rice uses it.
     bool startWinKey = false;
+    // [icons] machine (M14, advanced): a rice may change every folder's and drive's icon for every
+    // user of the PC (the UAC asks each time).
+    bool machineIcons = false;
     std::vector<Hotkey> hotkeys;
     std::vector<Rule> rules;
     TilingSettings tiling; // [tiling] (M13)

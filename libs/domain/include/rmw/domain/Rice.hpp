@@ -324,10 +324,22 @@ enum class UserFolder : std::uint8_t
 
 inline constexpr std::size_t kUserFolderCount = 6;
 
+// Advanced mode (M14): the icons of every folder and every drive, for every user of the PC
+// (HKLM\...\Explorer\Shell Icons), set by rmw-elevated through the UAC.
+enum class MachineIcon : std::uint8_t
+{
+    Folder,
+    Drive,
+};
+
+inline constexpr std::size_t kMachineIconCount = 2;
+
 std::string_view riceName(DesktopIcon icon) noexcept;
 std::string_view riceName(UserFolder folder) noexcept;
 std::optional<DesktopIcon> desktopIconFromRiceName(std::string_view name) noexcept;
 std::optional<UserFolder> userFolderFromRiceName(std::string_view name) noexcept;
+std::string_view riceName(MachineIcon icon) noexcept;
+std::optional<MachineIcon> machineIconFromRiceName(std::string_view name) noexcept;
 
 struct IconsConfig
 {
@@ -338,6 +350,8 @@ struct IconsConfig
     std::vector<std::pair<std::string, std::string>> apps;
     // By file type ("txt", lower case, no dot): the icon of its files (HKCU\Software\Classes).
     std::vector<std::pair<std::string, std::string>> types;
+    // [icons.machine]: every folder and drive, for every user (advanced mode, settings.toml).
+    std::vector<std::pair<MachineIcon, std::string>> machine;
 };
 
 // "firefox.exe": a program's file name, 1..64 bytes, letters, digits, " ._-" and ending in .exe.

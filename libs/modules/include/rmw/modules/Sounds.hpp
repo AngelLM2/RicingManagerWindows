@@ -25,6 +25,9 @@ public:
     // Copies sound files outside %SystemRoot% into the store, so a restore still works after the
     // user deletes them.
     [[nodiscard]] Result<void> internalize(engine::Json& state, engine::IAssetSink& assets) const override;
+    // "copy" never counts.
+    [[nodiscard]] bool fieldEquivalent(std::string_view field, const engine::Json& a,
+                                       const engine::Json& b) const override;
 };
 
 class SoundsSystem final : public engine::IModuleSystem

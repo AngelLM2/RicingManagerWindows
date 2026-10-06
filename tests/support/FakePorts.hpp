@@ -108,6 +108,7 @@ public:
     {
         return file.starts_with(R"(C:\Windows\)") || file.starts_with("%SystemRoot%");
     }
+    bool fileExists(std::string_view file) override { return !gone.contains(std::string(file)); }
     Result<bool> taskbarAutoHide() override { return autohide; }
     Result<void> setTaskbarAutoHide(bool enabled) override
     {
@@ -116,6 +117,7 @@ public:
     }
 
     std::vector<std::string> broadcasts;
+    std::set<std::string, std::less<>> gone; // files deleted since they were captured
     int cursorReloads = 0;
     std::uint32_t cursorSize = 32;
     bool autohide = false;
@@ -142,8 +144,41 @@ public:
         m_registry.setDword(personalize, "AppsUseLightTheme", look.appsLight ? 1 : 0);
         m_registry.setDword(personalize, "SystemUsesLightTheme", look.systemLight ? 1 : 0);
         m_registry.setDword(R"(Software\Microsoft\Windows\DWM)", "ColorizationColor", look.colorizationArgb);
+        m_registry.values[{R"(Software\Microsoft\Windows\CurrentVersion\Themes)", "CurrentTheme"}] =
+            ports::RegistryValue::fromString(R"(C:\Users\me\AppData\Local\Microsoft\Windows\Themes\RicingManager.theme)");
         return {};
     }
+
+    // The theme file's look comes with it (set by the test in `looks`).
+    Result<void> applyThemeFile(const std::string& file) override
+    {
+        files.push_back(file);
+        const auto found = looks.find(file);
+        if (found == looks.end())
+        {
+            return rmw::fail(ErrorCode::NotFound, "no such theme (fake)");
+        }
+        constexpr std::string_view personalize =
+            R"(Software\Microsoft\Windows\CurrentVersion\Themes\Personalize)";
+        m_registry.setDword(personalize, "AppsUseLightTheme", found->second.appsLight ? 1 : 0);
+        m_registry.setDword(personalize, "SystemUsesLightTheme", found->second.systemLight ? 1 : 0);
+        m_registry.setDword(R"(Software\Microsoft\Windows\DWM)", "ColorizationColor", found->second.colorizationArgb);
+        m_registry.values[{R"(Software\Microsoft\Windows\CurrentVersion\Themes)", "CurrentTheme"}] =
+            ports::RegistryValue::fromString(file);
+        return {};
+    }
+
+    Result<void> nameCurrentTheme(const std::string& file) override
+    {
+        named.push_back(file);
+        m_registry.values[{R"(Software\Microsoft\Windows\CurrentVersion\Themes)", "CurrentTheme"}] =
+            ports::RegistryValue::fromString(file);
+        return {};
+    }
+
+    std::vector<std::string> files;
+    std::vector<std::string> named;
+    std::map<std::string, ports::ThemeLook> looks;
 
     std::vector<ports::ThemeLook> applied;
     bool fail = false;
