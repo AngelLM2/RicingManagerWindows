@@ -34,9 +34,8 @@ constexpr int kMenuHeight = 700;
 constexpr int kMenuGap = 8;       // from the bar
 constexpr int kIconSize = 48;
 constexpr std::size_t kResults = 24;
-constexpr std::size_t kIconsPerTick = 12;
-constexpr auto kIconTick = std::chrono::milliseconds(30);
-constexpr auto kIconBudget = std::chrono::milliseconds(8);
+constexpr std::size_t kIconsPerBatch = 24;                 // handed to the menu together
+constexpr auto kBatchEvery = std::chrono::milliseconds(100); // ... or what there is after this long
 constexpr auto kReopenGuard = std::chrono::milliseconds(300);
 
 bool g_wantsWindow = false; // the platform's next window is the menu's
@@ -722,7 +721,8 @@ std::unique_ptr<StartMenu> StartMenu::create(const bar::StartPlan& plan)
     instance->set_property("user", Value(slint::SharedString(userName())));
     instance->set_property("words", wordsValue(plan.language == "pt-BR" ? kPortuguese : kEnglish));
     instance->show(); // prepared, not shown: MenuWindow shows it on toggle()
-    menu->load();
+    menu->m_self->store(self);
+    loadInBackground(menu->m_self, plan.pinned);
     // Its first frame, unseen, at the main monitor's scale.
     UINT dpiX = 96;
     UINT dpiY = 96;
@@ -736,7 +736,7 @@ std::unique_ptr<StartMenu> StartMenu::create(const bar::StartPlan& plan)
 
 StartMenu::~StartMenu()
 {
-    m_iconTimer.stop();
+    m_self->store(nullptr); // what the loader still sends back is dropped
     if (m_instance)
     {
         (*m_instance)->hide();
@@ -781,10 +781,6 @@ void StartMenu::toggle(const StartAnchor& anchor)
     const bar::Rect rect = startMenuRect(anchor, width, height);
     m_window->showAt(rect, anchor.scale);
     (*m_instance)->set_property("open", Value(true));
-    if (m_nextIcon < m_apps.size())
-    {
-        m_iconTimer.start(slint::TimerMode::Repeated, kIconTick, [this] { loadIcons(); });
-    }
 }
 
 void StartMenu::hide()
@@ -793,21 +789,101 @@ void StartMenu::hide()
     {
         m_window->hide();
     }
-    m_iconTimer.stop();
 }
 
-void StartMenu::load()
+void StartMenu::loadInBackground(Self self, std::vector<std::string> pinned)
 {
-    auto apps = platform::installedApps();
-    if (!apps)
+    const auto send = [](const Self& to, auto work) {
+        slint::invoke_from_event_loop([to, work = std::move(work)]() mutable {
+            if (StartMenu* menu = to->load())
+            {
+                work(*menu);
+            }
+        });
+    };
+    try
     {
-        log::warn("start menu: the app list: {}", apps.error().toString());
-        return;
+        std::thread([self = std::move(self), pinned = std::move(pinned), send] {
+            const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            try
+            {
+                auto apps = platform::installedApps();
+                if (!apps)
+                {
+                    log::warn("start menu: the app list: {}", apps.error().toString());
+                }
+                else
+                {
+                    // Pinned first: they show the moment the menu opens.
+                    std::vector<std::size_t> order;
+                    order.reserve(apps->size());
+                    for (const auto& id : pinned)
+                    {
+                        if (const auto found = std::ranges::find(*apps, id, &platform::InstalledApp::id);
+                            found != apps->end())
+                        {
+                            order.push_back(static_cast<std::size_t>(found - apps->begin()));
+                        }
+                    }
+                    for (std::size_t i = 0; i < apps->size(); ++i)
+                    {
+                        if (std::ranges::find(order, i) == order.end())
+                        {
+                            order.push_back(i);
+                        }
+                    }
+                    std::vector<std::wstring> ids;
+                    ids.reserve(apps->size());
+                    for (const auto& app : *apps)
+                    {
+                        ids.push_back(utf8To16Lossy(app.id));
+                    }
+                    send(self, [list = std::move(*apps)](StartMenu& menu) mutable { menu.onApps(std::move(list)); });
+                    Batch batch;
+                    auto sent = std::chrono::steady_clock::now();
+                    for (const std::size_t index : order)
+                    {
+                        if (self->load() == nullptr)
+                        {
+                            break; // the menu is gone (a rebuild): nobody wants the rest
+                        }
+                        batch.emplace_back(index, providers::appIconPixels(ids[index], kIconSize));
+                        if (batch.size() >= kIconsPerBatch || std::chrono::steady_clock::now() - sent > kBatchEvery)
+                        {
+                            send(self, [icons = std::move(batch)](StartMenu& menu) mutable {
+                                menu.onIcons(std::move(icons));
+                            });
+                            batch = {};
+                            sent = std::chrono::steady_clock::now();
+                        }
+                    }
+                    if (!batch.empty())
+                    {
+                        send(self, [icons = std::move(batch)](StartMenu& menu) mutable { menu.onIcons(std::move(icons)); });
+                    }
+                }
+            }
+            catch (const std::exception& e)
+            {
+                log::warn("start menu: loading the apps: {}", e.what());
+            }
+            if (SUCCEEDED(com))
+            {
+                CoUninitialize();
+            }
+        }).detach();
     }
-    m_apps = std::move(*apps);
+    catch (const std::system_error& e)
+    {
+        log::warn("start menu: no thread to load the apps: {}", e.what());
+    }
+}
+
+void StartMenu::onApps(std::vector<platform::InstalledApp> apps)
+{
+    m_apps = std::move(apps);
     m_icons.assign(m_apps.size(), slint::Image());
-    m_iconLoaded.assign(m_apps.size(), false);
-    // Pinned first: their icons now, the rest a few at a time while the menu is open.
+    m_pinnedApps.clear();
     for (const auto& id : m_plan.pinned)
     {
         const auto found = std::ranges::find(m_apps, id, &platform::InstalledApp::id);
@@ -819,8 +895,6 @@ void StartMenu::load()
     m_pinnedModel = std::make_shared<slint::VectorModel<Value>>();
     for (const std::size_t index : m_pinnedApps)
     {
-        m_icons[index] = imageFromPixels(providers::appIconPixels(utf8To16Lossy(m_apps[index].id), kIconSize));
-        m_iconLoaded[index] = true;
         m_pinnedModel->push_back(appValue(m_apps[index], m_icons[index]));
     }
     m_allModel = std::make_shared<slint::VectorModel<Value>>();
@@ -830,47 +904,51 @@ void StartMenu::load()
     }
     (*m_instance)->set_property("pinned", Value(std::shared_ptr<slint::Model<Value>>(m_pinnedModel)));
     (*m_instance)->set_property("apps", Value(std::shared_ptr<slint::Model<Value>>(m_allModel)));
+    if (auto query = (*m_instance)->get_property("query"); query && query->to_string())
+    {
+        search(std::string_view(*query->to_string())); // typed before the list came
+    }
     log::info("start menu: {} apps, {} pinned", m_apps.size(), m_pinnedApps.size());
 }
 
-void StartMenu::loadIcons()
+void StartMenu::onIcons(Batch icons)
 {
-    // A few at a time and never long: the Shell takes from 1 to 50 ms per icon, and the menu scrolls
-    // and types meanwhile.
-    const auto until = std::chrono::steady_clock::now() + kIconBudget;
-    std::size_t loaded = 0;
-    while (m_nextIcon < m_apps.size() && loaded < kIconsPerTick && std::chrono::steady_clock::now() < until)
+    for (auto& [index, pixels] : icons)
     {
-        const std::size_t i = m_nextIcon++;
-        if (m_iconLoaded[i])
+        if (index >= m_apps.size())
         {
             continue;
         }
-        m_icons[i] = imageFromPixels(providers::appIconPixels(utf8To16Lossy(m_apps[i].id), kIconSize));
-        m_iconLoaded[i] = true;
-        m_allModel->set_row_data(i, appValue(m_apps[i], m_icons[i]));
-        ++loaded;
-    }
-    if (m_nextIcon >= m_apps.size())
-    {
-        m_iconTimer.stop();
+        m_icons[index] = imageFromPixels(pixels);
+        const Value row = appValue(m_apps[index], m_icons[index]);
+        m_allModel->set_row_data(index, row);
+        for (std::size_t i = 0; i < m_pinnedApps.size(); ++i)
+        {
+            if (m_pinnedApps[i] == index)
+            {
+                m_pinnedModel->set_row_data(i, row);
+            }
+        }
+        for (std::size_t i = 0; i < m_results.size() && m_resultsModel; ++i)
+        {
+            if (m_results[i] == index)
+            {
+                m_resultsModel->set_row_data(i, row);
+            }
+        }
     }
 }
 
 void StartMenu::search(std::string_view query)
 {
+    // Whatever icons are there: the others come as the loader finds them (onIcons).
     m_results = searchApps(m_apps, query, kResults);
-    auto model = std::make_shared<slint::VectorModel<Value>>();
+    m_resultsModel = std::make_shared<slint::VectorModel<Value>>();
     for (const std::size_t index : m_results)
     {
-        if (!m_iconLoaded[index])
-        {
-            m_icons[index] = imageFromPixels(providers::appIconPixels(utf8To16Lossy(m_apps[index].id), kIconSize));
-            m_iconLoaded[index] = true;
-        }
-        model->push_back(appValue(m_apps[index], m_icons[index]));
+        m_resultsModel->push_back(appValue(m_apps[index], m_icons[index]));
     }
-    (*m_instance)->set_property("results", Value(std::shared_ptr<slint::Model<Value>>(model)));
+    (*m_instance)->set_property("results", Value(std::shared_ptr<slint::Model<Value>>(m_resultsModel)));
 }
 
 void StartMenu::launch(std::string_view id)

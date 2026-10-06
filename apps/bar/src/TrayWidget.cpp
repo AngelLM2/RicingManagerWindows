@@ -174,11 +174,13 @@ private:
         slint::Image image;
     };
 
-    // The rows are changed in place while the same icons show: the buttons stay (and so does the
-    // mouse's hover on one of them) when an app only changes its icon or tip.
+    // The rows are changed in place (syncRows): the buttons stay (and so does the mouse's hover on one of
+    // them) when an app only changes its icon or tip. The icons in the overflow are rows too, `shown`
+    // only while the tray is open: the chevron slides them in and out instead of making them again (v1.8).
     void update()
     {
-        std::vector<std::uint64_t> shown;
+        std::vector<std::uint64_t> all;
+        std::vector<std::uint64_t> visible;
         std::vector<Value> rows;
         int overflow = 0;
         std::map<std::uint64_t, Cached> images;
@@ -188,13 +190,11 @@ private:
             {
                 continue;
             }
+            bool shown = true;
             if (!m_all && !view.promoted)
             {
                 ++overflow;
-                if (!m_expanded)
-                {
-                    continue;
-                }
+                shown = m_expanded;
             }
             Cached& cached = images[view.icon.number];
             if (const auto known = m_images.find(view.icon.number);
@@ -206,54 +206,41 @@ private:
             {
                 cached = {view.revision, imageFromPixels(view.pixels)};
             }
-            const auto index = static_cast<double>(shown.size());
-            shown.push_back(view.icon.number);
-            rows.emplace_back(
-                slint::interpreter::Struct{{"id", Value(index)}, {"icon", Value(cached.image)}});
-        }
-        const bool sameIcons = m_model != nullptr && shown == m_shown;
-        std::vector<bool> changed(rows.size(), !sameIcons);
-        if (sameIcons)
-        {
-            for (std::size_t i = 0; i < shown.size(); ++i)
+            const auto index = static_cast<double>(all.size());
+            all.push_back(view.icon.number);
+            if (shown)
             {
-                const auto before = m_images.find(shown[i]);
-                changed[i] = before == m_images.end() || before->second.revision != images[shown[i]].revision;
+                visible.push_back(view.icon.number);
             }
+            rows.emplace_back(slint::interpreter::Struct{
+                {"id", Value(index)}, {"icon", Value(cached.image)}, {"shown", Value(shown)}});
         }
         m_images = std::move(images);
-        m_shown = std::move(shown);
-        if (m_shown != m_logged)
+        if (visible != m_logged)
         {
             // Which icon is where (the system tests click by it); numbers only, no tips.
             std::string order;
-            for (const std::uint64_t number : m_shown)
+            for (const std::uint64_t number : visible)
             {
                 order += order.empty() ? std::to_string(number) : ", " + std::to_string(number);
             }
             log::info("tray: {} shows icons [{}], {} in the overflow", m_prefix, order, overflow);
-            m_logged = m_shown;
+            m_logged = visible;
         }
         auto instance = m_instance.lock();
         if (!instance)
         {
             return;
         }
-        if (sameIcons)
+        const bool fresh = m_model == nullptr;
+        if (fresh)
         {
-            for (std::size_t i = 0; i < rows.size(); ++i)
-            {
-                if (changed[i])
-                {
-                    m_model->set_row_data(i, rows[i]);
-                }
-            }
+            m_model = std::make_shared<slint::VectorModel<Value>>();
         }
-        else
+        syncRows(*m_model, m_shown, std::move(all), rows);
+        if (fresh)
         {
-            m_model = std::make_shared<slint::VectorModel<Value>>(std::move(rows));
-            (*instance)->set_property(m_prefix + "-icons",
-                                      Value(std::shared_ptr<slint::Model<Value>>(m_model)));
+            (*instance)->set_property(m_prefix + "-icons", Value(std::shared_ptr<slint::Model<Value>>(m_model)));
         }
         (*instance)->set_property(m_prefix + "-hidden-count", Value(static_cast<double>(overflow)));
         (*instance)->set_property(m_prefix + "-expanded", Value(m_expanded));

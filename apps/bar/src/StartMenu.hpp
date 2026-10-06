@@ -5,13 +5,16 @@
 #include "rmw/bar/Geometry.hpp"
 #include "rmw/bar/Plan.hpp"
 #include "rmw/platform/Apps.hpp"
+#include "rmw/providers/Windows.hpp"
 
 #include <slint-interpreter.h>
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rmw::barapp
@@ -60,27 +63,35 @@ public:
     using Instance = slint::ComponentHandle<slint::interpreter::ComponentInstance>;
 
 private:
+    using Value = slint::interpreter::Value;
+    using Batch = std::vector<std::pair<std::size_t, providers::IconPixels>>;
+    // Where the loader hands its work back: the menu, or null once it is gone.
+    using Self = std::shared_ptr<std::atomic<StartMenu*>>;
+
     StartMenu() = default;
-    void load();          // the app list, and the icons of what shows first
+    // The app list and every icon, pinned ones first, on a thread of its own (the Shell takes up to
+    // 50 ms per icon and hundreds of milliseconds for the list: on the bar's thread a rebuild or a typed
+    // letter could take it past its heartbeat). What it finds comes back to onApps() and onIcons().
+    static void loadInBackground(Self self, std::vector<std::string> pinned);
+    void onApps(std::vector<platform::InstalledApp> apps);
+    void onIcons(Batch icons);
     void search(std::string_view query);
     void launch(std::string_view id);
     void power(std::string_view action);
     void place(std::string_view name);
     void hide();
-    void loadIcons();     // a few at a time, while it is open
 
     std::optional<Instance> m_instance;
     MenuWindow* m_window = nullptr; // Slint owns it
     bar::StartPlan m_plan;
+    Self m_self = std::make_shared<std::atomic<StartMenu*>>(nullptr);
     std::vector<platform::InstalledApp> m_apps;
     std::vector<slint::Image> m_icons;  // by app index; empty until loaded
-    std::vector<bool> m_iconLoaded;
-    std::shared_ptr<slint::VectorModel<slint::interpreter::Value>> m_allModel;
-    std::shared_ptr<slint::VectorModel<slint::interpreter::Value>> m_pinnedModel;
+    std::shared_ptr<slint::VectorModel<Value>> m_allModel;
+    std::shared_ptr<slint::VectorModel<Value>> m_pinnedModel;
+    std::shared_ptr<slint::VectorModel<Value>> m_resultsModel;
     std::vector<std::size_t> m_pinnedApps; // indexes into m_apps
     std::vector<std::size_t> m_results;
-    std::size_t m_nextIcon = 0;
-    slint::Timer m_iconTimer;
 };
 
 // The menu's Slint (the tests compile and draw it without a window).

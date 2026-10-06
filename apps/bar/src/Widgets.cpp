@@ -94,12 +94,20 @@ component RmwWindowButton inherits Rectangle {
     in property <length> item-radius;
     in property <color> accent;
     in property <bool> labels;
+    in property <bool> vertical;
     callback activate(int);
-    min-width: 40px;
-    min-height: 32px;
-    preferred-width: root.labels ? 180px : 44px;
-    max-width: root.labels ? 220px : 48px;
-    preferred-height: 40px;
+    // A window that opens: its button grows in (v1.8).
+    property <bool> born;
+    init => { self.born = true; }
+    property <float> grow: self.born ? 1 : 0;
+    animate grow { duration: 200ms; easing: ease-out; }
+    opacity: root.grow;
+    clip: true;
+    min-width: root.vertical ? 40px : 40px * root.grow;
+    min-height: root.vertical ? 32px * root.grow : 32px;
+    preferred-width: root.vertical ? 44px : (root.labels ? 180px : 44px) * root.grow;
+    max-width: root.vertical ? 48px : (root.labels ? 220px : 48px) * root.grow;
+    preferred-height: root.vertical ? 40px * root.grow : 40px;
     RmwHighlight {
         foreground: root.foreground;
         item-radius: root.item-radius;
@@ -160,6 +168,7 @@ export component RmwWindows inherits HorizontalLayout {
         item-radius: root.item-radius;
         accent: root.accent;
         labels: root.labels;
+        vertical: false;
         activate(id) => { root.activate(id); }
     }
 }
@@ -179,6 +188,7 @@ export component RmwWindowsColumn inherits VerticalLayout {
         item-radius: root.item-radius;
         accent: root.accent;
         labels: false;
+        vertical: true;
         activate(id) => { root.activate(id); }
     }
 }
@@ -428,18 +438,30 @@ export component RmwDesktopsColumn inherits VerticalLayout {
 export struct RmwTrayItem {
     id: int,
     icon: image,
+    shown: bool, // false: in the overflow, with the tray closed
 }
 
 component RmwTrayButton inherits Rectangle {
     in property <RmwTrayItem> item;
     in property <color> foreground;
     in property <length> item-radius;
+    in property <bool> vertical;
     // kind: 0 left, 1 right, 2 double, 3 hover starts, 4 hover ends, 5 middle (TrayWidget.cpp)
     callback act(int, int);
-    min-width: 24px;
-    min-height: 24px;
-    preferred-width: 30px;
-    preferred-height: 32px;
+    // In and out of sight (the chevron opening the tray, an app adding its icon), it grows and fades
+    // instead of popping (v1.8). `born` turns on once the button exists, so a new one grows too.
+    property <bool> born;
+    init => { self.born = true; }
+    property <float> grow: self.born && root.item.shown ? 1 : 0;
+    animate grow { duration: 180ms; easing: ease-out; }
+    opacity: root.grow;
+    clip: true;
+    min-width: root.vertical ? 24px : 24px * root.grow;
+    max-width: root.vertical ? 1000px : 30px * root.grow;
+    min-height: root.vertical ? 24px * root.grow : 24px;
+    max-height: root.vertical ? 32px * root.grow : 1000px;
+    preferred-width: root.vertical ? 30px : 30px * root.grow;
+    preferred-height: root.vertical ? 32px * root.grow : 32px;
     RmwHighlight {
         foreground: root.foreground;
         item-radius: min(root.item-radius, 6px);
@@ -518,6 +540,7 @@ export component RmwTray inherits HorizontalLayout {
         item: item;
         foreground: root.foreground;
         item-radius: root.item-radius;
+        vertical: false;
         act(id, kind) => { root.act(id, kind); }
     }
 }
@@ -543,6 +566,7 @@ export component RmwTrayColumn inherits VerticalLayout {
         item: item;
         foreground: root.foreground;
         item-radius: root.item-radius;
+        vertical: true;
         act(id, kind) => { root.act(id, kind); }
     }
 }
@@ -680,10 +704,16 @@ component RmwDockIcon inherits Rectangle {
     callback open(int);
     callback hover(bool);
     changed hovering => { root.hover(root.hovering); }
-    min-width: 44px;
-    min-height: 44px;
-    preferred-width: 50px;
-    preferred-height: 50px;
+    // An app that opens: its icon grows in (v1.8), the dock making room as it does.
+    property <bool> born;
+    init => { self.born = true; }
+    property <float> appear: self.born ? 1 : 0;
+    animate appear { duration: 220ms; easing: ease-out; }
+    opacity: root.appear;
+    min-width: root.vertical ? 44px : 44px * root.appear;
+    min-height: root.vertical ? 44px * root.appear : 44px;
+    preferred-width: root.vertical ? 50px : 50px * root.appear;
+    preferred-height: root.vertical ? 50px * root.appear : 50px;
     accessible-role: button;
     accessible-label: root.item.title;
     accessible-action-default => { root.open(root.item.id); }

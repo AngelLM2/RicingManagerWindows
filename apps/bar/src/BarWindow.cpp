@@ -24,8 +24,9 @@ constexpr UINT kRender = WM_APP + 11;
 constexpr UINT_PTR kAnimationTimer = 1;
 constexpr UINT_PTR kTuckTimer = 2;
 constexpr UINT_PTR kSlideTimer = 3;
-constexpr UINT_PTR kFitTimer = 4;
 constexpr UINT_PTR kStripTimer = 5;
+constexpr UINT_PTR kGrowTimer = 6;
+constexpr double kGrowMs = 180.0; // an auto-length bar changing length
 constexpr UINT kStripCheckMs = 1000;
 constexpr double kSlideMs = 200.0; // the bar sliding in, out of sight and back (M10)
 constexpr UINT kTuckDelayMs = 700;
@@ -315,7 +316,10 @@ void BarWindow::place()
         SetTimer(hwnd, kStripTimer, kStripCheckMs, nullptr);
     }
 
+    m_area = area;
     m_placedContent = m_config.length.fit && m_contentLength ? m_contentLength() : 0.0;
+    m_shownContent = m_placedContent; // placed anew: no growing on the way
+    KillTimer(hwnd, kGrowTimer);
     const bar::Rect rect = bar::windowRect(m_config, area, m_scale, m_placedContent);
     if (rect.empty())
     {
@@ -548,13 +552,80 @@ void BarWindow::slideStep()
     }
 }
 
+void BarWindow::growTo(double content)
+{
+    m_placedContent = content;
+    if (!animationsWanted() || m_rect.empty())
+    {
+        m_shownContent = content;
+        KillTimer(static_cast<HWND>(m_window), kGrowTimer);
+        reshape();
+        return;
+    }
+    // From where it is now (a change on the way starts again from there).
+    m_growFrom = m_shownContent;
+    m_growStart = std::chrono::steady_clock::now();
+    SetTimer(static_cast<HWND>(m_window), kGrowTimer, kFrameMs, nullptr);
+    growStep();
+}
+
+void BarWindow::growStep()
+{
+    const double t =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - m_growStart).count() / kGrowMs;
+    if (t >= 1.0)
+    {
+        m_shownContent = m_placedContent;
+        KillTimer(static_cast<HWND>(m_window), kGrowTimer);
+    }
+    else
+    {
+        m_shownContent = m_growFrom + ((m_placedContent - m_growFrom) * easeOut(t));
+    }
+    reshape();
+}
+
+void BarWindow::reshape()
+{
+    const bar::Rect rect = bar::windowRect(m_config, m_area, m_scale, m_shownContent);
+    if (rect.empty() || rect == m_rect)
+    {
+        return;
+    }
+    if (rect.width() != m_rect.width() || rect.height() != m_rect.height())
+    {
+        resizeTarget(rect.width(), rect.height());
+    }
+    m_rect = rect;
+    if (!m_layered)
+    {
+        // A layered window takes its new place and size with its next frame (UpdateLayeredWindow, in
+        // present()): moving it now would show the old frame stretched for an instant.
+        const bar::Rect at = currentRect();
+        SetWindowPos(static_cast<HWND>(m_window), nullptr, at.left, at.top, rect.width(), rect.height(),
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    window().dispatch_resize_event(slint::LogicalSize(
+        {static_cast<float>(rect.width() / m_scale), static_cast<float>(rect.height() / m_scale)}));
+    request_redraw();
+}
+
 void BarWindow::resizeTarget(std::int32_t width, std::int32_t height)
 {
+    // The DIB only grows: a bar changing length frame by frame draws into the one it has (present() copies
+    // the rows it uses). The surface has the exact size.
+    if (m_dc != nullptr && width <= m_targetWidth && height <= m_targetHeight)
+    {
+        m_surface.resize(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), m_factor);
+        return;
+    }
+    const std::int32_t dibWidth = std::max(width, m_targetWidth);
+    const std::int32_t dibHeight = std::max(height, m_targetHeight);
     releaseTarget();
     BITMAPINFO bitmap{};
     bitmap.bmiHeader.biSize = sizeof(bitmap.bmiHeader);
-    bitmap.bmiHeader.biWidth = width;
-    bitmap.bmiHeader.biHeight = -height; // top-down
+    bitmap.bmiHeader.biWidth = dibWidth;
+    bitmap.bmiHeader.biHeight = -dibHeight; // top-down
     bitmap.bmiHeader.biPlanes = 1;
     bitmap.bmiHeader.biBitCount = 32;
     bitmap.bmiHeader.biCompression = BI_RGB;
@@ -562,7 +633,7 @@ void BarWindow::resizeTarget(std::int32_t width, std::int32_t height)
     HBITMAP section = CreateDIBSection(dc, &bitmap, DIB_RGB_COLORS, &m_bits, nullptr, 0);
     if (dc == nullptr || section == nullptr)
     {
-        log::error("bar window: cannot create a {}x{} surface", width, height);
+        log::error("bar window: cannot create a {}x{} surface", dibWidth, dibHeight);
         if (section != nullptr)
         {
             DeleteObject(section);
@@ -577,6 +648,8 @@ void BarWindow::resizeTarget(std::int32_t width, std::int32_t height)
     m_old = SelectObject(dc, section);
     m_dc = dc;
     m_bitmap = section;
+    m_targetWidth = dibWidth;
+    m_targetHeight = dibHeight;
     m_surface.resize(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), m_factor);
 }
 
@@ -594,6 +667,8 @@ void BarWindow::releaseTarget() noexcept
         m_bitmap = nullptr;
     }
     m_bits = nullptr;
+    m_targetWidth = 0;
+    m_targetHeight = 0;
 }
 
 void BarWindow::render()
@@ -611,10 +686,10 @@ void BarWindow::render()
         m_translucent && m_matte, [this](bool white) { m_matte(white); });
     m_painting = false;
     present();
-    // A bar as long as what it shows follows it (an app opens, the tray grows).
+    // A bar as long as what it shows follows it (an app opens, the tray grows), smoothly.
     if (m_config.length.fit && m_contentLength && std::abs(m_contentLength() - m_placedContent) >= 1.0)
     {
-        SetTimer(static_cast<HWND>(m_window), kFitTimer, 0, nullptr);
+        growTo(m_contentLength());
     }
     if (window().has_active_animations())
     {
@@ -626,7 +701,20 @@ void BarWindow::render()
 void BarWindow::present()
 {
     const auto pixels = m_surface.pixels();
-    std::memcpy(m_bits, pixels.data(), pixels.size_bytes());
+    const std::size_t width = m_surface.width();
+    const std::size_t height = m_surface.height();
+    const auto stride = static_cast<std::size_t>(m_targetWidth);
+    if (width == 0 || width > stride || height > static_cast<std::size_t>(m_targetHeight) ||
+        pixels.size() < width * height)
+    {
+        return;
+    }
+    // Row by row: the DIB may be wider than the bar is now (resizeTarget).
+    const std::span bits(static_cast<std::uint32_t*>(m_bits), stride * static_cast<std::size_t>(m_targetHeight));
+    for (std::size_t y = 0; y < height; ++y)
+    {
+        std::memcpy(&bits[y * stride], &pixels[y * width], width * sizeof(std::uint32_t));
+    }
     const auto hwnd = static_cast<HWND>(m_window);
     if (m_layered)
     {
@@ -634,10 +722,12 @@ void BarWindow::present()
         {
             // Fully transparent pixels let the mouse through: the strip left at the edge must
             // still catch it, so nothing is quite transparent while tucked.
-            const std::span bits(static_cast<std::uint32_t*>(m_bits), pixels.size());
-            for (auto& pixel : bits)
+            for (std::size_t y = 0; y < height; ++y)
             {
-                pixel = (pixel >> 24) == 0 ? 0x01000000U : pixel;
+                for (auto& pixel : bits.subspan(y * stride, width))
+                {
+                    pixel = (pixel >> 24) == 0 ? 0x01000000U : pixel;
+                }
             }
         }
         const bar::Rect at = currentRect();
@@ -704,10 +794,9 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
         {
             slideStep();
         }
-        else if (wParam == kFitTimer)
+        else if (wParam == kGrowTimer)
         {
-            KillTimer(hwnd, kFitTimer);
-            place();
+            growStep();
         }
         else if (wParam == kStripTimer)
         {

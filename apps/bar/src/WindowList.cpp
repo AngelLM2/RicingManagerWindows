@@ -89,23 +89,29 @@ public:
 private:
     void update()
     {
-        auto model = std::make_shared<slint::VectorModel<Value>>();
-        m_shown.clear();
+        std::vector<void*> next;
+        std::vector<Value> rows;
         for (const auto& entry : m_tracker->windows())
         {
-            const auto id = static_cast<double>(m_shown.size());
-            m_shown.push_back(entry.window);
+            const auto id = static_cast<double>(next.size());
+            next.push_back(entry.window);
             const slint::interpreter::Struct item{
                 {"id", Value(id)},
                 {"title", Value(slint::SharedString(entry.title))},
                 {"icon", Value(entry.icon)},
                 {"active", Value(entry.window == m_tracker->foreground())},
             };
-            model->push_back(Value(item));
+            rows.emplace_back(item);
         }
-        if (auto instance = m_instance.lock())
+        const bool fresh = m_model == nullptr;
+        if (fresh)
         {
-            (*instance)->set_property(m_property, Value(std::shared_ptr<slint::Model<Value>>(model)));
+            m_model = std::make_shared<slint::VectorModel<Value>>();
+        }
+        syncRows(*m_model, m_shown, std::move(next), rows);
+        if (auto instance = m_instance.lock(); instance && fresh)
+        {
+            (*instance)->set_property(m_property, Value(std::shared_ptr<slint::Model<Value>>(m_model)));
         }
     }
 
@@ -113,6 +119,7 @@ private:
     slint::ComponentWeakHandle<slint::interpreter::ComponentInstance> m_instance;
     WindowTracker* m_tracker;
     std::size_t m_subscription = 0;
+    std::shared_ptr<slint::VectorModel<Value>> m_model; // one for good: its rows change in place
     std::vector<void*> m_shown; // index in the model -> HWND
 };
 

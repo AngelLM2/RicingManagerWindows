@@ -14,8 +14,11 @@
 #include <wil/resource.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cwctype>
+#include <format>
 #include <map>
+#include <memory>
 #include <vector>
 
 namespace rmw::barapp
@@ -49,7 +52,8 @@ public:
                 for (const auto& entry : *list)
                 {
                     const auto* id = std::get_if<std::string>(&entry.data);
-                    if (id != nullptr && !id->empty() && id->size() < 512 && m_pinned.size() < kMaxPinned)
+                    if (id != nullptr && !id->empty() && id->size() < 512 && m_pinned.size() < kMaxPinned &&
+                        std::ranges::find(m_pinned, *id, &Pinned::id) == m_pinned.end()) // once each
                     {
                         m_pinned.push_back({*id, comparableAppId(utf8To16Lossy(*id)), {}});
                     }
@@ -151,7 +155,8 @@ private:
         }
         m_identities = std::move(seen); // windows that closed are forgotten
 
-        auto model = std::make_shared<slint::VectorModel<Value>>();
+        std::vector<std::wstring> keys;
+        std::vector<Value> rows;
         void* front = m_tracker->foreground();
         for (std::size_t i = 0; i < groups.size(); ++i)
         {
@@ -172,12 +177,23 @@ private:
                 {"active", Value(std::ranges::find(group.windows, front) != group.windows.end())},
                 {"count", Value(static_cast<double>(group.windows.size()))},
             };
-            model->push_back(Value(item));
+            rows.emplace_back(item);
+            // What names an icon from one update to the next: its pin, its app, or (no app known) its window.
+            keys.push_back(!group.pinnedId.empty() ? L"pin:" + utf8To16Lossy(group.pinnedId)
+                           : !group.identity.empty()
+                               ? L"app:" + group.identity
+                               : std::format(L"window:{}", reinterpret_cast<std::uintptr_t>(group.windows.front())));
         }
         m_groups = std::move(groups);
-        if (auto instance = m_instance.lock())
+        const bool fresh = m_model == nullptr;
+        if (fresh)
         {
-            (*instance)->set_property(m_property, Value(std::shared_ptr<slint::Model<Value>>(model)));
+            m_model = std::make_shared<slint::VectorModel<Value>>();
+        }
+        syncRows(*m_model, m_keys, std::move(keys), rows);
+        if (auto instance = m_instance.lock(); instance && fresh)
+        {
+            (*instance)->set_property(m_property, Value(std::shared_ptr<slint::Model<Value>>(m_model)));
         }
     }
 
@@ -186,6 +202,8 @@ private:
     WindowTracker* m_tracker;
     std::vector<Pinned> m_pinned;
     std::vector<Group> m_groups; // what the shown icons are, in order
+    std::shared_ptr<slint::VectorModel<Value>> m_model; // one for good: its rows change in place
+    std::vector<std::wstring> m_keys;
     std::map<void*, std::wstring> m_identities;
     std::size_t m_subscription = 0;
 };

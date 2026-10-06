@@ -222,6 +222,15 @@ void MenuWindow::warmUp(const bar::Rect& rect, double scale)
         },
         true, m_matte);
     m_painting = false;
+    freeTarget(); // what it was for (glyphs, layout) stays; the pixels are made again when it opens
+}
+
+void MenuWindow::freeTarget() noexcept
+{
+    // A menu's frames are 2 MB at 100% and 25 MB at 200%: held only while it is open.
+    releaseTarget();
+    m_surface.resize(0, 0);
+    m_rect = {};
 }
 
 void MenuWindow::hide()
@@ -238,6 +247,7 @@ void MenuWindow::hide()
     {
         m_onHidden();
     }
+    freeTarget();
 }
 
 std::chrono::milliseconds MenuWindow::sinceHidden() const noexcept

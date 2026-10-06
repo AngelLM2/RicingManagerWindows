@@ -40,12 +40,13 @@ public:
     [[nodiscard]] std::span<const std::uint32_t> pixels() const noexcept { return m_bgra; }
 
 private:
+    [[nodiscard]] std::size_t drawnSize() const noexcept;
+
     std::uint32_t m_width = 0;
     std::uint32_t m_height = 0;
     std::uint32_t m_factor = 1;
     std::vector<slint::Rgb8Pixel> m_black;
-    std::vector<slint::Rgb8Pixel> m_white;
-    std::vector<std::uint32_t> m_drawn; // premultiplied, at the drawn size (supersampled only)
+    std::vector<slint::Rgb8Pixel> m_white; // only once a translucent frame is drawn
     std::vector<std::uint32_t> m_bgra;
 };
 
