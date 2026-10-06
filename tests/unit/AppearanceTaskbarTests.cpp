@@ -212,6 +212,43 @@ TEST(Appearance, ATakenThemeWithoutItsAccentStillEndsAsTheUsers)
     EXPECT_EQ(system.capture()->state["theme"], original);
 }
 
+// The owner's PC: the original was captured over an earlier install's rice, so its theme was ours.
+TEST(Appearance, AnOriginalThemeOfOursOrGoneBecomesWindowsOwn)
+{
+    const AppearanceLogic logic;
+    Json original = {{"appsLight", false},
+                     {"systemLight", false},
+                     {"accent", "#0078D4"},
+                     {"theme", R"(C:\Users\me\AppData\Local\Microsoft\Windows\Themes\RicingManager-2.theme)"}};
+    logic.forOriginal(original);
+    EXPECT_EQ(original["theme"], "windows");
+    Json users = {{"theme", R"(C:\Users\me\Pictures\Mine.theme)"}};
+    logic.forOriginal(users);
+    EXPECT_EQ(users["theme"], R"(C:\Users\me\Pictures\Mine.theme)"); // the user's stays
+
+    FakeRegistry registry;
+    FakeShell shell;
+    FakeThemeApi theme(registry);
+    const std::string dark = theme.windowsThemeFile(true);
+    theme.looks[dark] = rmw::ports::ThemeLook{false, false, 0xC40078D4};
+    AppearanceSystem system(registry, shell, theme, std::chrono::milliseconds(0));
+    ASSERT_TRUE(system.apply(original));
+    ASSERT_EQ(theme.files, (std::vector<std::string>{dark})); // dark mode: Windows' dark theme
+    EXPECT_TRUE(theme.applied.empty());
+    ASSERT_EQ(theme.named.size(), 1u);
+    EXPECT_EQ(theme.named[0], dark);
+    EXPECT_EQ(registry.dword(kPersonalize, "AppsUseLightTheme"), 0u);
+
+    // The user's own theme file, deleted since: Windows' theme for the mode too.
+    const std::string deleted = R"(C:\Users\me\Pictures\Gone.theme)";
+    shell.gone.insert(deleted);
+    const std::string light = theme.windowsThemeFile(false);
+    theme.looks[light] = rmw::ports::ThemeLook{true, true, 0xC40078D4};
+    ASSERT_TRUE(system.apply({{"appsLight", true}, {"systemLight", true}, {"theme", deleted}}));
+    EXPECT_EQ(theme.files.back(), light);
+    EXPECT_EQ(theme.named.back(), light);
+}
+
 TEST(Appearance, AccentComparisonIgnoresCase)
 {
     const AppearanceLogic logic;

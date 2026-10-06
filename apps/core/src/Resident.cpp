@@ -125,6 +125,10 @@ std::wstring_view displayName(std::string_view module) noexcept
     {
         return text.taskbar;
     }
+    if (module == "tweaks")
+    {
+        return text.tweaks;
+    }
     return text.wallpaper;
 }
 
@@ -373,6 +377,7 @@ void Resident::onTray(std::uint32_t id)
         return;
     case kTrayExit:
         log::info("exit from the tray");
+        platform::closeSettingsWindow(); // or an open window starts the core again
         m_window->quit(0);
         return;
     case kTrayOpen:
@@ -1074,6 +1079,28 @@ void Resident::queueAction(domain::ActionCall action, Origin origin)
         if (result)
         {
             log::info("{}: done", action.name);
+            if (action.name == "restore.original" && origin == Origin::User)
+            {
+                // Said in so many words: a restore that leaves something behind is no silent success.
+                std::wstring partly;
+                for (const auto& failed : json::memberOr(*result, "failed", Json::array()))
+                {
+                    partly += (partly.empty() ? L"" : L" ") +
+                              formatted(uiStrings().notBackText, displayName(json::stringOr(failed, "module", "")),
+                                        utf8To16Lossy(json::stringOr(failed, "reason", "")));
+                }
+                m_window->post([this, partly = std::move(partly)] {
+                    const UiStrings& text = uiStrings();
+                    if (partly.empty())
+                    {
+                        notify(text.restoredTitle, std::wstring(text.restoredText));
+                    }
+                    else
+                    {
+                        notify(text.restoredPartlyTitle, partly + L" " + std::wstring(text.restoredPartlyText));
+                    }
+                });
+            }
             return;
         }
         log::warn("{} failed: {}", action.name, result.error().toString());

@@ -83,6 +83,7 @@ public:
         return {};
     }
     Result<std::string> transcodedWallpaper() override { return transcoded; }
+    std::string defaultWallpaper() override { return defaultPicture; }
     Result<std::string> sniffImageType(std::string_view file) override
     {
         std::ifstream in(std::filesystem::path(std::u8string(file.begin(), file.end())), std::ios::binary);
@@ -104,6 +105,7 @@ public:
     std::uint32_t background = 0x000000;
     ports::SlideshowState slideshowState;
     std::string transcoded;
+    std::string defaultPicture; // Windows' own wallpaper (a real file in tests that need one)
     int setCalls = 0;
 };
 

@@ -41,7 +41,9 @@ export component SoundsPage inherits ScrollView {
                 spacing: 8px;
 
                 Text {
-                    width: 220px;
+                    min-width: 110px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     text: Words.sound-event(row.event);
                     vertical-alignment: center;
                     color: Palette.foreground;
@@ -49,7 +51,9 @@ export component SoundsPage inherits ScrollView {
                 }
 
                 Text {
-                    width: 200px;
+                    min-width: 80px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     text: row.silent ? @tr("Silent") : row.file != "" ? row.file : Api.sounds-silence ? @tr("Silent (everything else)") : @tr("Windows' sound");
                     vertical-alignment: center;
                     color: Palette.foreground.transparentize(30%);

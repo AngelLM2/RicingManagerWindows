@@ -15,7 +15,9 @@ component ActionPicker inherits HorizontalLayout {
     spacing: 8px;
 
     ComboBox {
-        width: 260px;
+        min-width: 140px;
+        preferred-width: 260px;
+        max-width: 260px;
         model: Api.action-labels;
         current-index: Api.action-index(root.action);
         accessible-label: @tr("Action");
@@ -67,7 +69,9 @@ export component ShortcutsPage inherits ScrollView {
                     spacing: 8px;
 
                     LineEdit {
-                        width: 180px;
+                        min-width: 100px;
+                        preferred-width: 180px;
+                        max-width: 180px;
                         text: hotkey.keys;
                         placeholder-text: "Win+Alt+D";
                         accessible-label: @tr("Keys");
@@ -129,7 +133,9 @@ export component ShortcutsPage inherits ScrollView {
                 spacing: 8px;
 
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("At a time"), @tr("On battery"), @tr("Plugged in"), @tr("Monitor connected")];
                     current-index: rule.when;
                     accessible-label: @tr("When");
@@ -149,7 +155,9 @@ export component ShortcutsPage inherits ScrollView {
                 }
 
                 if rule.when == 3: ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: Api.match-labels;
                     current-index: Api.match-index(rule.monitor);
                     accessible-label: @tr("Which monitor");

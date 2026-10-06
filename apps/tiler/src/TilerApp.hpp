@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,11 @@ private:
     void scheduleLayout();
     void layout();
     void settle();
+    // In Mac mode, whether `window` is on the virtual desktop shown now (focusing one on another desktop
+    // makes Windows go there).
+    [[nodiscard]] bool onShownDesktop(Window window) const;
+    // The windows a workspace switch brings, shown in their slots and above the ones that go.
+    void placeComing(std::span<const tiling::WindowId> coming);
     void command(domain::TilingCommand command, int number);
     void focusToward(tiling::Direction direction);
     void moveToward(tiling::Direction direction);
@@ -114,6 +120,8 @@ private:
     std::set<tiling::WindowId> m_hidden;                      // hidden by us
     std::map<tiling::WindowId, std::vector<tiling::WindowId>> m_followers; // dialogs hidden with them
     std::map<tiling::WindowId, tiling::Rect> m_targets;                   // where the shown ones go
+    std::map<tiling::WindowId, Insets> m_insets; // the hidden ones' borders, read as they hid
+    std::set<tiling::WindowId> m_justShown;      // shown in place this moment: settle() looks at them
     std::optional<tiling::WindowId> m_bordered;
     std::optional<tiling::WindowId> m_pendingFocus;
     std::unique_ptr<KeyHook> m_keys;

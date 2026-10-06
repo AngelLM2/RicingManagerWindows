@@ -30,6 +30,11 @@ struct UiStrings
 
     std::wstring_view actionFailedTitle;
     std::wstring_view actionFailedText; // {0} = action, {1} = error
+    std::wstring_view restoredTitle;
+    std::wstring_view restoredText;
+    std::wstring_view restoredPartlyTitle;
+    std::wstring_view notBackText;       // {0} = what, {1} = why
+    std::wstring_view restoredPartlyText; // after the notBackText lines
     std::wstring_view settingsErrorTitle;
     std::wstring_view settingsErrorText; // {0} = first problem
     std::wstring_view hotkeyTakenText;   // {0} = key chord
@@ -50,6 +55,7 @@ struct UiStrings
     std::wstring_view lockscreen;
     std::wstring_view wallpaper;
     std::wstring_view taskbar;
+    std::wstring_view tweaks;
 };
 
 inline constexpr UiStrings kEnglish{
@@ -71,6 +77,11 @@ inline constexpr UiStrings kEnglish{
     .driftText = L"{0} no longer follows the rice: your change stays.",
     .actionFailedTitle = L"Ricing Manager",
     .actionFailedText = L"{0} failed: {1}",
+    .restoredTitle = L"The original Windows is back",
+    .restoredText = L"Everything Ricing Manager changed came back.",
+    .restoredPartlyTitle = L"The original Windows: almost everything is back",
+    .notBackText = L"{0} could not come back ({1}).",
+    .restoredPartlyText = L"The rest came back. Try again later, or set it in Windows' Settings.",
     .settingsErrorTitle = L"settings.toml has a problem",
     .settingsErrorText = L"{0}",
     .hotkeyTakenText = L"The shortcut {0} is already used by another program.",
@@ -89,6 +100,7 @@ inline constexpr UiStrings kEnglish{
     .lockscreen = L"Lock screen",
     .wallpaper = L"Wallpaper",
     .taskbar = L"Taskbar",
+    .tweaks = L"Windows tweaks",
 };
 
 inline constexpr UiStrings kPortuguese{
@@ -110,6 +122,11 @@ inline constexpr UiStrings kPortuguese{
     .driftText = L"{0} deixou de seguir o rice: a sua mudança fica.",
     .actionFailedTitle = L"Ricing Manager",
     .actionFailedText = L"{0} falhou: {1}",
+    .restoredTitle = L"O Windows original voltou",
+    .restoredText = L"Tudo o que o Ricing Manager mudou voltou.",
+    .restoredPartlyTitle = L"Windows original: quase tudo voltou",
+    .notBackText = L"{0} não voltou ({1}).",
+    .restoredPartlyText = L"O resto voltou. Tente de novo depois ou ajuste nas Configurações do Windows.",
     .settingsErrorTitle = L"O settings.toml tem um problema",
     .settingsErrorText = L"{0}",
     .hotkeyTakenText = L"O atalho {0} já é usado por outro programa.",
@@ -128,6 +145,7 @@ inline constexpr UiStrings kPortuguese{
     .lockscreen = L"A tela de bloqueio",
     .wallpaper = L"O wallpaper",
     .taskbar = L"A barra de tarefas",
+    .tweaks = L"Os ajustes do Windows",
 };
 
 // settings.toml's [ui] language ("en", "pt-BR"), or the user's Windows display language when it

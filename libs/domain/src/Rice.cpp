@@ -158,8 +158,9 @@ BarConfig barStyle(BarStyle style)
         bar.right = items({"tray", "network", "volume", "battery", "clock"});
         break;
     case BarStyle::Dock:
+        // Like macOS' Dock: maximized windows end above it (v1.7: they went under it). Float is a choice.
         bar.position = BarPosition::Bottom;
-        bar.mode = BarMode::Float;
+        bar.mode = BarMode::Reserve;
         bar.thickness = 60;
         bar.length = {true, 100.0, true};
         bar.margin = {0, 0, 10, 0};
@@ -171,7 +172,7 @@ BarConfig barStyle(BarStyle style)
         break;
     case BarStyle::Island:
         bar.position = BarPosition::Top;
-        bar.mode = BarMode::Float;
+        bar.mode = BarMode::Reserve;
         bar.thickness = 36;
         bar.length = {true, 100.0, true};
         bar.margin = {8, 0, 0, 0};

@@ -21,7 +21,8 @@ export { Api, Words, Page }
 
 component InfoBar inherits Rectangle {
     in property <Notice> notice;
-    property <bool> bad: root.notice.kind == NoticeKind.failed || root.notice.kind == NoticeKind.not-connected;
+    property <bool> bad: root.notice.kind == NoticeKind.failed || root.notice.kind == NoticeKind.not-connected
+        || root.notice.kind == NoticeKind.restored-partly;
     background: root.bad ? #c4314b33 : Palette.accent-background.transparentize(80%);
     border-radius: Metrics.radius;
     accessible-role: AccessibleRole.text;
@@ -38,6 +39,7 @@ component InfoBar inherits Rectangle {
             color: Palette.foreground;
             text: root.notice.kind == NoticeKind.applied ? @tr("Applied: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.restored ? @tr("Restored: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.restored-partly ? @tr("Everything else came back. Not back: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.undone ? @tr("Undone: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.saved ? @tr("Saved in {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.exported ? @tr("Your current look is now the rice “{}”", root.notice.detail)
@@ -100,6 +102,10 @@ export component AppWindow inherits Window {
     // Flipped by SettingsApp when the window comes back (moved, restored, another monitor): the
     // whole window is drawn again, so no part stays unpainted.
     in-out property <bool> repaint;
+    // A narrow window gives the pages the room: the side bar shows icons only. Set by SettingsApp from the
+    // window's size (a binding on the window's own width would loop through its layout).
+    in property <bool> narrow;
+    property <bool> compact-nav: root.narrow;
 
     function go(page: Page) {
         Api.page = page;
@@ -108,26 +114,33 @@ export component AppWindow inherits Window {
 
     HorizontalLayout {
         Rectangle {
-            width: 236px;
+            width: root.compact-nav ? 64px : 236px;
             background: Palette.alternate-background;
 
-            VerticalLayout {
-                padding: 12px;
+            // A short window: the side bar scrolls (v1.6 cut its last items off).
+            Flickable {
+                content-width: self.width;
+                content-height: max(self.height, nav.min-height);
+
+            nav := VerticalLayout {
+                padding: root.compact-nav ? 8px : 12px;
                 spacing: 2px;
                 alignment: start;
 
                 Text {
-                    text: "Ricing Manager";
+                    text: root.compact-nav ? "RM" : "Ricing Manager";
                     font-size: 18px;
                     font-weight: 600;
                     color: Palette.foreground;
                     height: 48px;
+                    horizontal-alignment: root.compact-nav ? center : left;
                     vertical-alignment: center;
                 }
 
                 NavItem {
                     text: @tr("Home");
                     glyph: "\u{E80F}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.home;
                     clicked => {
                         root.go(Page.home);
@@ -137,6 +150,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Rices");
                     glyph: "\u{E8B9}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.rices;
                     clicked => {
                         root.go(Page.rices);
@@ -144,11 +158,11 @@ export component AppWindow inherits Window {
                 }
 
                 Text {
-                    text: @tr("CUSTOMIZE");
+                    text: root.compact-nav ? "" : @tr("CUSTOMIZE");
                     font-size: 11px;
                     font-weight: 600;
                     color: Palette.foreground.transparentize(45%);
-                    height: 30px;
+                    height: root.compact-nav ? 12px : 30px;
                     vertical-alignment: bottom;
                     accessible-role: AccessibleRole.none;
                 }
@@ -156,6 +170,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Appearance");
                     glyph: "\u{E790}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.appearance;
                     clicked => {
                         root.go(Page.appearance);
@@ -165,6 +180,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Wallpapers");
                     glyph: "\u{EB9F}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.wallpapers;
                     clicked => {
                         root.go(Page.wallpapers);
@@ -174,6 +190,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Cursors");
                     glyph: "\u{E8B0}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.cursors;
                     clicked => {
                         root.go(Page.cursors);
@@ -183,6 +200,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Sounds");
                     glyph: "\u{E767}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.sounds;
                     clicked => {
                         root.go(Page.sounds);
@@ -192,6 +210,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Icons");
                     glyph: "\u{E71D}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.icons;
                     clicked => {
                         root.go(Page.icons);
@@ -201,6 +220,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Taskbar");
                     glyph: "\u{E75B}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.bar;
                     clicked => {
                         root.go(Page.bar);
@@ -210,6 +230,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Plugins");
                     glyph: "\u{EA86}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.plugins;
                     clicked => {
                         root.go(Page.plugins);
@@ -219,6 +240,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Tiling");
                     glyph: "\u{ECA5}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.tiling;
                     clicked => {
                         root.go(Page.tiling);
@@ -226,11 +248,11 @@ export component AppWindow inherits Window {
                 }
 
                 Text {
-                    text: @tr("MORE");
+                    text: root.compact-nav ? "" : @tr("MORE");
                     font-size: 11px;
                     font-weight: 600;
                     color: Palette.foreground.transparentize(45%);
-                    height: 30px;
+                    height: root.compact-nav ? 12px : 30px;
                     vertical-alignment: bottom;
                     accessible-role: AccessibleRole.none;
                 }
@@ -238,6 +260,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Hotkeys and rules");
                     glyph: "\u{E765}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.shortcuts;
                     clicked => {
                         root.go(Page.shortcuts);
@@ -247,6 +270,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Diagnostics");
                     glyph: "\u{E9D9}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.diagnostics;
                     clicked => {
                         root.go(Page.diagnostics);
@@ -256,11 +280,13 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: @tr("Settings");
                     glyph: "\u{E713}";
+                    compact: root.compact-nav;
                     selected: Api.page == Page.settings;
                     clicked => {
                         root.go(Page.settings);
                     }
                 }
+            }
             }
         }
 

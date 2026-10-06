@@ -77,7 +77,9 @@ component EffectSlider inherits SettingRow {
     HorizontalLayout {
         spacing: 8px;
         slider := Slider {
-            width: 200px;
+            min-width: 110px;
+            preferred-width: 200px;
+            max-width: 200px;
             minimum: root.minimum;
             maximum: root.maximum;
             value: root.value;
@@ -246,7 +248,9 @@ component ParticlesEditor inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 8px;
                 ComboBox {
-                    width: 170px;
+                    min-width: 90px;
+                    preferred-width: 170px;
+                    max-width: 170px;
                     model: root.kinds;
                     current-index: layer.kind;
                     accessible-label: @tr("Kind of particles");
@@ -256,7 +260,9 @@ component ParticlesEditor inherits VerticalLayout {
                 }
 
                 LineEdit {
-                    width: 150px;
+                    min-width: 90px;
+                    preferred-width: 150px;
+                    max-width: 150px;
                     text: layer.color;
                     placeholder-text: @tr("Its own color");
                     accessible-label: @tr("Color of the particles (#RRGGBB or palette.name)");
@@ -295,7 +301,9 @@ component ParticlesEditor inherits VerticalLayout {
                 }
 
                 SpinBox {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     minimum: 1;
                     maximum: 1000;
                     value: layer.count;
@@ -312,7 +320,9 @@ component ParticlesEditor inherits VerticalLayout {
                 }
 
                 Slider {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     minimum: 0.25;
                     maximum: 4;
                     value: layer.size;
@@ -329,7 +339,9 @@ component ParticlesEditor inherits VerticalLayout {
                 }
 
                 Slider {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     minimum: 0;
                     maximum: 4;
                     value: layer.speed;
@@ -346,7 +358,9 @@ component ParticlesEditor inherits VerticalLayout {
         spacing: 8px;
         alignment: start;
         add := ComboBox {
-            width: 170px;
+            min-width: 90px;
+            preferred-width: 170px;
+            max-width: 170px;
             model: root.kinds;
             current-index: 0;
             accessible-label: @tr("Particles to add");
@@ -370,7 +384,9 @@ component RuleEditor inherits VerticalLayout {
         label: @tr("Monitor");
         description: @tr("When several rules fit a monitor, the first one counts; “Every monitor” takes the rest.");
         ComboBox {
-            width: 260px;
+            min-width: 140px;
+            preferred-width: 260px;
+            max-width: 260px;
             model: Api.match-labels;
             current-index: root.rule.match-index;
             accessible-label: @tr("Monitor");
@@ -383,7 +399,9 @@ component RuleEditor inherits VerticalLayout {
     SettingRow {
         label: @tr("Kind");
         ComboBox {
-            width: 260px;
+            min-width: 140px;
+            preferred-width: 260px;
+            max-width: 260px;
             model: [@tr("Image"), @tr("Slideshow (a folder)"), @tr("Video"), @tr("Solid color")];
             current-index: root.rule.kind;
             accessible-label: @tr("Kind of wallpaper");
@@ -428,7 +446,9 @@ component RuleEditor inherits VerticalLayout {
     if root.rule.kind != 3: SettingRow {
         label: @tr("Fit");
         ComboBox {
-            width: 260px;
+            min-width: 140px;
+            preferred-width: 260px;
+            max-width: 260px;
             model: root.rule.kind == 2 ? [@tr("Fill"), @tr("Fit"), @tr("Stretch"), @tr("Center")]
                 : [@tr("Fill"), @tr("Fit"), @tr("Stretch"), @tr("Center"), @tr("Tile")];
             current-index: root.rule.fit;
@@ -443,7 +463,9 @@ component RuleEditor inherits VerticalLayout {
         label: @tr("Color");
         description: @tr("#RRGGBB, then Enter.");
         LineEdit {
-            width: 120px;
+            min-width: 90px;
+            preferred-width: 120px;
+            max-width: 120px;
             text: root.rule.color;
             accessible-label: @tr("Wallpaper color");
             accepted(text) => {
@@ -455,7 +477,9 @@ component RuleEditor inherits VerticalLayout {
     if root.rule.kind == 1: SettingRow {
         label: @tr("Change every (minutes)");
         SpinBox {
-            width: 140px;
+            min-width: 90px;
+            preferred-width: 140px;
+            max-width: 140px;
             minimum: 1;
             maximum: 1440;
             value: root.rule.interval;
@@ -753,7 +777,9 @@ export component WallpapersPage inherits ScrollView {
                 label: @tr("Frames per second, at most");
                 description: @tr("Fewer frames, less GPU. 30 is smooth for most videos.");
                 SpinBox {
-                    width: 140px;
+                    min-width: 90px;
+                    preferred-width: 140px;
+                    max-width: 140px;
                     minimum: 1;
                     maximum: 240;
                     value <=> Api.fps-limit;
@@ -805,7 +831,9 @@ export component WallpapersPage inherits ScrollView {
             SettingRow {
                 label: @tr("Fun facts, tips and more on the lock screen");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Leave as it is"), @tr("Show"), @tr("Hide")];
                     current-index <=> Api.lock-tips;
                     accessible-label: @tr("Fun facts, tips and more on the lock screen");
