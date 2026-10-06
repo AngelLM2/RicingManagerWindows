@@ -47,6 +47,16 @@ std::unexpected<Error> propagate(Result<T>& result, std::string_view context = {
     return std::unexpected(std::move(result.error()).withContext(context));
 }
 
+// A rice no module has anything of: fine when it changes something else (a bar), else a mistake.
+Result<OperationReport> nothingToChange(bool changesElsewhere)
+{
+    if (changesElsewhere)
+    {
+        return OperationReport{};
+    }
+    return fail(ErrorCode::InvalidArgument, "this rice does not change anything");
+}
+
 } // namespace
 
 RiceEngine::RiceEngine(StateDb& state, ContentStore& store, const ModuleCatalog& catalog,
@@ -249,7 +259,8 @@ Result<bool> RiceEngine::ensureBaseSnapshot()
 
 // ---- operations -----------------------------------------------------------------------------
 
-Result<OperationReport> RiceEngine::apply(const domain::Rice& rice, const std::filesystem::path& packageRoot)
+Result<OperationReport> RiceEngine::apply(const domain::Rice& rice, const std::filesystem::path& packageRoot,
+                                          bool changesElsewhere)
 {
     if (auto clean = undoOpenJournalIfAny(); !clean)
     {
@@ -264,6 +275,10 @@ Result<OperationReport> RiceEngine::apply(const domain::Rice& rice, const std::f
     if (!steps)
     {
         return propagate(steps);
+    }
+    if (steps->empty())
+    {
+        return nothingToChange(changesElsewhere);
     }
     return run("apply", std::format("Applied \"{}\"", rice.meta.name), std::move(*steps),
                AppliedUpdate::Merge, {});
@@ -291,16 +306,12 @@ Result<std::vector<RiceEngine::Step>> RiceEngine::stepsFromRice(const domain::Ri
             steps.push_back({module, std::move(*desired), std::nullopt});
         }
     }
-    if (steps.empty())
-    {
-        return fail(ErrorCode::InvalidArgument, "this rice does not change anything");
-    }
     return steps;
 }
 
 Result<OperationReport> RiceEngine::applyAutomatic(const domain::Rice& rice,
                                                    const std::filesystem::path& packageRoot,
-                                                   const std::string& label)
+                                                   const std::string& label, bool changesElsewhere)
 {
     if (auto clean = undoOpenJournalIfAny(); !clean)
     {
@@ -315,6 +326,10 @@ Result<OperationReport> RiceEngine::applyAutomatic(const domain::Rice& rice,
     if (!steps)
     {
         return propagate(steps);
+    }
+    if (steps->empty())
+    {
+        return nothingToChange(changesElsewhere);
     }
     return run("automatic", label, std::move(*steps), AppliedUpdate::Merge, {}, true);
 }

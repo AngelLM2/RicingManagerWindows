@@ -369,6 +369,7 @@ RicingManagerWindows/
 │  ├─ plugin-host/     rmw-plugin-host.exe (Luau)
 │  ├─ settings/        rmw-settings.exe
 │  ├─ wallpaper/       rmw-wallpaper.exe
+│  ├─ tiler/           rmw-tiler.exe (M13: tiling e áreas de trabalho, desligado até a pessoa ligar; ADR-0020)
 │  └─ cli/             rmw.exe
 ├─ libs/
 │  ├─ base/  domain/  platform/  modules/  engine/  ipc/  storage/  package/

@@ -138,6 +138,25 @@ export component Test inherits Window {
     EXPECT_EQ(alphaOf(surface.pixels()[5 * 30 + 25]), 255u);
 }
 
+TEST(BarSurface, WorkspacesLookLikeTheDesktops)
+{
+    rmw::domain::BarConfig config;
+    config.left = {{"workspaces", {}}};
+    const auto generated =
+        rmw::bar::generateBarSource(config, rmw::barapp::builtinKinds(), rmw::barapp::builtinSources());
+    EXPECT_TRUE(generated.unknown.empty());
+    auto instance = compile(generated.source);
+    // What the provider sets: workspace 1 (with windows) and 3 (shown).
+    auto items = std::make_shared<slint::VectorModel<Value>>();
+    for (const int i : {0, 2})
+    {
+        items->push_back(Value(slint::interpreter::Struct{{"index", Value(static_cast<double>(i))},
+                                                          {"active", Value(i == 2)}}));
+    }
+    EXPECT_TRUE(instance->set_property("w0-desktops", Value(std::shared_ptr<slint::Model<Value>>(items))));
+    EXPECT_TRUE(instance->set_callback("w0-select", [](std::span<const Value>) { return Value(); }));
+}
+
 TEST(BarSurface, GeneratedBarsCompileAndDraw)
 {
     for (const auto position : {rmw::domain::BarPosition::Bottom, rmw::domain::BarPosition::Left})

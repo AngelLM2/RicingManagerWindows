@@ -5,6 +5,7 @@
 #include "SystemWidgets.hpp"
 #include "TrayWidget.hpp"
 #include "WindowList.hpp"
+#include "WorkspacesWidget.hpp"
 
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
@@ -811,7 +812,7 @@ constexpr bar::WidgetKind builtin(std::string_view id, std::string_view componen
             .takesAccent = true};
 }
 
-constexpr std::array<bar::WidgetKind, 16> kKinds = {
+constexpr std::array<bar::WidgetKind, 17> kKinds = {
     builtin("tray", "RmwTray", kTrayProperties, kTrayCallbacks, "RmwTrayColumn"),
     builtin("media", "RmwMedia", kMediaProperties, kMediaCallbacks),
     builtin("start", "RmwStart", {}, kClicked),
@@ -824,6 +825,8 @@ constexpr std::array<bar::WidgetKind, 16> kKinds = {
     builtin("volume", "RmwStatus", kStatusProperties, kStatusCallbacks),
     builtin("notifications", "RmwBell", {}, kClicked),
     builtin("desktops", "RmwDesktops", kDesktopsProperties, kSelect, "RmwDesktopsColumn"),
+    // The tiler's workspaces (M13) look like the desktops: numbers, the shown one underlined.
+    builtin("workspaces", "RmwDesktops", kDesktopsProperties, kSelect, "RmwDesktopsColumn"),
     builtin("spacer", "RmwSpacer", {}, {}),
     builtin("separator", "RmwSeparator", {}, {}),
     builtin("text", "RmwText", kTextProperties, kClicked),
@@ -1053,6 +1056,10 @@ std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& in
     if (slot.kind->id == "dock")
     {
         return makeDockProvider(slot, instance);
+    }
+    if (slot.kind->id == "workspaces")
+    {
+        return makeWorkspacesProvider(slot, instance);
     }
     return nullptr;
 }

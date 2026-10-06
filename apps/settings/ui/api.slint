@@ -10,6 +10,7 @@ export enum Page {
     cursors,
     bar,
     plugins,
+    tiling,
     shortcuts,
     diagnostics,
     settings,
@@ -219,6 +220,22 @@ export struct HotkeyRow {
     problem: string,
 }
 
+// A tiling key (M13): its command (the name in [tiling.keys]) and the keys, "" for none.
+export struct TilingKeyRow {
+    command: string,
+    keys: string,
+    problem: string,
+}
+
+// A tiling rule for an app. Class and title come from settings.toml and are kept as they are.
+export struct TilingRuleRow {
+    app: string,
+    window-class: string,
+    title: string,
+    action: int,        // 0 floats, 1 left alone, 2 opens on a workspace
+    workspace: int,     // 1..9
+}
+
 export struct RuleRow {
     when: int,          // 0 time, 1 battery, 2 plugged in, 3 monitor connected
     at: string,
@@ -407,6 +424,27 @@ export global Api {
     in property <[AppChoice]> apps-shown;
     callback app-filter-edited(string);
     callback app-picked(string /* id; empty: cancelled */);
+
+    // ---- tiling (M13) ----------------------------------------------------------------------
+    in-out property <bool> tiling-enabled;
+    in-out property <int> tiling-mode;          // 0 like Linux (our workspaces), 1 like a Mac (Windows' desktops)
+    in-out property <int> tiling-layout;        // 0 dwindle, 1 master-stack, 2 columns, 3 monocle, 4 floating
+    in-out property <int> tiling-workspaces;    // 1..9
+    in-out property <int> tiling-gap;
+    in-out property <int> tiling-outer-gap;
+    in-out property <int> tiling-master;        // 10..90 (%)
+    in-out property <bool> tiling-border;
+    in-out property <string> tiling-border-color; // "" = the rice's accent
+    in-out property <bool> tiling-admin;        // advanced mode: admin apps' windows too (the UAC asks)
+    in property <[TilingKeyRow]> tiling-keys;
+    in property <[TilingRuleRow]> tiling-rules;
+    in property <string> tiling-problem;        // the last change was not saved: why
+    callback tiling-edited();
+    callback tiling-key-edited(int, string);
+    callback tiling-keys-default();
+    callback tiling-rule-add();
+    callback tiling-rule-edited(int, TilingRuleRow);
+    callback tiling-rule-remove(int);
 
     // ---- diagnostics -----------------------------------------------------------------------
     in property <[ProcessRow]> processes;

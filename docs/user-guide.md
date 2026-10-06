@@ -109,6 +109,43 @@ Win+arrows...) stays Windows'. If Ricing Manager's bar stops, the Win key is Win
 itself. With **Windows'** Start, a rice can choose its layout (more pins or more recommendations)
 and hide the recent files and tips; restoring brings back what you had.
 
+## Tiling: windows side by side
+
+In **Tiling**, turn on **Organize the windows**. Every app window then takes a place beside the
+others, with a small gap; turning it off puts every window back where it was. Dialogs, windows of a
+fixed size and the apps you list under **Apps** float; apps running as administrator are left alone.
+
+Workspaces:
+
+- **Like Linux** (the default): workspaces 1 to 9 on each monitor. Ctrl+Win+3 shows workspace 3 of
+  the monitor you are on; the windows of the others hide (and come back with their dialogs). Add the
+  **Workspaces (tiling)** widget to your bar to see the ones in use and click to go there.
+- **Like a Mac**: Windows' own virtual desktops, sliding as usual (Ctrl+Win+arrows, or Ctrl+Win+3 to
+  go to the third). Windows does not let a program move another app's window to another desktop:
+  for that, use Win+Tab.
+
+The keys it comes with (all of them can be changed or turned off on the page; # is a number):
+
+| Key | What it does |
+|---|---|
+| Ctrl+Alt+arrows | Focus the window that way (past the last one: the next monitor) |
+| Ctrl+Alt+Shift+arrows | Move the window that way |
+| Ctrl+Win+Left / Right | Previous / next workspace |
+| Ctrl+Win+# | Go to workspace # |
+| Ctrl+Win+Shift+# | Send the window to workspace # |
+| Ctrl+Alt+F | The window floats (again: it is tiled again) |
+| Ctrl+Alt+M | The window takes the whole screen, and back |
+| Ctrl+Alt+Space | Next layout: halves, a main window and a stack, columns, one at a time |
+| Ctrl+Alt+Enter | The window becomes the main one |
+
+Dragging a window onto another swaps them; dropping it on another monitor moves it there. AltGr is
+never taken for Ctrl+Alt, so it keeps typing characters. If the tiler stops for any reason, every
+hidden window shows again by itself.
+
+Windows does not let an ordinary program move the windows of apps running as administrator, nor hear
+the keys typed into them. **Advanced mode** (on the same page) tiles them too: each time tiling
+starts, Windows asks for your permission. If you say no, tiling goes on without them.
+
 ## Plugins
 
 Plugins add widgets, bar skins, tweaks, actions and rules. They come as `.rmwp` files or folders.

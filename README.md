@@ -39,6 +39,7 @@ Para desinstalar (Configurações → Apps): ele pergunta se você quer o visual
 - **Aparência, Wallpapers, Cursores, Barra de tarefas e Plugins:** mudam o rice escolhido.
   - Os arquivos que você escolhe são copiados para dentro do rice, que continua inteiro e compartilhável.
   - As barras próprias têm um editor visual: arraste os widgets entre as zonas, ou use os botões.
+- **Tiling:** janelas lado a lado, áreas de trabalho como no Linux (1 a 9 por monitor) ou como no Mac (as do Windows), borda colorida na janela em foco, regras por app e atalhos com Ctrl que você muda; desligar devolve cada janela para onde estava.
 - **Atalhos e regras:** inclusive "Abrir um app" (`launch.app`), escolhido na lista de apps instalados.
 - **Diagnóstico:** processos, memória, problemas recentes e um pacote de suporte.
 - **Configurações:** iniciar com o Windows, idioma, sobre.
@@ -114,6 +115,21 @@ rice = 'C:\Rices\night'
 [[rule]]
 when = "battery"             # "time" (com at = "HH:MM"), "battery", "ac", "monitor-connected"
 action = "appearance.dark"
+
+[tiling]                     # M13: janelas lado a lado (desligado até você ligar)
+enabled = true
+mode = "linux"               # "linux": áreas 1 a 9 por monitor | "mac": as áreas de trabalho do Windows
+layout = "dwindle"           # dwindle | master-stack | columns | monocle | floating
+gap = 8                      # entre as janelas; outer_gap: nas bordas da tela
+border_color = "#89b4fa"     # a borda da janela em foco; sem isto, o destaque do rice
+
+[tiling.keys]                # os que faltarem ficam como vêm; "" tira o atalho
+float = "Ctrl+Alt+G"
+workspace = "Alt+Win+#"      # # = o número da área (1 a 9)
+
+[[tiling.rule]]
+app = "Calculator.exe"       # também class = "..." e title = "..."
+do = "float"                 # float | ignore | workspace (com workspace = N)
 ```
 
 Ações: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next`, `launch.app` (com `app = "<id>"`, de `rmw apps`) — e as dos plugins, como `<id do plugin>:<ação>`. O ícone fica na bandeja, perto do relógio: um clique abre a janela; o botão direito tem "Iniciar com o Windows". Quem quiser que nada fique rodando sem atalhos, regras ou agendamento usa `keep_in_tray = false` (Configurações).
@@ -258,7 +274,10 @@ rmw settings reload            # re-read settings.toml
 
 If the app stops unexpectedly 3 starts in a row (or `Shift` is held at sign-in), it opens in **safe mode**: nothing is applied automatically and "Restore original Windows" is at hand.
 
-**A taskbar of your own** — as many as you like, on any edge and monitor, any size: see the `[[bar]]` example above (widgets: `start`, `windows`, `desktops`, `tray` — the system tray, with the apps' icons, clicks, menus and tips —, `clock`, `media`, `cpu`, `memory`, `network`, `volume`, `battery`, `notifications`, `dock` — pinned and open apps, icons that grow under the mouse —, `spacer`, `separator` and `text` — your own text or Fluent icon, which can open an app). Ready-made styles: `style = "windows" | "dock" | "island" | "status" | "side"` (what the bar writes itself wins), and `length = "auto"` for a bar as long as what it shows. Bars slide in, and auto-hidden bars slide away (unless Windows' animation effects are off). **A Start menu of your own** — `[start] menu = "ours"`: the Start button of your bar opens Ricing Manager's Start (all apps and an instant search, your pinned apps, your folders, Settings and the power buttons, in the rice's colors); in Settings, the Win key can open it too (every Win+key shortcut stays Windows'). For Windows' own Start, a rice can choose its layout and hide the recent files and tips. Saving `rice.toml` updates it live. If anything goes wrong, **Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back (`rmw action bar.on` turns it on again); if the bar hangs or crashes, Windows' taskbar is back in under a second.
+**A taskbar of your own** — as many as you like, on any edge and monitor, any size: see the `[[bar]]` example above (widgets: `start`, `windows`, `desktops`, `workspaces` — the tiling's, below —, `tray` — the system tray, with the apps' icons, clicks, menus and tips —, `clock`, `media`, `cpu`, `memory`, `network`, `volume`, `battery`, `notifications`, `dock` — pinned and open apps, icons that grow under the mouse —, `spacer`, `separator` and `text` — your own text or Fluent icon, which can open an app). Ready-made styles: `style = "windows" | "dock" | "island" | "status" | "side"` (what the bar writes itself wins), and `length = "auto"` for a bar as long as what it shows. Bars slide in, and auto-hidden bars slide away (unless Windows' animation effects are off). **A Start menu of your own** — `[start] menu = "ours"`: the Start button of your bar opens Ricing Manager's Start (all apps and an instant search, your pinned apps, your folders, Settings and the power buttons, in the rice's colors); in Settings, the Win key can open it too (every Win+key shortcut stays Windows'). For Windows' own Start, a rice can choose its layout and hide the recent files and tips. Saving `rice.toml` updates it live. If anything goes wrong, **Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back (`rmw action bar.on` turns it on again); if the bar hangs or crashes, Windows' taskbar is back in under a second.
+
+**Tiling** — off until you turn it on (the **Tiling** page, or `[tiling] enabled = true` in `settings.toml`): app windows side by side with gaps (halves that turn, a main window and a stack, columns, one at a time), workspaces 1 to 9 on each monitor like Linux or Windows' own virtual desktops like a Mac, a colored border on the window in focus (Windows 11), per-app rules, and keys with Ctrl you can change (Ctrl+Alt+arrows to focus, Ctrl+Win+# for a workspace; AltGr keeps typing); in advanced mode,
+the windows of apps running as administrator too (Windows asks for your permission each time). Nothing is injected into other apps: turning it off, or the tiler stopping for any reason, puts every window back.
 
 **Live wallpapers** — a picture, a video or a color with effects (brightness, contrast, saturation, hue, blur, parallax that follows the mouse, a slow zoom, a vignette, a video's speed) and particle layers (sparkles, stars, snow, rain, petals, fireflies, magic dust, music notes, hearts, bubbles), drawn behind the desktop icons: `effects = { ... }` and `particles = [ ... ]` in a `[[wallpaper.monitor]]`. A still picture costs nothing once drawn. **Wallpaper Engine**: the settings list the wallpapers Wallpaper Engine has on this computer (videos play as they are; scenes use their picture); a rice that uses one is for this computer only (`shareable = false`) and is never packed.
 

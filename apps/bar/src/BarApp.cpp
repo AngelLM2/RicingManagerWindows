@@ -2,6 +2,7 @@
 
 #include "TrayHost.hpp"
 #include "WindowList.hpp"
+#include "WorkspacesWidget.hpp"
 
 #include "rmw/bar/Plan.hpp"
 #include "rmw/base/Limits.hpp"
@@ -205,6 +206,17 @@ BarApp::BarApp(Win32Platform& loop, std::filesystem::path planFile, std::wstring
         ChangeWindowMessageFilterEx(events, m_taskbarCreated, MSGFLT_ALLOW, nullptr);
     }
     m_events = events;
+    // The workspaces widget (M13) finds its monitor through its bar's window.
+    setBarWindowLookup([this](const slint::interpreter::ComponentInstance* instance) -> void* {
+        for (const auto& shown : m_bars)
+        {
+            if (shown->instance.operator->() == instance && shown->window != nullptr)
+            {
+                return shown->window->hwnd();
+            }
+        }
+        return nullptr;
+    });
     if (!bridgePipe.empty())
     {
         auto self = platform::currentExecutable();
@@ -221,6 +233,7 @@ BarApp::BarApp(Win32Platform& loop, std::filesystem::path planFile, std::wstring
 
 BarApp::~BarApp()
 {
+    setBarWindowLookup({});
     try
     {
         m_bridge.reset(); // joins its threads

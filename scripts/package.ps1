@@ -41,7 +41,7 @@ if (-not $NoBuild) {
     }
     finally { Pop-Location }
 }
-$programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe'
+$programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe'
 foreach ($program in $programs + 'slint_cpp.dll') {
     if (-not (Test-Path (Join-Path $bin $program))) { throw "Missing $program in $bin (build the release preset with the Slint SDK)." }
 }

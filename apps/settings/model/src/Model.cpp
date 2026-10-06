@@ -32,6 +32,7 @@ constexpr std::initializer_list<std::string_view> kCursorExtensions = {"cur", "a
 constexpr auto kBuiltinWidgets = std::to_array<std::string_view>({
     "start",
     "desktops",
+    "workspaces",
     "windows",
     "tray",
     "clock",
