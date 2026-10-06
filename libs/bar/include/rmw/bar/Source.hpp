@@ -34,6 +34,10 @@ struct WidgetKind
     // Whether the component declares `foreground` and `vertical` (built-ins do; a plugin's may not).
     bool takesForeground = true;
     bool takesVertical = true;
+    // Whether it declares `item-radius` (its highlights follow the bar's corners) and `accent`
+    // (Windows' accent color, for what is active). Built-ins do; a plugin's widget may.
+    bool takesItemRadius = false;
+    bool takesAccent = false;
 };
 
 struct Slot

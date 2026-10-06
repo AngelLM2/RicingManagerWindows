@@ -5,7 +5,15 @@
 #include <windows.h>
 
 #include <dwmapi.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+#include <wil/com.h>
 #include <wil/resource.h>
+
+#include <initguid.h> // PKEY_AppUserModel_ID, defined here
+#include <knownfolders.h>
+#include <propkey.h>
 
 #include <algorithm>
 #include <array>
@@ -240,6 +248,100 @@ IconPixels iconPixels(void* handle, int size)
         out.rgba[(i * 4) + 0] = static_cast<std::uint8_t>(r);
         out.rgba[(i * 4) + 1] = static_cast<std::uint8_t>(g);
         out.rgba[(i * 4) + 2] = static_cast<std::uint8_t>(b);
+        out.rgba[(i * 4) + 3] = static_cast<std::uint8_t>(a);
+    }
+    return out;
+}
+
+std::wstring appIdentity(void* window)
+{
+    auto* const hwnd = static_cast<HWND>(window);
+    wil::com_ptr_nothrow<IPropertyStore> store;
+    if (SUCCEEDED(SHGetPropertyStoreForWindow(hwnd, IID_PPV_ARGS(store.put()))))
+    {
+        wil::unique_prop_variant value;
+        if (SUCCEEDED(store->GetValue(PKEY_AppUserModel_ID, &value)) && value.vt == VT_LPWSTR &&
+            value.pwszVal != nullptr && value.pwszVal[0] != L'\0')
+        {
+            return value.pwszVal;
+        }
+    }
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    const wil::unique_handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+    if (!process)
+    {
+        return {};
+    }
+    std::wstring path(MAX_PATH, L'\0');
+    auto length = static_cast<DWORD>(path.size());
+    if (QueryFullProcessImageNameW(process.get(), 0, path.data(), &length) == FALSE)
+    {
+        return {};
+    }
+    path.resize(length);
+    return path;
+}
+
+IconPixels appIconPixels(const std::wstring& identity, int size)
+{
+    if (identity.empty() || size <= 0)
+    {
+        return {};
+    }
+    wil::com_ptr_nothrow<IShellItem> item;
+    // A path is a file; anything else is an AppUserModelID, listed in shell:AppsFolder.
+    const bool path = identity.size() > 2 && identity[1] == L':';
+    const HRESULT found =
+        path ? SHCreateItemFromParsingName(identity.c_str(), nullptr, IID_PPV_ARGS(item.put()))
+             : SHCreateItemInKnownFolder(FOLDERID_AppsFolder, KF_FLAG_DEFAULT, identity.c_str(),
+                                         IID_PPV_ARGS(item.put()));
+    wil::com_ptr_nothrow<IShellItemImageFactory> factory;
+    if (FAILED(found) || !item || FAILED(item->QueryInterface(IID_PPV_ARGS(factory.put()))))
+    {
+        return {};
+    }
+    wil::unique_hbitmap bitmap;
+    if (FAILED(factory->GetImage({size, size}, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK, bitmap.put())))
+    {
+        return {};
+    }
+    BITMAP info{};
+    if (GetObjectW(bitmap.get(), sizeof(info), &info) == 0 || info.bmWidth <= 0 || info.bmHeight <= 0 ||
+        info.bmWidth > 256 || info.bmHeight > 256)
+    {
+        return {};
+    }
+    BITMAPINFO header{};
+    header.bmiHeader.biSize = sizeof(header.bmiHeader);
+    header.bmiHeader.biWidth = info.bmWidth;
+    header.bmiHeader.biHeight = -info.bmHeight; // top-down
+    header.bmiHeader.biPlanes = 1;
+    header.bmiHeader.biBitCount = 32;
+    header.bmiHeader.biCompression = BI_RGB;
+    const auto count = static_cast<std::size_t>(info.bmWidth) * static_cast<std::size_t>(info.bmHeight);
+    std::vector<std::uint32_t> bgra(count);
+    const wil::unique_hdc_window screen(GetDC(nullptr));
+    if (GetDIBits(screen.get(), bitmap.get(), 0, static_cast<UINT>(info.bmHeight), bgra.data(), &header,
+                  DIB_RGB_COLORS) == 0)
+    {
+        return {};
+    }
+    // The Shell's bitmaps carry premultiplied alpha.
+    IconPixels out;
+    out.width = info.bmWidth;
+    out.height = info.bmHeight;
+    out.rgba.resize(count * 4);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const std::uint32_t p = bgra[i];
+        const std::uint32_t a = p >> 24;
+        const auto straight = [a](std::uint32_t c) {
+            return a == 0 || a == 255 ? c : std::min(255U, c * 255U / a);
+        };
+        out.rgba[(i * 4) + 0] = static_cast<std::uint8_t>(straight((p >> 16) & 0xFFU));
+        out.rgba[(i * 4) + 1] = static_cast<std::uint8_t>(straight((p >> 8) & 0xFFU));
+        out.rgba[(i * 4) + 2] = static_cast<std::uint8_t>(straight(p & 0xFFU));
         out.rgba[(i * 4) + 3] = static_cast<std::uint8_t>(a);
     }
     return out;

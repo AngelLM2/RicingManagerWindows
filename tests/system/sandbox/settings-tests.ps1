@@ -35,6 +35,12 @@ Add-Type -Namespace Rmw -Name Win -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern bool GetWindowRect(System.IntPtr window, out RECT rect);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool SetWindowPos(System.IntPtr window, System.IntPtr after, int x, int y, int cx, int cy, uint flags);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool ShowWindow(System.IntPtr window, int command);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool IsIconic(System.IntPtr window);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern bool SetForegroundWindow(System.IntPtr window);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern System.IntPtr GetForegroundWindow();
@@ -154,6 +160,30 @@ function Shot($Process, [string] $Name) {
     $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
     $bitmap.Save((Join-Path $Out "settings-$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
     $graphics.Dispose(); $bitmap.Dispose()
+}
+# The window's pixels as they are on the screen now.
+function Window-Bitmap($Process) {
+    $Process.Refresh()
+    $rect = New-Object Rmw.Win+RECT
+    if (-not [Rmw.Win]::GetWindowRect($Process.MainWindowHandle, [ref] $rect)) { return $null }
+    $bitmap = New-Object System.Drawing.Bitmap ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+    $graphics.Dispose()
+    return $bitmap
+}
+# How different two shots are: the average of |a - b| over a grid of points (0..255).
+function Bitmap-Difference($A, $B) {
+    if ($null -eq $A -or $null -eq $B -or $A.Width -ne $B.Width -or $A.Height -ne $B.Height) { return 255 }
+    $total = 0.0; $count = 0
+    for ($y = 4; $y -lt $A.Height - 4; $y += [math]::Max(1, [int]($A.Height / 40))) {
+        for ($x = 4; $x -lt $A.Width - 4; $x += [math]::Max(1, [int]($A.Width / 40))) {
+            $p = $A.GetPixel($x, $y); $q = $B.GetPixel($x, $y)
+            $total += ([math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B)) / 3.0
+            $count++
+        }
+    }
+    return $total / [math]::Max(1, $count)
 }
 function Light-Apps { (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction SilentlyContinue).AppsUseLightTheme }
 
@@ -321,6 +351,58 @@ Start-Sleep -Seconds 1
 Shot $pt.process 'pt-br-taskbar'
 if (-not $pt.process.HasExited) { [void]$pt.process.CloseMainWindow() }
 [void](Wait-Until { $pt.process.HasExited } 10)
+
+# ---- off the screen and back, minimized and back: nothing goes missing ---------------------------------
+# (The real-PC test saw the window turn transparent after it had been partly off the screen.)
+$moving = Start-Settings
+Start-Sleep -Seconds 2
+$app2 = $moving.process
+# The main window, not a helper the process made first.
+[void](Wait-Until {
+    $app2.Refresh()
+    $probe = New-Object Rmw.Win+RECT
+    [void][Rmw.Win]::GetWindowRect($app2.MainWindowHandle, [ref] $probe)
+    ($probe.Right - $probe.Left) -gt 300
+} 10)
+$handle = $app2.MainWindowHandle
+$rect = New-Object Rmw.Win+RECT
+[void][Rmw.Win]::GetWindowRect($handle, [ref] $rect)
+$before = Window-Bitmap $app2
+$away = [int](($rect.Right - $rect.Left) * 0.6)
+foreach ($step in @(@(-$away, 0), @(0, 0), @(0, 500), @(0, 0))) {
+    # SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+    [void][Rmw.Win]::SetWindowPos($handle, [IntPtr]::Zero, $rect.Left + $step[0], $rect.Top + $step[1], 0, 0, 0x15)
+    Start-Sleep -Milliseconds 700
+}
+$after = Window-Bitmap $app2
+$moved = Bitmap-Difference $before $after
+if ($moved -ge 6) { $after.Save((Join-Path $Out 'settings-after-off-screen.png')) }
+Check 'settings:whole-after-off-screen' ($moved -lt 6) ('{0:N1} average difference' -f $moved)
+[void][Rmw.Win]::ShowWindow($handle, 6)  # SW_MINIMIZE
+Start-Sleep -Milliseconds 700
+[void][Rmw.Win]::ShowWindow($handle, 9)  # SW_RESTORE
+# Back where it was, at its size (Windows animates the restore).
+[void](Wait-Until {
+    $now = New-Object Rmw.Win+RECT
+    [void][Rmw.Win]::GetWindowRect($handle, [ref] $now)
+    $now.Left -eq $rect.Left -and $now.Top -eq $rect.Top -and ($now.Right - $now.Left) -eq ($rect.Right - $rect.Left)
+} 5)
+Start-Sleep -Milliseconds 600
+$afterRestore = Window-Bitmap $app2
+$restored = Bitmap-Difference $before $afterRestore
+$now = New-Object Rmw.Win+RECT
+[void][Rmw.Win]::GetWindowRect($handle, [ref] $now)
+$where = "before {0},{1} {2}x{3}; after {4},{5} {6}x{7}; iconic={8}" -f $rect.Left, $rect.Top, ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top),
+    $now.Left, $now.Top, ($now.Right - $now.Left), ($now.Bottom - $now.Top), [Rmw.Win]::IsIconic($handle)
+if ($restored -ge 6) {
+    if ($null -ne $afterRestore) { $afterRestore.Save((Join-Path $Out 'settings-after-minimize.png')) }
+    Screen-Shot 'after-minimize-screen'
+}
+Check 'settings:whole-after-minimize' ($restored -lt 6) ('{0:N1} average difference; {1}' -f $restored, $where)
+[void][Rmw.Win]::SetForegroundWindow($handle)
+
+if (-not $app2.HasExited) { [void]$app2.CloseMainWindow() }
+[void](Wait-Until { $app2.HasExited } 10)
 
 $r = Invoke-Rmw @('restore', '--original', '--wait')
 Invoke-Rmw @('shutdown') | Out-Null

@@ -165,7 +165,7 @@ public:
         if (const auto* core = t.table("core"))
         {
             TableReader c(*core, "core", m_diagnostics);
-            settings.keepInTray = c.boolean("keep_in_tray").value_or(false);
+            settings.keepInTray = c.boolean("keep_in_tray").value_or(true);
             c.reportUnknownKeys();
         }
         if (const auto* ui = t.table("ui"))

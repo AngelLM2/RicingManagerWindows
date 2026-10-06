@@ -248,9 +248,19 @@ function Get-Managed([string] $Module) {
 
 # ---- 4. a global hotkey runs its action; settings.toml is picked up while the core runs ----------
 Remove-Item $settings -ErrorAction SilentlyContinue
-$r = Invoke-Rmw @('status') # a core with nothing to do
-Check 'resident:not-resident-without-settings' ($r.output -match 'Not resident') $r.output
+$r = Invoke-Rmw @('status') # nothing to do: it stays in the tray all the same (the default since v1.1)
+Check 'resident:tray-by-default' ($r.output -match 'Resident \(tray icon\)') $r.output
+# Shown next to the clock, not behind the "^" (Windows 11 keeps that per icon).
+$promoted = Wait-Until {
+    @(Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue | Where-Object {
+        $v = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+        $v.ExecutablePath -like '*rmw-core.exe' -and $v.IsPromoted -eq 1 }).Count -gt 0
+} 20
+Check 'resident:tray-icon-promoted' $promoted ''
 New-Item -ItemType Directory -Force $config | Out-Null
+"[core]`nkeep_in_tray = false`n" | Out-File $settings -Encoding ascii
+$quiet = Wait-Until { (Invoke-Rmw @('status')).output -match 'Not resident' } 10
+Check 'resident:not-resident-when-asked' $quiet (Invoke-Rmw @('status')).output
 $hotkeySettings | Out-File $settings -Encoding ascii
 $picked = Wait-Until { $s = Invoke-Rmw @('status'); $s.output -match 'F13 -> appearance.toggle' -and $s.output -notmatch 'not active' } 10
 $status = (Invoke-Rmw @('status')).output
@@ -337,7 +347,7 @@ Check 'autostart:off' ($r.code -eq 0 -and $null -eq $entry) "$($r.output) entry=
 
 # ---- 8. --startup stays only when something needs it -------------------------------------------
 Stop-Core
-Remove-Item $settings -ErrorAction SilentlyContinue
+"[core]`nkeep_in_tray = false`n" | Out-File $settings -Encoding ascii
 $p = Start-Process -FilePath $core -ArgumentList @('--data-dir', "`"$data`"", '--startup') -PassThru -WindowStyle Hidden
 $exited = $p.WaitForExit(15000)
 Check 'startup:exits-when-not-needed' ($exited -and $p.ExitCode -eq 0) "exited=$exited code=$($p.ExitCode)"

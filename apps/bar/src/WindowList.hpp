@@ -53,9 +53,12 @@ private:
     WindowTracker();
     void schedule();
     void refresh();
+    // The app's icon from the Shell (sharp at any scale), once per app; the window's own otherwise.
+    slint::Image iconFor(void* window);
 
     std::unique_ptr<providers::WindowEventHooks> m_hooks;
     std::vector<Entry> m_windows;
+    std::map<std::wstring, slint::Image> m_appIcons;
     void* m_foreground = nullptr;
     std::map<std::size_t, std::function<void()>> m_subscribers;
     std::size_t m_nextSubscriber = 1;
