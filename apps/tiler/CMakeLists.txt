@@ -4,6 +4,7 @@
 
 add_executable(rmw_tiler
     src/KeyHook.cpp
+    src/Looks.cpp
     src/SharedBlock.cpp
     src/TilerApp.cpp
     src/VirtualDesktops.cpp

@@ -72,6 +72,9 @@ enum class AssetKind : std::uint8_t
     Video,     // assets/videos: .mp4 .m4v
     Slideshow, // assets/slides/<name>: a folder of images
     Cursors,   // assets/cursors/<name>: a folder of .cur/.ani (+ install.inf)
+    Sound,     // assets/sounds: a .wav (M14)
+    Icon,      // assets/icons: an .ico (M14)
+    LockScreen, // assets: a .jpg or .png for the lock screen (M14)
 };
 
 // Copies the user's file (or folder) into the rice and returns its package path

@@ -37,12 +37,44 @@ function Start-Core([string[]] $Extra) {
     Start-Sleep -Milliseconds 500
 }
 
+# The icons (M14): the user's Documents folder and a Start menu shortcut of the user's own.
+$documents = [Environment]::GetFolderPath('MyDocuments')
+$startPrograms = [Environment]::GetFolderPath('Programs')
+$notepadLink = Join-Path $startPrograms 'Rmw Notepad.lnk'
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut($notepadLink)
+$link.TargetPath = 'C:\Windows\System32\notepad.exe'
+$link.Save()
+$clsid = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID'
+# The lock screen (M14): the file Windows says its picture came from, and Spotlight's switches.
+$null = [Windows.System.UserProfile.LockScreen, Windows.System.UserProfile, ContentType = WindowsRuntime]
+$delivery = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
+# The ProgID .bat files go to, as Windows finds it (what the icons module writes under; the Sandbox
+# has no program for .txt).
+Add-Type -Namespace Rmw -Name Assoc -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("shlwapi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern int AssocQueryStringW(int flags, int str, string assoc, string extra, System.Text.StringBuilder outText, ref int outSize);
+'@
+$progIdText = New-Object System.Text.StringBuilder 256
+$progIdSize = 256
+[void][Rmw.Assoc]::AssocQueryStringW(0, 20, '.bat', $null, $progIdText, [ref]$progIdSize) # ASSOCSTR_PROGID
+$typeProgId = $progIdText.ToString()
+# What M14 writes, as reg.exe prints it: before the apply and after the restore, the same (no residue).
+$watched = @('HKCU\AppEvents\Schemes', 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID', "HKCU\Software\Classes\$typeProgId")
+function Registry-Text {
+    ($watched | ForEach-Object {
+        $lines = & reg.exe query $_ /s 2>$null
+        if ($LASTEXITCODE -eq 0) { "[$_]"; $lines } else { "[$_ absent]" }
+    }) -join "`n"
+}
+
 function Read-State {
     $personalize = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction SilentlyContinue
     $dwm = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\DWM' -ErrorAction SilentlyContinue
     $advanced = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue
     $search = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -ErrorAction SilentlyContinue
     $cursors = Get-ItemProperty 'HKCU:\Control Panel\Cursors' -ErrorAction SilentlyContinue
+    $sounds = 'HKCU:\AppEvents\Schemes'
     [ordered]@{
         AppsLight    = $personalize.AppsUseLightTheme
         SystemLight  = $personalize.SystemUsesLightTheme
@@ -54,7 +86,37 @@ function Read-State {
         Wait         = $cursors.Wait
         Scheme       = $cursors.'(default)'
         SchemeSource = $cursors.'Scheme Source'
+        SoundScheme  = (Get-ItemProperty $sounds -ErrorAction SilentlyContinue).'(default)'
+        Notify       = (Get-ItemProperty "$sounds\Apps\.Default\Notification.Default\.Current" -ErrorAction SilentlyContinue).'(default)'
+        Asterisk     = (Get-ItemProperty "$sounds\Apps\.Default\SystemAsterisk\.Current" -ErrorAction SilentlyContinue).'(default)'
+        RecycleBin   = (Get-ItemProperty "$sounds\Apps\Explorer\EmptyRecycleBin\.Current" -ErrorAction SilentlyContinue).'(default)'
+        ThisPcIcon   = (Get-ItemProperty "$clsid\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon" -ErrorAction SilentlyContinue).'(default)'
+        BinIcon      = (Get-ItemProperty "$clsid\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon" -ErrorAction SilentlyContinue).empty
+        BinIconNow   = (Get-ItemProperty "$clsid\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon" -ErrorAction SilentlyContinue).'(default)'
+        DocsIcon     = (Get-Content (Join-Path $documents 'desktop.ini') -ErrorAction SilentlyContinue | Where-Object { $_ -like 'IconResource=*' }) -join '|'
+        NotepadIcon  = $shell.CreateShortcut($notepadLink).IconLocation
+        TypeIcon     = (Get-ItemProperty "HKCU:\Software\Classes\$typeProgId\DefaultIcon" -ErrorAction SilentlyContinue).'(default)'
+        LockImage    = "$([Windows.System.UserProfile.LockScreen]::OriginalImageFile.LocalPath)"
+        Spotlight    = (Get-ItemProperty $delivery -ErrorAction SilentlyContinue).RotatingLockScreenEnabled
+        LockTips     = (Get-ItemProperty $delivery -ErrorAction SilentlyContinue).RotatingLockScreenOverlayEnabled
+        LockTips2    = (Get-ItemProperty $delivery -ErrorAction SilentlyContinue).'SubscribedContent-338387Enabled'
     }
+}
+
+# A 16x16 32-bit .ico of one color.
+function New-Ico([string] $Path, [byte] $R, [byte] $G, [byte] $B) {
+    $stream = New-Object IO.MemoryStream
+    $w = New-Object IO.BinaryWriter $stream
+    $w.Write([uint16]0); $w.Write([uint16]1); $w.Write([uint16]1)
+    $w.Write([byte]16); $w.Write([byte]16); $w.Write([byte]0); $w.Write([byte]0)
+    $w.Write([uint16]1); $w.Write([uint16]32); $w.Write([uint32](40 + 1024 + 64)); $w.Write([uint32]22)
+    $w.Write([uint32]40); $w.Write([int32]16); $w.Write([int32]32); $w.Write([uint16]1); $w.Write([uint16]32)
+    foreach ($i in 1..6) { $w.Write([uint32]0) }
+    foreach ($i in 1..256) { $w.Write($B); $w.Write($G); $w.Write($R); $w.Write([byte]255) }
+    $w.Write((New-Object byte[] 64))
+    $w.Flush()
+    New-Item -ItemType Directory -Force (Split-Path $Path) | Out-Null
+    [IO.File]::WriteAllBytes($Path, $stream.ToArray())
 }
 
 function Compare-State($Before, $After) {
@@ -69,9 +131,14 @@ function Compare-State($Before, $After) {
 New-Item -ItemType Directory -Force (Join-Path $rice 'assets\cursors') | Out-Null
 Copy-Item 'C:\Windows\Cursors\aero_link.cur' (Join-Path $rice 'assets\cursors\pointer.cur')
 Copy-Item 'C:\Windows\Cursors\aero_busy.ani' (Join-Path $rice 'assets\cursors\busy.ani')
+New-Item -ItemType Directory -Force (Join-Path $rice 'assets\sounds') | Out-Null
+$wav = Get-ChildItem 'C:\Windows\Media' -Filter '*.wav' -ErrorAction SilentlyContinue | Sort-Object Length | Select-Object -First 1
+Copy-Item $wav.FullName (Join-Path $rice 'assets\sounds\pop.wav')
+New-Ico (Join-Path $rice 'assets\icons\violet.ico') 0x9a 0x6b 0xf7
 $image = Get-ChildItem 'C:\Windows\Web' -Recurse -Include *.jpg -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($image) {
     Copy-Item $image.FullName (Join-Path $rice 'assets\wall.jpg')
+    Copy-Item $image.FullName (Join-Path $rice 'assets\lock.jpg')
 } else {
     # 2x2 red BMP
     [byte[]] $bmp = 0x42,0x4D,70,0,0,0,0,0,0,0,54,0,0,0,40,0,0,0,2,0,0,0,2,0,0,0,1,0,24,0,0,0,0,0,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0
@@ -97,6 +164,29 @@ source = "assets/cursors"
 [cursors.map]
 normal = "pointer.cur"
 busy = "busy.ani"
+
+[sounds]
+scheme = "none"
+
+[sounds.events]
+notification = "assets/sounds/pop.wav"
+
+[icons]
+this-pc = "assets/icons/violet.ico"
+recycle-bin = "assets/icons/violet.ico"
+
+[icons.folders]
+documents = "assets/icons/violet.ico"
+
+[icons.apps]
+"notepad.exe" = "assets/icons/violet.ico"
+
+[icons.types]
+bat = "assets/icons/violet.ico"
+
+[lockscreen]
+image = "assets/lock.jpg"
+tips = false
 
 [wallpaper]
 background = "#1a1b26"
@@ -143,6 +233,7 @@ $r = Invoke-Rmw @('validate', $rice)
 Check 'validate' ($r.code -eq 0) $r.output
 
 $before = Read-State
+$registryBefore = Registry-Text
 # Control Panel\Desktop\WallPaper points at TranscodedWallpaper after any theme change: the
 # wallpaper is checked through what the module itself sees.
 $wallpaperBefore = (Invoke-Rmw @('inspect', 'wallpaper')).output
@@ -154,6 +245,10 @@ Check 'apply:dark' ($after.AppsLight -eq 0 -and $after.SystemLight -eq 0) "apps=
 Check 'apply:accent' ($after.Accent -eq '7AA2F7') "accent=$($after.Accent)"
 Check 'apply:accent-on-taskbar' ($after.Prevalence -eq 1) "prevalence=$($after.Prevalence)"
 Check 'apply:taskbar' ($after.TaskView -eq 0 -and $after.Search -eq 1) "taskView=$($after.TaskView) search=$($after.Search)"
+Check 'apply:sounds' ("$($after.Notify)" -like '*\store\*.wav' -and "$($after.Asterisk)" -eq '' -and "$($after.RecycleBin)" -eq '' -and $after.SoundScheme -eq '.Current') "notify=$($after.Notify) asterisk='$($after.Asterisk)' scheme=$($after.SoundScheme)"
+Check 'apply:icons' ("$($after.ThisPcIcon)" -like '*\store\*.ico,0' -and "$($after.BinIcon)" -like '*\store\*.ico,0' -and "$($after.BinIconNow)" -like '*\store\*.ico,0' -and "$($after.DocsIcon)" -like 'IconResource=*\store\*.ico,0' -and "$($after.NotepadIcon)" -like '*\store\*.ico,0') "thisPc=$($after.ThisPcIcon) bin=$($after.BinIcon) now=$($after.BinIconNow) docs=$($after.DocsIcon) notepad=$($after.NotepadIcon)"
+Check 'apply:file-type-icon' ("$($after.TypeIcon)" -like '*\store\*.ico,0' -and -not (Test-Path 'HKCU:\Software\Classes\Unknown\DefaultIcon')) "progId=$typeProgId icon=$($after.TypeIcon)"
+Check 'apply:lockscreen' ("$($after.LockImage)" -like '*\store\*.jpg' -and "$($after.Spotlight)" -eq '0' -and "$($after.LockTips)" -eq '0' -and "$($after.LockTips2)" -eq '0') "image=$($after.LockImage) spotlight=$($after.Spotlight) tips=$($after.LockTips)/$($after.LockTips2) (before: $($before.LockImage) $($before.Spotlight) $($before.LockTips))"
 Check 'apply:cursors' ("$($after.Arrow)" -like '*\store\*.cur' -and "$($after.Wait)" -like '*\store\*.ani') "arrow=$($after.Arrow) wait=$($after.Wait)"
 $wallpaperAfter = (Invoke-Rmw @('inspect', 'wallpaper')).output
 $shown = @(($wallpaperAfter | ConvertFrom-Json).state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } | ForEach-Object { $_.Value.file })
@@ -174,6 +269,9 @@ Start-Sleep -Seconds 2
 $restored = Read-State
 $diff = Compare-State $before $restored
 Check 'restore:everything-back' ($diff.Count -eq 0) ($diff -join '; ')
+$registryAfter = Registry-Text
+$residue = @(Compare-Object ($registryBefore -split "`n") ($registryAfter -split "`n") | ForEach-Object { "$($_.SideIndicator) $($_.InputObject.Trim())" })
+Check 'restore:no-registry-residue' ($residue.Count -eq 0) (($residue | Select-Object -First 12) -join ' | ')
 $wallpaperRestored = (Invoke-Rmw @('inspect', 'wallpaper')).output
 Check 'restore:wallpaper-back' ($wallpaperRestored -eq $wallpaperBefore) "before=$wallpaperBefore after=$wallpaperRestored"
 

@@ -208,6 +208,35 @@ Result<void> Win32Registry::remove(std::string_view key, std::string_view name)
     return {};
 }
 
+Result<void> Win32Registry::removeKeyIfEmpty(std::string_view key)
+{
+    auto path = fullKey(key);
+    if (!path)
+    {
+        return fail(ErrorCode::InvalidArgument, "registry path is not valid UTF-8");
+    }
+    HKEY handle = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, path->c_str(), 0, KEY_QUERY_VALUE, &handle) != ERROR_SUCCESS)
+    {
+        return {}; // not there
+    }
+    DWORD subkeys = 0;
+    DWORD values = 0;
+    const LSTATUS info = RegQueryInfoKeyW(handle, nullptr, nullptr, nullptr, &subkeys, nullptr, nullptr, &values,
+                                          nullptr, nullptr, nullptr, nullptr);
+    RegCloseKey(handle);
+    if (info != ERROR_SUCCESS || subkeys != 0 || values != 0)
+    {
+        return {};
+    }
+    const LSTATUS status = RegDeleteKeyW(HKEY_CURRENT_USER, path->c_str());
+    if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND)
+    {
+        return std::unexpected(win32Error(static_cast<std::uint32_t>(status), "delete an empty registry key"));
+    }
+    return {};
+}
+
 Result<void> Win32Registry::deleteRoot()
 {
     if (m_root.empty())

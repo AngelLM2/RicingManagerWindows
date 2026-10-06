@@ -3,6 +3,9 @@
 #include "rmw/engine/ModuleCatalog.hpp"
 #include "rmw/modules/Appearance.hpp"
 #include "rmw/modules/Cursors.hpp"
+#include "rmw/modules/Icons.hpp"
+#include "rmw/modules/LockScreen.hpp"
+#include "rmw/modules/Sounds.hpp"
 #include "rmw/modules/Taskbar.hpp"
 #include "rmw/modules/Tweaks.hpp"
 #include "rmw/modules/Wallpaper.hpp"
@@ -22,6 +25,9 @@ struct ModuleLogic
     modules::AppearanceLogic appearance;
     modules::TaskbarLogic taskbar;
     modules::CursorsLogic cursors;
+    modules::SoundsLogic sounds;
+    modules::IconsLogic icons;
+    modules::LockScreenLogic lockscreen;
     modules::WallpaperLogic wallpaper{topology};
     modules::TweaksLogic tweaks;
     engine::ModuleCatalog catalog;
@@ -41,12 +47,17 @@ struct ModuleSystems
 {
     platform::Win32Registry registry;
     platform::Win32Shell shell;
+    platform::Win32Icons iconsApi;
+    platform::Win32LockScreen lockScreenApi;
     platform::Win32ThemeApi theme;
     platform::Win32DisplayTopology topology;
     platform::Win32WallpaperApi wallpaperApi;
     modules::AppearanceSystem appearance{registry, shell, theme};
     modules::TaskbarSystem taskbar{registry, shell};
     modules::CursorsSystem cursors{registry, shell};
+    modules::SoundsSystem sounds{registry, shell};
+    modules::IconsSystem icons{registry, iconsApi};
+    modules::LockScreenSystem lockscreen{registry, lockScreenApi};
     modules::WallpaperSystem wallpaper{topology, wallpaperApi, registry};
     modules::TweaksSystem tweaks{registry, shell};
     engine::LocalModuleRunner runner;

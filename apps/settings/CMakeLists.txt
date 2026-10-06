@@ -51,6 +51,7 @@ target_link_libraries(rmw_settings PRIVATE
     shell32
     shlwapi
     user32
+    winmm
     windowscodecs
 )
 # The .po files are inputs of the generated code: a change rebuilds it.

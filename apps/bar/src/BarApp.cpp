@@ -7,6 +7,8 @@
 #include "rmw/bar/Plan.hpp"
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
+#include "rmw/base/Utf.hpp"
+#include "rmw/domain/CursorFiles.hpp"
 #include "rmw/domain/MonitorSelector.hpp"
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/Pipe.hpp"
@@ -477,6 +479,36 @@ void BarApp::clear()
     m_bars.clear();
 }
 
+bool BarApp::useAppIcons(const std::vector<bar::PlanAppIcon>& icons)
+{
+    // Each file is checked here, like any input: one that is not a valid .ico is left out.
+    std::map<std::wstring, std::wstring> files;
+    for (const auto& icon : icons)
+    {
+        auto bytes = platform::readFileLimited(icon.file, limits::kIconMaxBytes);
+        if (!bytes)
+        {
+            log::warn("bar: the icon of {}: {}", icon.program, bytes.error().toString());
+            continue;
+        }
+        if (auto valid = domain::validateIconFile(*bytes); !valid)
+        {
+            log::warn("bar: the icon of {}: {}", icon.program, valid.error().toString());
+            continue;
+        }
+        files[utf8To16Lossy(icon.program)] = icon.file.native();
+    }
+    if (files == m_appIconFiles)
+    {
+        return false;
+    }
+    m_appIconFiles = files;
+    providers::setAppIconFiles(std::move(files));
+    WindowTracker::instance().forgetIcons();
+    log::info("bar: {} program icons from the rice", m_appIconFiles.size());
+    return true;
+}
+
 bool BarApp::rebuild()
 {
     clear();
@@ -501,6 +533,7 @@ bool BarApp::rebuild()
         m_native.show();
         return false;
     }
+    const bool iconsChanged = useAppIcons(plan->appIcons);
     platform::Win32DisplayTopology topology;
     auto monitors = topology.monitors();
     if (!monitors)
@@ -649,7 +682,7 @@ bool BarApp::rebuild()
     // first bar's colors; the Win key opens it too when the user wants that.
     if (plan->start.ours)
     {
-        if (!m_start || plan->start != m_startPlan)
+        if (!m_start || plan->start != m_startPlan || iconsChanged)
         {
             m_start.reset();
             m_start = StartMenu::create(plan->start);

@@ -1,3 +1,5 @@
+#include "rmw/domain/RiceParser.hpp"
+#include "rmw/domain/RiceWriter.hpp"
 #include "rmw/tiling/Desktop.hpp"
 #include "rmw/tiling/Layout.hpp"
 #include "rmw/tiling/Plan.hpp"
@@ -281,6 +283,71 @@ TEST(TilingPlan, GoesThereAndBack)
     EXPECT_EQ(options.innerGap, 6);
     EXPECT_EQ(options.outerGap, 12);
     EXPECT_DOUBLE_EQ(options.masterRatio, 0.55);
+}
+
+TEST(TilingPlan, TheRicesWindowLook)
+{
+    rmw::domain::Diagnostics diagnostics;
+    const auto rice = rmw::domain::parseRice(R"toml(
+schema = 1
+[meta]
+name = "Look"
+
+[palette]
+night = "#1a1b26"
+
+[windows]
+corners = "small"
+border = "none"
+caption = "palette.night"
+title = "#c0caf5"
+backdrop = "mica"
+dark = true
+exclude = ["Code.exe"]
+)toml",
+                                             diagnostics);
+    ASSERT_TRUE(rice.has_value()) << diagnostics.errorSummary("rice.toml");
+    ASSERT_TRUE(rice->windows.has_value());
+    EXPECT_TRUE(rice->windows->noBorder);
+    EXPECT_EQ(rice->windows->exclude, std::vector<std::string>{"code.exe"});
+    const auto again = rmw::domain::parseRice(rmw::domain::writeRice(*rice), diagnostics);
+    ASSERT_TRUE(again.has_value()) << rmw::domain::writeRice(*rice);
+    EXPECT_EQ(again->windows->caption, rice->windows->caption);
+    EXPECT_TRUE(again->windows->noBorder);
+    EXPECT_EQ(again->windows->exclude, rice->windows->exclude);
+
+    const WindowLook look = lookFromRice(*rice->windows, rice->palette, rmw::domain::Color{0, 0x78, 0xD4, 0xFF});
+    EXPECT_EQ(look.corners, rmw::domain::WindowCorners::Small);
+    EXPECT_EQ(look.caption, (rmw::domain::Color{0x1a, 0x1b, 0x26, 0xFF})); // the palette's
+    EXPECT_EQ(look.backdrop, rmw::domain::WindowBackdrop::Mica);
+    EXPECT_TRUE(look.noBorder);
+
+    // In the plan, with tiling or alone; a plan of before M14 tiles.
+    Plan plan = samplePlan();
+    plan.look = look;
+    plan.settings.enabled = false;
+    const auto back = parsePlan(toJson(plan));
+    ASSERT_TRUE(back.has_value()) << back.error().toString();
+    EXPECT_EQ(*back, plan);
+    EXPECT_EQ(parseLook(toJson(look)).value(), look);
+    auto old = toJson(samplePlan());
+    old.erase(old.find("\"tiling\": true,"), 15);
+    ASSERT_TRUE(parsePlan(old).has_value()) << old;
+    EXPECT_TRUE(parsePlan(old)->settings.enabled);
+
+    for (const char* bad : {
+             "[windows]\ncorners = \"oval\"\n",
+             "[windows]\nbackdrop = \"glass\"\n",
+             "[windows]\ncaption = \"palette.nowhere\"\n", // no such palette color
+             "[windows]\nexclude = [\"code\"]\n",
+         })
+    {
+        rmw::domain::Diagnostics d;
+        EXPECT_FALSE(rmw::domain::parseRice(std::string("schema = 1\n[meta]\nname = \"x\"\n") + bad, d).has_value())
+            << bad;
+    }
+    EXPECT_FALSE(parseLook(R"({"corners": "oval"})").has_value());
+    EXPECT_FALSE(parseLook(R"({"exclude": ["../x.exe"]})").has_value());
 }
 
 TEST(TilingPlan, ShortcutsAndRulesMatch)

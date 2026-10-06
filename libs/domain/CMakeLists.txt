@@ -19,6 +19,7 @@ rmw_add_library(domain
         src/RiceParser.cpp
         src/RiceWriter.cpp
         src/SemVer.cpp
+        src/SoundFiles.cpp
         src/Settings.cpp
         src/TomlReader.cpp
         src/Tweaks.cpp

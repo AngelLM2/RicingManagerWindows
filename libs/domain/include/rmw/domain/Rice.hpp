@@ -244,6 +244,151 @@ struct CursorConfig
     std::vector<CursorAssignment> map; // empty: read install.inf from `source`
 };
 
+// ---- sounds (M14) -----------------------------------------------------------------------------
+
+// The sound events a rice may set. Windows keeps each one's file at
+// HKCU\AppEvents\Schemes\Apps\<app>\<event>\.Current.
+enum class SoundEvent : std::uint8_t
+{
+    Beep,               // .Default\.Default
+    Asterisk,           // .Default\SystemAsterisk
+    Exclamation,        // .Default\SystemExclamation
+    Critical,           // .Default\SystemHand
+    Question,           // .Default\SystemQuestion
+    Notification,       // .Default\Notification.Default
+    Message,            // .Default\Notification.IM
+    Mail,               // .Default\Notification.Mail
+    Reminder,           // .Default\Notification.Reminder
+    DeviceConnect,      // .Default\DeviceConnect
+    DeviceDisconnect,   // .Default\DeviceDisconnect
+    DeviceFail,         // .Default\DeviceFail
+    LowBattery,         // .Default\LowBatteryAlarm
+    CriticalBattery,    // .Default\CriticalBatteryAlarm
+    Unlock,             // .Default\WindowsUnlock
+    PrintComplete,      // .Default\PrintComplete
+    EmptyRecycleBin,    // Explorer\EmptyRecycleBin
+    Navigating,         // Explorer\Navigating
+};
+
+inline constexpr std::size_t kSoundEventCount = 18;
+
+std::string_view riceName(SoundEvent event) noexcept;
+// "Apps\.Default\SystemAsterisk": the event's key under HKCU\AppEvents\Schemes.
+std::string_view registryKey(SoundEvent event) noexcept;
+std::optional<SoundEvent> soundEventFromRiceName(std::string_view name) noexcept;
+
+// What the events not set one by one do.
+enum class SoundScheme : std::uint8_t
+{
+    None, // silence (Windows' "No Sounds")
+};
+
+struct SoundAssignment
+{
+    SoundEvent event = SoundEvent::Beep;
+    std::string file; // a .wav in the package; empty: no sound for that event
+};
+
+struct SoundsConfig
+{
+    std::optional<SoundScheme> scheme;
+    std::vector<SoundAssignment> events;
+};
+
+// ---- icons (M14) ------------------------------------------------------------------------------
+
+// The icons on the desktop. Windows keeps them per user at
+// HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{...}\DefaultIcon.
+enum class DesktopIcon : std::uint8_t
+{
+    ThisPc,
+    RecycleBin,     // empty
+    RecycleBinFull,
+    Network,
+    UserFiles,      // the user's own folder
+    ControlPanel,
+};
+
+inline constexpr std::size_t kDesktopIconCount = 6;
+
+// The user's folders (their desktop.ini).
+enum class UserFolder : std::uint8_t
+{
+    Desktop,
+    Documents,
+    Downloads,
+    Pictures,
+    Music,
+    Videos,
+};
+
+inline constexpr std::size_t kUserFolderCount = 6;
+
+std::string_view riceName(DesktopIcon icon) noexcept;
+std::string_view riceName(UserFolder folder) noexcept;
+std::optional<DesktopIcon> desktopIconFromRiceName(std::string_view name) noexcept;
+std::optional<UserFolder> userFolderFromRiceName(std::string_view name) noexcept;
+
+struct IconsConfig
+{
+    std::vector<std::pair<DesktopIcon, std::string>> desktop; // .ico files of the package
+    std::vector<std::pair<UserFolder, std::string>> folders;
+    // By program ("firefox.exe", lower case): its shortcuts (Start, desktop, taskbar) and its icon in
+    // Ricing Manager's bar and Start.
+    std::vector<std::pair<std::string, std::string>> apps;
+    // By file type ("txt", lower case, no dot): the icon of its files (HKCU\Software\Classes).
+    std::vector<std::pair<std::string, std::string>> types;
+};
+
+// "firefox.exe": a program's file name, 1..64 bytes, letters, digits, " ._-" and ending in .exe.
+[[nodiscard]] bool isValidProgramName(std::string_view name) noexcept;
+// "txt": a file extension without the dot, 1..16 bytes of a-z, 0-9, "_", "-" and "+".
+[[nodiscard]] bool isValidFileExtension(std::string_view extension) noexcept;
+
+// ---- lock screen (M14) ------------------------------------------------------------------------
+
+struct LockScreenConfig
+{
+    std::string image;             // a .jpg/.png of the package; "" leaves the picture alone
+    std::optional<bool> spotlight; // true: Windows Spotlight (no image); false: the picture stays
+    std::optional<bool> tips;      // fun facts, tips and more over the lock screen
+};
+
+// ---- other apps' windows (M14) ----------------------------------------------------------------
+
+// Windows 11's DWM attributes, set by rmw-tiler from the outside.
+enum class WindowCorners : std::uint8_t
+{
+    Round,
+    Small,
+    Square,
+};
+
+enum class WindowBackdrop : std::uint8_t
+{
+    None,
+    Mica,
+    Acrylic,
+    Tabbed,
+};
+
+struct WindowsLookConfig
+{
+    std::optional<WindowCorners> corners;
+    std::optional<ColorRef> border;
+    bool noBorder = false;             // border = "none"
+    std::optional<ColorRef> caption;   // the title bar
+    std::optional<ColorRef> title;     // the title's text
+    std::optional<WindowBackdrop> backdrop;
+    std::optional<bool> dark;          // dark title bars (light buttons)
+    std::vector<std::string> exclude;  // programs left as they are ("code.exe", lower case)
+
+    [[nodiscard]] bool empty() const noexcept
+    {
+        return !corners && !border && !noBorder && !caption && !title && !backdrop && !dark;
+    }
+};
+
 // ---- native taskbar (ADR-0003) -----------------------------------------------------------------
 
 enum class TaskbarAlignment
@@ -424,6 +569,10 @@ struct Rice
     std::optional<AppearanceConfig> appearance;
     std::optional<WallpaperConfig> wallpaper;
     std::optional<CursorConfig> cursors;
+    std::optional<SoundsConfig> sounds;
+    std::optional<IconsConfig> icons;
+    std::optional<LockScreenConfig> lockscreen;
+    std::optional<WindowsLookConfig> windows;
     std::optional<TaskbarConfig> taskbar;
     std::optional<StartConfig> start;
     std::vector<BarConfig> bars;
@@ -450,5 +599,10 @@ std::string_view toString(BarStyle value) noexcept;
 std::string_view toString(StartMenuKind value) noexcept;
 std::string_view toString(StartLayout value) noexcept;
 std::string_view toString(BarBackground::Kind value) noexcept;
+std::string_view toString(SoundScheme value) noexcept;
+std::string_view toString(WindowCorners value) noexcept;
+std::string_view toString(WindowBackdrop value) noexcept;
+std::optional<WindowCorners> windowCornersFromName(std::string_view name) noexcept;
+std::optional<WindowBackdrop> windowBackdropFromName(std::string_view name) noexcept;
 
 } // namespace rmw::domain

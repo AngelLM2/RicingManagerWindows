@@ -555,3 +555,91 @@ Add an app	Adicionar um app
 Advanced mode	Modo avançado
 Also the windows of apps running as administrator	Também as janelas de apps rodando como administrador
 Windows asks for your permission each time tiling starts. Without it, those windows are left where they are, and the keys do nothing while one of them is in front.	O Windows pede a sua permissão cada vez que o tiling começa. Sem isto, essas janelas ficam onde estão, e os atalhos não fazem nada enquanto uma delas está na frente.
+Sounds	Sons
+Default beep	Aviso sonoro padrão
+Asterisk	Asterisco
+Exclamation	Exclamação
+Critical stop	Parada crítica
+Question	Pergunta
+Notification	Notificação
+New message	Nova mensagem
+New mail	Novo e-mail
+Reminder	Lembrete
+Device connected	Dispositivo conectado
+Device disconnected	Dispositivo desconectado
+Device failed to connect	Falha ao conectar dispositivo
+Low battery	Bateria fraca
+Critical battery	Bateria crítica
+Unlock	Desbloquear
+Print complete	Impressão concluída
+Empty the Recycle Bin	Esvaziar a Lixeira
+Folder navigation (click)	Navegar nas pastas (clique)
+What Windows plays for its events: your .wav files, or silence.	O que o Windows toca nos eventos dele: os seus arquivos .wav, ou silêncio.
+Everything else	O resto
+Silence for the events below that have no sound of their own	Silêncio nos eventos abaixo que não têm som próprio
+Off: those keep the sounds Windows has.	Desligado: esses ficam com os sons que o Windows tem.
+Events	Eventos
+Silent	Sem som
+Silent (everything else)	Sem som (o resto)
+Windows' sound	Som do Windows
+Choose a .wav…	Escolher um .wav…
+Choose a sound for {}	Escolher um som para {}
+Play {}	Tocar {}
+No sound for {}	Sem som para {}
+As it is	Como está
+Leave {} as it is	Deixar {} como está
+Windows' own sounds are not copied into the rice: a rice you share takes only your files.	Os sons do próprio Windows não são copiados para o rice: um rice que você compartilha leva só os seus arquivos.
+Icons	Ícones
+This PC	Este Computador
+Recycle Bin (empty)	Lixeira (vazia)
+Recycle Bin (full)	Lixeira (cheia)
+Your user folder	Sua pasta de usuário
+Control Panel	Painel de Controle
+Desktop	Área de Trabalho
+Documents	Documentos
+Downloads	Downloads
+Pictures	Imagens
+Music	Músicas
+Videos	Vídeos
+Windows' icon	Ícone do Windows
+Choose an .ico…	Escolher um .ico…
+Choose an icon for {}	Escolher um ícone para {}
+Your .ico files for the desktop, your folders and your programs.	Seus arquivos .ico para a área de trabalho, suas pastas e seus programas.
+The Recycle Bin has two icons: empty and full.	A Lixeira tem dois ícones: vazia e cheia.
+Folders	Pastas
+Programs	Programas
+Program	Programa
+Choose an icon for the program	Escolher um ícone para o programa
+The program's shortcuts take the icon: in your Start menu, on your desktop and pinned to the taskbar. Ricing Manager's bar and Start show it too.	Os atalhos do programa ganham o ícone: no seu menu Iniciar, na sua área de trabalho e fixados na barra de tarefas. A barra e o Iniciar do Ricing Manager também o mostram.
+Windows' own icons are not copied into the rice: a rice you share takes only your files.	Os ícones do próprio Windows não são copiados para o rice: um rice que você compartilha leva só os seus arquivos.
+Lock screen	Tela de bloqueio
+Picture	Imagem
+Windows Spotlight	Destaque do Windows
+Choose a picture…	Escolher uma imagem…
+Choose a lock screen picture	Escolher uma imagem para a tela de bloqueio
+Windows Spotlight on the lock screen	Destaque do Windows na tela de bloqueio
+Leave the lock screen picture as it is	Deixar a imagem da tela de bloqueio como está
+Fun facts, tips and more on the lock screen	Curiosidades, dicas e mais na tela de bloqueio
+A .jpg or .png. Restoring brings back the picture you had, or Windows Spotlight.	Um .jpg ou .png. Restaurar traz de volta a imagem que você tinha, ou o Destaque do Windows.
+Other apps' windows	Janelas dos outros apps
+Windows 11 draws these for every app; Ricing Manager sets them while it runs.	O Windows 11 desenha isso em todo app; o Ricing Manager ajusta enquanto está aberto.
+Corners	Cantos
+Round	Arredondados
+Slightly round	Pouco arredondados
+Square	Retos
+Window corners	Cantos das janelas
+Backdrop of the title bar	Fundo da barra de título
+None	Nenhum
+Tabbed	Com abas
+Dark title bars	Barras de título escuras
+Border color	Cor da borda
+Window border color	Cor da borda das janelas
+Title bar color	Cor da barra de título
+Title color	Cor do título
+Programs left as they are	Programas que ficam como estão
+Their file names, separated by commas.	Os nomes dos arquivos, separados por vírgulas.
+Colors as #RRGGBB or palette.<name>. When Ricing Manager closes or you restore, Windows' own come back. Apps running as administrator keep theirs.	Cores como #RRGGBB ou palette.<nome>. Quando o Ricing Manager fecha ou você restaura, voltam as do Windows. Apps rodando como administrador ficam com as suas.
+File types	Tipos de arquivo
+File type	Tipo de arquivo
+Choose an icon for the file type	Escolher um ícone para o tipo de arquivo
+Files of that type show the icon, for the program that opens them now.	Os arquivos desse tipo mostram o ícone, para o programa que os abre agora.

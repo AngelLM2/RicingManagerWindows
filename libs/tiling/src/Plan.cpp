@@ -157,7 +157,154 @@ Result<domain::TilingRule> ruleFrom(const Json& entry)
     return domain::TilingRule{*app, *windowClass, *title, *action, static_cast<int>(*workspace)};
 }
 
+Json lookJson(const WindowLook& look)
+{
+    Json out = Json::object();
+    if (look.corners)
+    {
+        out["corners"] = std::string(domain::toString(*look.corners));
+    }
+    if (look.noBorder)
+    {
+        out["border"] = "none";
+    }
+    else if (look.border)
+    {
+        out["border"] = look.border->toHex();
+    }
+    if (look.caption)
+    {
+        out["caption"] = look.caption->toHex();
+    }
+    if (look.text)
+    {
+        out["text"] = look.text->toHex();
+    }
+    if (look.backdrop)
+    {
+        out["backdrop"] = std::string(domain::toString(*look.backdrop));
+    }
+    if (look.dark)
+    {
+        out["dark"] = *look.dark;
+    }
+    out["exclude"] = look.exclude;
+    return out;
+}
+
+Result<WindowLook> lookFrom(const Json& object)
+{
+    if (!object.is_object())
+    {
+        return bad<WindowLook>("the look is not an object");
+    }
+    WindowLook look;
+    const auto color = [&](std::string_view key, std::optional<domain::Color>& into) -> bool {
+        if (!object.contains(key))
+        {
+            return true;
+        }
+        const auto text = textIn(object, key, 16);
+        auto parsed = text ? domain::Color::parse(*text) : Result<domain::Color>(fail(ErrorCode::InvalidData, ""));
+        if (!parsed)
+        {
+            return false;
+        }
+        into = *parsed;
+        return true;
+    };
+    if (object.contains("corners"))
+    {
+        const auto name = textIn(object, "corners", 16);
+        look.corners = name ? domain::windowCornersFromName(*name) : std::nullopt;
+        if (!look.corners)
+        {
+            return bad<WindowLook>("the look's corners");
+        }
+    }
+    if (object.contains("backdrop"))
+    {
+        const auto name = textIn(object, "backdrop", 16);
+        look.backdrop = name ? domain::windowBackdropFromName(*name) : std::nullopt;
+        if (!look.backdrop)
+        {
+            return bad<WindowLook>("the look's backdrop");
+        }
+    }
+    look.noBorder = textIn(object, "border", 16) == "none";
+    if ((!look.noBorder && !color("border", look.border)) || !color("caption", look.caption) ||
+        !color("text", look.text))
+    {
+        return bad<WindowLook>("a color of the look");
+    }
+    look.dark = boolIn(object, "dark");
+    const auto exclude = object.find("exclude");
+    if (exclude != object.end())
+    {
+        if (!exclude->is_array() || exclude->size() > kMaxRules)
+        {
+            return bad<WindowLook>("the look's exclude must be a short list");
+        }
+        for (const auto& name : *exclude)
+        {
+            if (!name.is_string() || !domain::isValidProgramName(name.get<std::string>()))
+            {
+                return bad<WindowLook>("the look's exclude names a program badly");
+            }
+            look.exclude.push_back(name.get<std::string>());
+        }
+    }
+    return look;
+}
+
 } // namespace
+
+WindowLook lookFromRice(const domain::WindowsLookConfig& config, std::span<const domain::PaletteEntry> palette,
+                        domain::Color accent)
+{
+    const auto resolve = [&](const std::optional<domain::ColorRef>& color) -> std::optional<domain::Color> {
+        if (!color)
+        {
+            return std::nullopt;
+        }
+        if (const auto* direct = std::get_if<domain::Color>(&color->value))
+        {
+            return *direct;
+        }
+        const auto& name = std::get<std::string>(color->value);
+        const auto entry = std::ranges::find(palette, name, &domain::PaletteEntry::name);
+        if (entry == palette.end())
+        {
+            return name == "accent" ? std::optional(accent) : std::nullopt;
+        }
+        return entry->color;
+    };
+    WindowLook look;
+    look.corners = config.corners;
+    look.border = resolve(config.border);
+    look.noBorder = config.noBorder;
+    look.caption = resolve(config.caption);
+    look.text = resolve(config.title);
+    look.backdrop = config.backdrop;
+    look.dark = config.dark;
+    look.exclude = config.exclude;
+    return look;
+}
+
+std::string toJson(const WindowLook& look)
+{
+    return json::dumpPretty(lookJson(look));
+}
+
+Result<WindowLook> parseLook(std::string_view text)
+{
+    auto parsed = json::parse(text, json::ParseLimits{.maxBytes = kMaxPlanBytes});
+    if (!parsed)
+    {
+        return std::unexpected(std::move(parsed.error()));
+    }
+    return lookFrom(*parsed);
+}
 
 std::string toJson(const Plan& plan)
 {
@@ -179,8 +326,9 @@ std::string toJson(const Plan& plan)
                          {"do", std::string(domain::toString(rule.action))},
                          {"workspace", rule.workspace}});
     }
-    return json::dumpPretty({{"version", kPlanVersion},
-                             {"mode", std::string(domain::toString(s.mode))},
+    Json root = {{"version", kPlanVersion},
+                 {"tiling", s.enabled},
+                 {"mode", std::string(domain::toString(s.mode))},
                              {"layout", std::string(domain::toString(s.layout))},
                              {"workspaces", s.workspaces},
                              {"gap", s.gap},
@@ -189,8 +337,13 @@ std::string toJson(const Plan& plan)
                              {"border", s.border},
                              {"borderColor", plan.border.toHex()},
                              {"runAsAdmin", s.runAsAdmin},
-                             {"keys", std::move(keys)},
-                             {"rules", std::move(rules)}});
+                 {"keys", std::move(keys)},
+                 {"rules", std::move(rules)}};
+    if (plan.look)
+    {
+        root["look"] = lookJson(*plan.look);
+    }
+    return json::dumpPretty(root);
 }
 
 Result<Plan> parsePlan(std::string_view text)
@@ -207,7 +360,7 @@ Result<Plan> parsePlan(std::string_view text)
     }
     Plan plan;
     domain::TilingSettings& s = plan.settings;
-    s.enabled = true;
+    s.enabled = boolIn(root, "tiling").value_or(true); // a plan of before M14 always tiled
     const auto mode = textIn(root, "mode", 32);
     const auto layout = textIn(root, "layout", 32);
     const auto modeValue = mode ? domain::tilingModeFromName(*mode) : std::nullopt;
@@ -267,6 +420,15 @@ Result<Plan> parsePlan(std::string_view text)
             return std::unexpected(std::move(rule.error()));
         }
         s.rules.push_back(std::move(*rule));
+    }
+    if (const auto look = root.find("look"); look != root.end())
+    {
+        auto parsedLook = lookFrom(*look);
+        if (!parsedLook)
+        {
+            return std::unexpected(std::move(parsedLook.error()));
+        }
+        plan.look = std::move(*parsedLook);
     }
     return plan;
 }

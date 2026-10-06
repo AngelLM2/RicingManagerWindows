@@ -2,13 +2,13 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: v1.4.0 (milestone M13 "Tiling").** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows, video wallpapers and live wallpapers (effects and particles; Wallpaper Engine's own wallpapers read from this PC); a custom, fully resizable taskbar with the system tray, five ready-made styles, a dock and its own Start menu; tiling with workspaces (like Linux or a Mac) and Ctrl keys; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
+**Status: v1.5.0 (milestone M14 "Another system's face").** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows, video wallpapers and live wallpapers (effects and particles; Wallpaper Engine's own wallpapers read from this PC); a custom, fully resizable taskbar with the system tray, five ready-made styles, a dock and its own Start menu; tiling with workspaces (like Linux or a Mac) and Ctrl keys; sounds, icon packs (desktop, folders, programs, file types), the lock screen and the look of every app's window (corners, borders, title bars, Mica); community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
 
 ---
 
 ## Português
 
-Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: wallpaper estático e em vídeo por monitor, modo claro/escuro (inclusive por horário), cor de destaque, cursores, **barra de tarefas própria totalmente dimensionável** e **plugins da comunidade** — tudo descrito num arquivo `rice.toml` que você pode compartilhar.
+Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: wallpaper estático e em vídeo por monitor, modo claro/escuro (inclusive por horário), cor de destaque, cursores, sons, ícones, tela de bloqueio, o visual das janelas dos outros apps, **barra de tarefas própria totalmente dimensionável** e **plugins da comunidade** — tudo descrito num arquivo `rice.toml` que você pode compartilhar.
 
 ### Princípios
 
@@ -36,7 +36,7 @@ Para desinstalar (Configurações → Apps): ele pergunta se você quer o visual
 
 - **Início:** o rice aplicado, o que está sendo gerenciado, "Desfazer" e "Restaurar o Windows original", e o histórico.
 - **Rices:** aplicar, editar, duplicar, compartilhar (um arquivo `.rice`), importar um `.rice`, salvar o visual atual como um rice, adicionar uma pasta.
-- **Aparência, Wallpapers, Cursores, Barra de tarefas e Plugins:** mudam o rice escolhido.
+- **Aparência, Wallpapers, Cursores, Sons, Ícones, Barra de tarefas e Plugins:** mudam o rice escolhido (a Aparência também tem o visual das janelas dos outros apps; os Wallpapers, a tela de bloqueio).
   - Os arquivos que você escolhe são copiados para dentro do rice, que continua inteiro e compartilhável.
   - As barras próprias têm um editor visual: arraste os widgets entre as zonas, ou use os botões.
 - **Tiling:** janelas lado a lado, áreas de trabalho como no Linux (1 a 9 por monitor) ou como no Mac (as do Windows), borda colorida na janela em foco, regras por app e atalhos com Ctrl que você muda; desligar devolve cada janela para onde estava.
@@ -76,6 +76,20 @@ interval = 900
 [[wallpaper.monitor]]
 match = "all"
 source = "assets/mountains.jpg"
+
+[sounds]                     # M14: os sons do Windows (.wav do rice) ou silêncio
+scheme = "none"
+
+[icons.apps]                 # M14: o ícone dos seus atalhos para o programa (e na nossa barra)
+"firefox.exe" = "assets/icons/fox.ico"
+
+[lockscreen]                 # M14
+image = "assets/lock.jpg"
+
+[windows]                    # M14: as janelas de todos os apps (Windows 11)
+corners = "small"
+border = "#7aa2f7"
+backdrop = "mica"
 ```
 
 ```powershell
@@ -219,7 +233,7 @@ Pacotes de fora (`.rice`, `.rmwp`) só são abertos num processo próprio, com t
 
 ## English
 
-A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: static and video wallpapers per monitor, light/dark mode (also scheduled), accent color, cursors, a **fully resizable custom taskbar** and **community plugins** — all described in a shareable `rice.toml` file.
+A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: static and video wallpapers per monitor, light/dark mode (also scheduled), accent color, cursors, sounds, icons, the lock screen, the look of other apps' windows, a **fully resizable custom taskbar** and **community plugins** — all described in a shareable `rice.toml` file.
 
 ### Principles
 
@@ -243,7 +257,7 @@ Uninstalling (Settings → Apps) asks whether to bring back the Windows look you
 
 ### The settings window (v1.0)
 
-`rmw-settings.exe` opens Ricing Manager's window (Fluent, light or dark like Windows, in English or Portuguese). Home shows the applied rice, what is managed, Undo, Restore the original Windows and the history; Rices applies, edits, duplicates, shares (a `.rice` file), imports a `.rice` and saves your current look as a rice. Appearance, Wallpapers, Cursors, Taskbar (with a visual editor of your own bars: drag widgets between zones, or use the buttons) and Plugins change the chosen rice; the files you pick are copied into it, so it stays whole and shareable. Hotkeys and rules include `Open an app` (`launch.app`, picked from the installed apps); Diagnostics shows processes, memory, recent problems and makes a support bundle. Closing the window ends the process.
+`rmw-settings.exe` opens Ricing Manager's window (Fluent, light or dark like Windows, in English or Portuguese). Home shows the applied rice, what is managed, Undo, Restore the original Windows and the history; Rices applies, edits, duplicates, shares (a `.rice` file), imports a `.rice` and saves your current look as a rice. Appearance (with the look of other apps' windows), Wallpapers (with the lock screen), Cursors, Sounds, Icons, Taskbar (with a visual editor of your own bars: drag widgets between zones, or use the buttons) and Plugins change the chosen rice; the files you pick are copied into it, so it stays whole and shareable. Hotkeys and rules include `Open an app` (`launch.app`, picked from the installed apps); Diagnostics shows processes, memory, recent problems and makes a support bundle. Closing the window ends the process.
 
 ### Use (command line, v1.0)
 

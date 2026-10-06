@@ -396,6 +396,10 @@ Medium "$app M1"
 Medium "$app M2"
 [void](Wait-Until { (Find 'M1') -ne [IntPtr]::Zero -and (Find 'M2') -ne [IntPtr]::Zero } 5)
 $medium = [IntPtr[]]@((Find 'M1'), (Find 'M2'))
+$adminLog = Join-Path $data 'logs\tiler-admin.log'
+# Tilers that ran as administrator so far (the log's [number] is a thread, not a process).
+function Admin-Runs { @(Get-Content $adminLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'tiler: running as administrator' }).Count }
+$adminRunsBefore = Admin-Runs
 Write-Settings "[tiling]`nenabled = true`nrun_as_admin = true`n"
 Medium "$rmw settings reload --data-dir $data"
 $both = Wait-Until { @(Tilers).Count -eq 2 } 20
@@ -403,8 +407,7 @@ $copy = Tilers | Where-Object { $_.CommandLine -match '--elevated-by' } | Select
 Check 'tiler:proxy-starts-a-copy' ($both -and $null -ne $copy) ((Tilers | ForEach-Object { "$($_.ProcessId): $($_.CommandLine)" }) -join ' | ')
 Start-Sleep -Seconds 2
 # Did Windows give the copy the rights? (With the UAC off, "run as administrator" gives none.)
-$adminLog = Join-Path $data 'logs\tiler-admin.log'
-$copyIsAdmin = $null -ne $copy -and (Test-Path $adminLog) -and ((Get-Content $adminLog -Raw) -match "\[$($copy.ProcessId)\] tiler: running as administrator")
+$copyIsAdmin = $null -ne $copy -and (Admin-Runs) -gt $adminRunsBefore
 Note 'proxy-copy-is-admin' "$copyIsAdmin"
 if ($copyIsAdmin) {
     $three = [IntPtr[]]@($medium + $h1)
@@ -459,6 +462,60 @@ $desktops = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Ex
 Note 'mac-registry' "ids=$(@($desktops.VirtualDesktopIDs).Count) bytes, current=$(@($desktops.CurrentVirtualDesktop).Count) bytes"
 $adminLog = Join-Path $data 'logs\tiler-admin.log'
 Note 'mac-log' ((Get-Content $adminLog -Tail 10 -ErrorAction SilentlyContinue) -join ' | ')
+
+# ---- 10. a rice's window look (M14), tiling off: rmw-tiler paints other apps' title bars, and only that
+Get-Process rmw_tiler_test_app -ErrorAction SilentlyContinue | Stop-Process -Force
+Write-Settings ''
+[void](Invoke-Rmw @('settings', 'reload'))
+Check 'look:tiler-off-first' (Wait-Until { $null -eq (Tiler-Process) } 15) ''
+# The color DWM draws at a point of the screen.
+function Pixel([int] $X, [int] $Y) {
+    $bitmap = New-Object System.Drawing.Bitmap 1, 1
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $target = $graphics.GetHdc()
+    $screenDc = [Rmw.Win]::GetDC([IntPtr]::Zero)
+    [void][Rmw.Win]::BitBlt($target, 0, 0, 1, 1, $screenDc, $X, $Y, 0x40CC0020)
+    [void][Rmw.Win]::ReleaseDC([IntPtr]::Zero, $screenDc)
+    $graphics.ReleaseHdc($target)
+    $color = $bitmap.GetPixel(0, 0)
+    $graphics.Dispose(); $bitmap.Dispose()
+    return $color
+}
+# The middle of the title bar, where only the caption's color is.
+function Caption([IntPtr] $Window) {
+    $frame = Frame $Window
+    Pixel ($frame.X + [int]($frame.Width / 2)) ($frame.Y + 8)
+}
+function Magenta($Color) { $Color.R -ge 0xF0 -and $Color.G -le 0x10 -and $Color.B -ge 0xF0 }
+Start-Process $app 'L1' | Out-Null
+[void](Wait-Until { (Find 'L1') -ne [IntPtr]::Zero } 10)
+$l1 = Find 'L1'
+Click-On $l1
+Start-Sleep -Milliseconds 500
+$captionBefore = Caption $l1
+$placeBefore = Outer $l1
+$lookRice = Join-Path $Work 'look-rice'
+New-Item -ItemType Directory -Force $lookRice | Out-Null
+"schema = 1`n`n[meta]`nname = `"Window look`"`n`n[windows]`ncaption = `"#FF00FF`"`ncorners = `"square`"`n" |
+    Out-File (Join-Path $lookRice 'rice.toml') -Encoding ascii
+$r = Invoke-Rmw @('apply', $lookRice)
+Check 'look:applied' ($r.code -eq 0) $r.output
+Check 'look:tiler-runs-for-it' (Wait-Until { $null -ne (Tiler-Process) } 15) ((Invoke-Rmw @('status')).output)
+$painted = Wait-Until { Magenta (Caption $l1) } 10
+Check 'look:caption-painted' $painted "before=$captionBefore now=$(Caption $l1)"
+Shot 'tiler-10-look'
+Check 'look:no-tiling' ((Outer $l1) -eq $placeBefore) "before=$placeBefore now=$(Outer $l1)"
+Start-Process $app 'L2' | Out-Null
+[void](Wait-Until { (Find 'L2') -ne [IntPtr]::Zero } 10)
+$l2 = Find 'L2'
+Click-On $l2
+Check 'look:new-window-painted' (Wait-Until { Magenta (Caption $l2) } 10) "now=$(Caption $l2)"
+$r = Invoke-Rmw @('restore', '--original')
+Check 'look:restored' ($r.code -eq 0) $r.output
+Check 'look:tiler-leaves' (Wait-Until { $null -eq (Tiler-Process) } 15) ''
+Click-On $l2
+Check 'look:caption-back' (Wait-Until { -not (Magenta (Caption $l2)) } 10) "before=$captionBefore now=$(Caption $l2)"
+Shot 'tiler-10-look-back'
 
 Get-Process rmw_tiler_test_app -ErrorAction SilentlyContinue | Stop-Process -Force
 Invoke-Rmw @('shutdown') | Out-Null

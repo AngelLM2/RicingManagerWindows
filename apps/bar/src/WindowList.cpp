@@ -173,6 +173,16 @@ void WindowTracker::schedule()
     });
 }
 
+void WindowTracker::forgetIcons()
+{
+    m_appIcons.clear();
+    for (auto& entry : m_windows)
+    {
+        entry.iconLoaded = false;
+    }
+    schedule(); // drawn again a few at a time, like new windows
+}
+
 slint::Image WindowTracker::iconFor(void* window)
 {
     const std::wstring identity = providers::appIdentity(window);
