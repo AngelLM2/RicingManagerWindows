@@ -3,6 +3,7 @@
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/domain/Identifiers.hpp"
+#include "rmw/domain/PathRules.hpp"
 #include "rmw/json/Json.hpp"
 #include "rmw/json/Value.hpp"
 
@@ -243,6 +244,23 @@ Result<Plan> planFromRice(const domain::Rice& rice)
     return plan;
 }
 
+void addAppIcons(Plan& plan, const domain::Rice& rice, const std::filesystem::path& riceFolder)
+{
+    plan.appIcons.clear();
+    if (!rice.icons)
+    {
+        return;
+    }
+    for (const auto& [program, file] : rice.icons->apps)
+    {
+        auto relative = utf8To16(file);
+        if (relative)
+        {
+            plan.appIcons.push_back({program, (riceFolder / *relative).lexically_normal()});
+        }
+    }
+}
+
 std::string toJson(const Plan& plan)
 {
     Json bars = Json::array();
@@ -284,11 +302,17 @@ std::string toJson(const Plan& plan)
         plugins.push_back(
             {{"id", plugin.id}, {"folder", utf16To8Lossy(plugin.folder.native())}, {"dev", plugin.dev}});
     }
+    Json appIcons = Json::array();
+    for (const auto& icon : plan.appIcons)
+    {
+        appIcons.push_back({{"program", icon.program}, {"file", utf16To8Lossy(icon.file.native())}});
+    }
     return json::dumpPretty({{"version", kPlanVersion},
                              {"rice", plan.riceName},
                              {"start", {{"ours", plan.start.ours}, {"winKey", plan.start.winKey}, {"pinned", plan.start.pinned}, {"language", plan.start.language}}},
                              {"bars", std::move(bars)},
-                             {"plugins", std::move(plugins)}});
+                             {"plugins", std::move(plugins)},
+                             {"appIcons", std::move(appIcons)}});
 }
 
 Result<Plan> planFromJson(std::string_view text)
@@ -358,6 +382,27 @@ Result<Plan> planFromJson(std::string_view text)
             return fail(ErrorCode::InvalidData, "bar plan: plugins: the folder must be absolute");
         }
         plan.plugins.push_back(std::move(plugin));
+    }
+    const Json appIcons = json::memberOr(root, "appIcons", Json::array());
+    if (!appIcons.is_array() || appIcons.size() > limits::kRiceMaxIconApps)
+    {
+        return fail(ErrorCode::InvalidData, "bar plan: appIcons: expected a short list");
+    }
+    for (const auto& entry : appIcons)
+    {
+        PlanAppIcon icon;
+        icon.program = json::stringOr(entry, "program", "");
+        auto file = utf8To16(json::stringOr(entry, "file", ""));
+        if (!domain::isValidProgramName(icon.program) || !file || file->empty())
+        {
+            return fail(ErrorCode::InvalidData, "bar plan: appIcons: invalid entry");
+        }
+        icon.file = std::filesystem::path(std::move(*file));
+        if (!icon.file.is_absolute() || !domain::hasExtension(utf16To8Lossy(icon.file.native()), {"ico"}))
+        {
+            return fail(ErrorCode::InvalidData, "bar plan: appIcons: expected an absolute .ico");
+        }
+        plan.appIcons.push_back(std::move(icon));
     }
     return plan;
 }

@@ -764,5 +764,60 @@ export component WallpapersPage inherits ScrollView {
                 }
             }
         }
+
+        // The lock screen (M14): a picture of the rice, or Windows Spotlight.
+        if Api.editing: Card {
+            title: @tr("Lock screen");
+
+            SettingRow {
+                label: @tr("Picture");
+                description: Api.lock-spotlight ? @tr("Windows Spotlight") : Api.lock-image != "" ? Api.lock-image : @tr("As it is");
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Button {
+                        text: @tr("Choose a picture…");
+                        accessible-label: @tr("Choose a lock screen picture");
+                        clicked => {
+                            Api.lock-pick();
+                        }
+                    }
+
+                    if !Api.lock-spotlight: Button {
+                        text: @tr("Windows Spotlight");
+                        accessible-label: @tr("Windows Spotlight on the lock screen");
+                        clicked => {
+                            Api.lock-spotlight-on();
+                        }
+                    }
+
+                    if Api.lock-spotlight || Api.lock-image != "": Button {
+                        text: @tr("As it is");
+                        accessible-label: @tr("Leave the lock screen picture as it is");
+                        clicked => {
+                            Api.lock-clear();
+                        }
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Fun facts, tips and more on the lock screen");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Leave as it is"), @tr("Show"), @tr("Hide")];
+                    current-index <=> Api.lock-tips;
+                    accessible-label: @tr("Fun facts, tips and more on the lock screen");
+                    selected => {
+                        Api.lock-edited();
+                    }
+                }
+            }
+
+            Hint {
+                text: @tr("A .jpg or .png. Restoring brings back the picture you had, or Windows Spotlight.");
+            }
+        }
     }
 }

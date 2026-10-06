@@ -18,8 +18,11 @@
 
 #include <windows.h>
 
+#include <mmsystem.h>
+
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <climits>
 #include <cmath>
@@ -595,7 +598,8 @@ void SettingsApp::refreshStatus()
         api.set_can_undo(!json::stringOr(rice, "previous", "").empty());
         api.set_safe_mode(json::memberOr(m_status, "safeMode", Json()).is_string());
         if (const Page page = api.get_page(); page == Page::Appearance || page == Page::Wallpapers ||
-                                              page == Page::Cursors || page == Page::Bar)
+                                              page == Page::Cursors || page == Page::Sounds || page == Page::Icons ||
+                                              page == Page::Bar)
         {
             ensureEditing(page); // opened on an editor page before the core answered
         }
@@ -1158,7 +1162,8 @@ void SettingsApp::ensureEditing(Page page)
             }
             const Page now = m_ui->global<Api>().get_page();
             const bool editorPage = now == Page::Appearance || now == Page::Wallpapers ||
-                                    now == Page::Cursors || now == Page::Bar;
+                                    now == Page::Cursors || now == Page::Sounds || now == Page::Icons ||
+                                    now == Page::Bar;
             startEditing(folder, editorPage ? now : page);
         },
         true);
@@ -1275,6 +1280,98 @@ void SettingsApp::showEdited()
             });
         }
     }
+
+    // Sounds (M14).
+    std::vector<SoundRow> sounds;
+    sounds.reserve(domain::kSoundEventCount);
+    for (std::size_t i = 0; i < domain::kSoundEventCount; ++i)
+    {
+        const auto event = static_cast<domain::SoundEvent>(i);
+        const domain::SoundAssignment* set = nullptr;
+        if (rice.sounds)
+        {
+            const auto found = std::ranges::find(rice.sounds->events, event, &domain::SoundAssignment::event);
+            set = found == rice.sounds->events.end() ? nullptr : &*found;
+        }
+        sounds.push_back({shared(domain::riceName(event)), shared(set != nullptr ? set->file : std::string()),
+                          set != nullptr && set->file.empty()});
+    }
+    api.set_sound_rows(modelOf(std::move(sounds)));
+    api.set_sounds_silence(rice.sounds && rice.sounds->scheme == domain::SoundScheme::None);
+
+    // Other apps' windows (M14).
+    const auto& look = rice.windows;
+    const auto refText = [](const std::optional<domain::ColorRef>& ref) {
+        return ref ? shared(ref->toString()) : slint::SharedString();
+    };
+    api.set_windows_corners(look && look->corners ? static_cast<int>(*look->corners) + 1 : 0);
+    api.set_windows_backdrop(look && look->backdrop ? static_cast<int>(*look->backdrop) + 1 : 0);
+    api.set_windows_dark(look ? triState(look->dark) : 0);
+    api.set_windows_border(look && look->noBorder ? slint::SharedString("none") : refText(look ? look->border : std::nullopt));
+    api.set_windows_caption(refText(look ? look->caption : std::nullopt));
+    api.set_windows_title(refText(look ? look->title : std::nullopt));
+    std::string excluded;
+    if (look)
+    {
+        for (const auto& program : look->exclude)
+        {
+            excluded += (excluded.empty() ? "" : ", ") + program;
+        }
+    }
+    api.set_windows_exclude(shared(excluded));
+
+    // The lock screen (M14).
+    const auto& lock = rice.lockscreen;
+    api.set_lock_image(shared(lock ? lock->image : std::string()));
+    api.set_lock_spotlight(lock && lock->spotlight == true);
+    api.set_lock_tips(lock && lock->tips ? (*lock->tips ? 1 : 2) : 0);
+
+    // Icons (M14): every desktop icon and folder, the programs the rice names.
+    const auto iconOf = [&rice](const auto& entries, const auto& key) {
+        if (!rice.icons)
+        {
+            return std::string();
+        }
+        const auto& list = entries(*rice.icons);
+        const auto found = std::ranges::find(list, key, [](const auto& entry) { return entry.first; });
+        return found == list.end() ? std::string() : found->second;
+    };
+    std::vector<IconRow> desktopIcons;
+    for (std::size_t i = 0; i < domain::kDesktopIconCount; ++i)
+    {
+        const auto icon = static_cast<domain::DesktopIcon>(i);
+        desktopIcons.push_back(
+            {shared(domain::riceName(icon)),
+             shared(iconOf([](const domain::IconsConfig& c) -> const auto& { return c.desktop; }, icon))});
+    }
+    api.set_icon_desktop_rows(modelOf(std::move(desktopIcons)));
+    std::vector<IconRow> folderIcons;
+    for (std::size_t i = 0; i < domain::kUserFolderCount; ++i)
+    {
+        const auto folder = static_cast<domain::UserFolder>(i);
+        folderIcons.push_back(
+            {shared(domain::riceName(folder)),
+             shared(iconOf([](const domain::IconsConfig& c) -> const auto& { return c.folders; }, folder))});
+    }
+    api.set_icon_folder_rows(modelOf(std::move(folderIcons)));
+    std::vector<IconRow> appIcons;
+    if (rice.icons)
+    {
+        for (const auto& [program, file] : rice.icons->apps)
+        {
+            appIcons.push_back({shared(program), shared(file)});
+        }
+    }
+    api.set_icon_app_rows(modelOf(std::move(appIcons)));
+    std::vector<IconRow> typeIcons;
+    if (rice.icons)
+    {
+        for (const auto& [extension, file] : rice.icons->types)
+        {
+            typeIcons.push_back({shared(extension), shared(file)});
+        }
+    }
+    api.set_icon_type_rows(modelOf(std::move(typeIcons)));
 
     // Start (M11).
     const auto& start = rice.start;
@@ -1867,6 +1964,8 @@ void SettingsApp::bind()
             break;
         case Page::Appearance:
         case Page::Cursors:
+        case Page::Sounds:
+        case Page::Icons:
             ensureEditing(page);
             break;
         default:
@@ -2685,6 +2784,401 @@ void SettingsApp::bind()
         rice->cursors->size =
             index == 0 ? std::nullopt : std::optional(kCursorSizes[static_cast<std::size_t>(index)]);
         saveEdited(false);
+    });
+
+    // ---- sounds (M14) ----------------------------------------------------------------------------------
+    // The event's assignment in the edited rice, made when `create`; null otherwise.
+    const auto soundOf = [this](const slint::SharedString& name, bool create) -> domain::SoundAssignment* {
+        domain::Rice* rice = edited();
+        const auto event = domain::soundEventFromRiceName(text(name));
+        if (rice == nullptr || !event)
+        {
+            return nullptr;
+        }
+        if (!rice->sounds)
+        {
+            if (!create)
+            {
+                return nullptr;
+            }
+            rice->sounds.emplace();
+        }
+        auto& events = rice->sounds->events;
+        const auto found = std::ranges::find(events, *event, &domain::SoundAssignment::event);
+        if (found != events.end())
+        {
+            return &*found;
+        }
+        if (!create)
+        {
+            return nullptr;
+        }
+        events.push_back({*event, {}});
+        return &events.back();
+    };
+    // Nothing left of [sounds]: the rice leaves the sounds alone.
+    const auto tidySounds = [this] {
+        domain::Rice* rice = edited();
+        if (rice != nullptr && rice->sounds && !rice->sounds->scheme && rice->sounds->events.empty())
+        {
+            rice->sounds.reset();
+        }
+    };
+    api.on_sound_pick([this, soundOf](const slint::SharedString& name) {
+        const auto file = pickFile(window(), {{L"Sounds (.wav)", L"*.wav"}});
+        if (!file || edited() == nullptr)
+        {
+            return;
+        }
+        auto stored = settings::importAsset(m_edit->folder, *file, settings::AssetKind::Sound);
+        if (!stored)
+        {
+            failed(stored.error());
+            return;
+        }
+        if (domain::SoundAssignment* sound = soundOf(name, true))
+        {
+            sound->file = *stored;
+            notice(NoticeKind::Imported, *stored);
+            saveEdited();
+        }
+    });
+    api.on_sound_silence([this, soundOf](const slint::SharedString& name) {
+        if (domain::SoundAssignment* sound = soundOf(name, true))
+        {
+            sound->file.clear();
+            saveEdited();
+        }
+    });
+    api.on_sound_clear([this, tidySounds](const slint::SharedString& name) {
+        domain::Rice* rice = edited();
+        const auto event = domain::soundEventFromRiceName(text(name));
+        if (rice == nullptr || !rice->sounds || !event)
+        {
+            return;
+        }
+        std::erase_if(rice->sounds->events, [&](const domain::SoundAssignment& s) { return s.event == *event; });
+        tidySounds();
+        saveEdited();
+    });
+    api.on_sound_play([this, soundOf](const slint::SharedString& name) {
+        const domain::SoundAssignment* sound = soundOf(name, false);
+        if (sound != nullptr && !sound->file.empty() && m_edit)
+        {
+            const fs::path file = settings::assetPath(m_edit->folder, sound->file);
+            PlaySoundW(file.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
+        }
+    });
+    api.on_sounds_edited([this, tidySounds] {
+        domain::Rice* rice = edited();
+        if (rice == nullptr)
+        {
+            return;
+        }
+        const bool silence = m_ui->global<Api>().get_sounds_silence();
+        if (silence && !rice->sounds)
+        {
+            rice->sounds.emplace();
+        }
+        if (rice->sounds)
+        {
+            rice->sounds->scheme = silence ? std::optional(domain::SoundScheme::None) : std::nullopt;
+        }
+        tidySounds();
+        saveEdited();
+    });
+
+    // ---- other apps' windows (M14) -----------------------------------------------------------------
+    api.on_windows_edited([this] {
+        domain::Rice* rice = edited();
+        if (rice == nullptr)
+        {
+            return;
+        }
+        const auto& api = m_ui->global<Api>();
+        domain::WindowsLookConfig look;
+        if (const int corners = std::clamp(api.get_windows_corners(), 0, 3); corners > 0)
+        {
+            look.corners = static_cast<domain::WindowCorners>(corners - 1);
+        }
+        if (const int backdrop = std::clamp(api.get_windows_backdrop(), 0, 4); backdrop > 0)
+        {
+            look.backdrop = static_cast<domain::WindowBackdrop>(backdrop - 1);
+        }
+        look.dark = fromTriState(api.get_windows_dark());
+        // "" none; palette.<name>; #RRGGBB. Anything else is being typed: not saved yet.
+        const auto colorOf = [](std::string value, std::optional<domain::ColorRef>& into) {
+            std::erase(value, ' ');
+            if (value.empty())
+            {
+                return true;
+            }
+            if (value.starts_with("palette.") && value.size() > 8)
+            {
+                into = domain::ColorRef{value.substr(8)};
+                return true;
+            }
+            if (auto color = domain::Color::parse(value))
+            {
+                into = domain::ColorRef{*color};
+                return true;
+            }
+            return false;
+        };
+        if (std::string border = text(api.get_windows_border()); border == "none")
+        {
+            look.noBorder = true;
+        }
+        else if (!colorOf(std::move(border), look.border))
+        {
+            return;
+        }
+        if (!colorOf(text(api.get_windows_caption()), look.caption) ||
+            !colorOf(text(api.get_windows_title()), look.title))
+        {
+            return;
+        }
+        const std::string list = text(api.get_windows_exclude());
+        for (std::size_t start = 0; start <= list.size();)
+        {
+            const std::size_t comma = std::min(list.find(',', start), list.size());
+            std::string name = list.substr(start, comma - start);
+            std::erase(name, ' ');
+            std::ranges::transform(name, name.begin(),
+                                   [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+            if (!name.empty())
+            {
+                if (!domain::isValidProgramName(name))
+                {
+                    return; // still being typed
+                }
+                look.exclude.push_back(std::move(name));
+            }
+            start = comma + 1;
+        }
+        // A palette name the rice does not have would make it unreadable: not saved.
+        for (const auto* ref : {&look.border, &look.caption, &look.title})
+        {
+            const std::string* name = *ref ? std::get_if<std::string>(&(*ref)->value) : nullptr;
+            if (name != nullptr && *name != "accent" && rice->findPalette(*name) == nullptr)
+            {
+                failed(Error(ErrorCode::InvalidArgument, "that palette color is not in this rice's [palette]"));
+                return;
+            }
+        }
+        rice->windows = look.empty() ? std::nullopt : std::optional(std::move(look));
+        saveEdited(false);
+    });
+
+    // ---- the lock screen (M14) ---------------------------------------------------------------------
+    // Nothing left of [lockscreen]: the rice leaves the lock screen alone.
+    const auto tidyLock = [this] {
+        domain::Rice* rice = edited();
+        if (rice != nullptr && rice->lockscreen && rice->lockscreen->image.empty() &&
+            !rice->lockscreen->spotlight && !rice->lockscreen->tips)
+        {
+            rice->lockscreen.reset();
+        }
+    };
+    api.on_lock_pick([this] {
+        const auto file = pickFile(window(), {{L"Pictures (.jpg, .png)", L"*.jpg;*.jpeg;*.png"}});
+        if (!file || edited() == nullptr)
+        {
+            return;
+        }
+        auto stored = settings::importAsset(m_edit->folder, *file, settings::AssetKind::LockScreen);
+        if (!stored)
+        {
+            failed(stored.error());
+            return;
+        }
+        domain::Rice* rice = edited();
+        if (!rice->lockscreen)
+        {
+            rice->lockscreen.emplace();
+        }
+        rice->lockscreen->image = *stored;
+        rice->lockscreen->spotlight.reset();
+        notice(NoticeKind::Imported, *stored);
+        saveEdited();
+    });
+    api.on_lock_spotlight_on([this] {
+        domain::Rice* rice = edited();
+        if (rice == nullptr)
+        {
+            return;
+        }
+        if (!rice->lockscreen)
+        {
+            rice->lockscreen.emplace();
+        }
+        rice->lockscreen->image.clear();
+        rice->lockscreen->spotlight = true;
+        saveEdited();
+    });
+    api.on_lock_clear([this, tidyLock] {
+        domain::Rice* rice = edited();
+        if (rice == nullptr || !rice->lockscreen)
+        {
+            return;
+        }
+        rice->lockscreen->image.clear();
+        rice->lockscreen->spotlight.reset();
+        tidyLock();
+        saveEdited();
+    });
+    api.on_lock_edited([this, tidyLock] {
+        domain::Rice* rice = edited();
+        if (rice == nullptr)
+        {
+            return;
+        }
+        const int tips = m_ui->global<Api>().get_lock_tips();
+        if (tips != 0 && !rice->lockscreen)
+        {
+            rice->lockscreen.emplace();
+        }
+        if (rice->lockscreen)
+        {
+            rice->lockscreen->tips = tips == 0 ? std::nullopt : std::optional(tips == 1);
+        }
+        tidyLock();
+        saveEdited();
+    });
+
+    // ---- icons (M14) -----------------------------------------------------------------------------------
+    // Sets (file) or removes (empty file) one entry of the edited rice's [icons]; false for an unknown key.
+    const auto setIcon = [this](std::string_view kind, std::string key, const std::string& file) {
+        domain::Rice* rice = edited();
+        if (rice == nullptr)
+        {
+            return false;
+        }
+        if (!rice->icons)
+        {
+            if (file.empty())
+            {
+                return true;
+            }
+            rice->icons.emplace();
+        }
+        auto& icons = *rice->icons;
+        const auto put = [&file](auto& list, const auto& name) {
+            const auto found = std::ranges::find(list, name, [](const auto& entry) { return entry.first; });
+            if (file.empty())
+            {
+                if (found != list.end())
+                {
+                    list.erase(found);
+                }
+            }
+            else if (found != list.end())
+            {
+                found->second = file;
+            }
+            else
+            {
+                list.emplace_back(name, file);
+            }
+        };
+        bool known = true;
+        if (kind == "desktop")
+        {
+            const auto icon = domain::desktopIconFromRiceName(key);
+            known = icon.has_value();
+            if (known)
+            {
+                put(icons.desktop, *icon);
+            }
+        }
+        else if (kind == "folder")
+        {
+            const auto folder = domain::userFolderFromRiceName(key);
+            known = folder.has_value();
+            if (known)
+            {
+                put(icons.folders, *folder);
+            }
+        }
+        else
+        {
+            std::ranges::transform(key, key.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+            if (kind == "type")
+            {
+                if (key.starts_with('.'))
+                {
+                    key.erase(0, 1);
+                }
+                known = domain::isValidFileExtension(key);
+                if (known)
+                {
+                    put(icons.types, key);
+                }
+            }
+            else
+            {
+                known = domain::isValidProgramName(key);
+                if (known)
+                {
+                    put(icons.apps, key);
+                }
+            }
+        }
+        // Nothing left of [icons]: the rice leaves the icons alone.
+        if (icons.desktop.empty() && icons.folders.empty() && icons.apps.empty() && icons.types.empty())
+        {
+            rice->icons.reset();
+        }
+        return known;
+    };
+    api.on_icon_pick([this, setIcon](const slint::SharedString& kind, const slint::SharedString& key) {
+        if (edited() == nullptr)
+        {
+            return;
+        }
+        std::string program = text(key);
+        std::ranges::transform(program, program.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+        if (text(kind) == "app" && !domain::isValidProgramName(program))
+        {
+            failed(Error{ErrorCode::InvalidArgument, "write the program's file name, like firefox.exe"});
+            return;
+        }
+        if (text(kind) == "type" &&
+            !domain::isValidFileExtension(program.starts_with('.') ? program.substr(1) : program))
+        {
+            failed(Error{ErrorCode::InvalidArgument, "write the file type, like txt"});
+            return;
+        }
+        const auto file = pickFile(window(), {{L"Icons (.ico)", L"*.ico"}});
+        if (!file || edited() == nullptr)
+        {
+            return;
+        }
+        auto stored = settings::importAsset(m_edit->folder, *file, settings::AssetKind::Icon);
+        if (!stored)
+        {
+            failed(stored.error());
+            return;
+        }
+        if (setIcon(text(kind), text(key), *stored))
+        {
+            if (text(kind) == "app")
+            {
+                m_ui->global<Api>().set_icon_new_program({});
+            }
+            if (text(kind) == "type")
+            {
+                m_ui->global<Api>().set_icon_new_type({});
+            }
+            notice(NoticeKind::Imported, *stored);
+            saveEdited();
+        }
+    });
+    api.on_icon_clear([this, setIcon](const slint::SharedString& kind, const slint::SharedString& key) {
+        if (setIcon(text(kind), text(key), {}))
+        {
+            saveEdited();
+        }
     });
 
     // ---- Windows' taskbar and our bars -------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <map>
 #include <vector>
 
 // The windows a taskbar shows: the Alt+Tab rules (visible, unowned or app windows, not tool
@@ -49,6 +50,10 @@ struct IconPixels
 // sharp at any scale, where a window's own icon is often 16 px. COM must be initialized on the
 // calling thread. Empty when there is none.
 [[nodiscard]] IconPixels appIconPixels(const std::wstring& identity, int size);
+// The rice's own icons for programs (M14): program file name in lower case ("firefox.exe") -> an
+// .ico the caller checked. appIconPixels() then draws that file for any identity that names the
+// program (its path, or a Start entry ending in it). Any thread.
+void setAppIconFiles(std::map<std::wstring, std::wstring> byProgram);
 
 // WinEvent hooks out of context (nothing of ours goes into other processes) for what changes a
 // taskbar: foreground, minimize, show/hide/destroy, title, cloak. `changed` runs on the thread that

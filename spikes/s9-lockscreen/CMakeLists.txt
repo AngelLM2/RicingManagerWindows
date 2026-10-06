@@ -1,0 +1,3 @@
+add_executable(spike_s9_lockscreen main.cpp)
+target_link_libraries(spike_s9_lockscreen PRIVATE advapi32 ole32 oleaut32 runtimeobject)
+rmw_configure_target(spike_s9_lockscreen)

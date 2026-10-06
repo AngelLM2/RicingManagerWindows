@@ -57,6 +57,70 @@ std::optional<CursorRole> cursorRoleFromRiceName(std::string_view name) noexcept
     return std::nullopt;
 }
 
+std::string_view riceName(SoundEvent event) noexcept
+{
+    return kSoundEventNames[static_cast<std::size_t>(event)].riceName;
+}
+
+std::string_view registryKey(SoundEvent event) noexcept
+{
+    return kSoundEventNames[static_cast<std::size_t>(event)].registryKey;
+}
+
+std::optional<SoundEvent> soundEventFromRiceName(std::string_view name) noexcept
+{
+    for (const auto& entry : kSoundEventNames)
+    {
+        if (entry.riceName == name)
+        {
+            return entry.event;
+        }
+    }
+    return std::nullopt;
+}
+
+std::string_view riceName(DesktopIcon icon) noexcept
+{
+    return enumToName<DesktopIcon>(kDesktopIconNames, icon);
+}
+
+std::string_view riceName(UserFolder folder) noexcept
+{
+    return enumToName<UserFolder>(kUserFolderNames, folder);
+}
+
+std::optional<DesktopIcon> desktopIconFromRiceName(std::string_view name) noexcept
+{
+    return enumFromName<DesktopIcon>(kDesktopIconNames, name);
+}
+
+std::optional<UserFolder> userFolderFromRiceName(std::string_view name) noexcept
+{
+    return enumFromName<UserFolder>(kUserFolderNames, name);
+}
+
+bool isValidFileExtension(std::string_view extension) noexcept
+{
+    return !extension.empty() && extension.size() <= 16 && std::ranges::all_of(extension, [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '+';
+    });
+}
+
+bool isValidProgramName(std::string_view name) noexcept
+{
+    if (name.size() < 5 || name.size() > 64)
+    {
+        return false;
+    }
+    const std::string_view extension = name.substr(name.size() - 4);
+    const bool exe = (extension[0] == '.') && (extension[1] == 'e' || extension[1] == 'E') &&
+                     (extension[2] == 'x' || extension[2] == 'X') && (extension[3] == 'e' || extension[3] == 'E');
+    return exe && name[0] != '.' && name[0] != ' ' && std::ranges::all_of(name, [](char c) {
+               return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' ||
+                      c == '_' || c == '-' || c == ' ';
+           });
+}
+
 namespace
 {
 
@@ -307,6 +371,31 @@ std::string_view toString(BarMode value) noexcept
 std::string_view toString(BarBackground::Kind value) noexcept
 {
     return enumToName<BarBackground::Kind>(kBarBackgroundNames, value);
+}
+
+std::string_view toString(SoundScheme value) noexcept
+{
+    return enumToName<SoundScheme>(kSoundSchemeNames, value);
+}
+
+std::string_view toString(WindowCorners value) noexcept
+{
+    return enumToName<WindowCorners>(kWindowCornersNames, value);
+}
+
+std::string_view toString(WindowBackdrop value) noexcept
+{
+    return enumToName<WindowBackdrop>(kWindowBackdropNames, value);
+}
+
+std::optional<WindowCorners> windowCornersFromName(std::string_view name) noexcept
+{
+    return enumFromName<WindowCorners>(kWindowCornersNames, name);
+}
+
+std::optional<WindowBackdrop> windowBackdropFromName(std::string_view name) noexcept
+{
+    return enumFromName<WindowBackdrop>(kWindowBackdropNames, name);
 }
 
 } // namespace rmw::domain

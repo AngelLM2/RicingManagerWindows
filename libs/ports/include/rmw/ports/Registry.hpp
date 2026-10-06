@@ -52,6 +52,9 @@ public:
                                              const RegistryValue& value) = 0;
     // Succeeds when the value is already absent.
     [[nodiscard]] virtual Result<void> remove(std::string_view key, std::string_view name) = 0;
+    // Deletes the key when it holds no value and no subkey (what a restore leaves of a key that was
+    // not there before); succeeds when it is not empty or not there.
+    [[nodiscard]] virtual Result<void> removeKeyIfEmpty(std::string_view key) = 0;
 };
 
 } // namespace rmw::ports

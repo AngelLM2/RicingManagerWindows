@@ -2,9 +2,12 @@
 
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Utf.hpp"
+#include "rmw/domain/CursorFiles.hpp"
+#include "rmw/domain/Images.hpp"
 #include "rmw/domain/PathRules.hpp"
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/domain/RiceWriter.hpp"
+#include "rmw/domain/SoundFiles.hpp"
 #include "rmw/platform/FileSystem.hpp"
 
 #include <algorithm>
@@ -397,6 +400,79 @@ Result<std::string> importAsset(const fs::path& riceFolder, const fs::path& sour
     {
         return fail(ErrorCode::InvalidArgument,
                     folderKind ? "pick a folder" : std::format("{} is not a file", utf8(source)));
+    }
+    if (kind == AssetKind::Icon)
+    {
+        if (!hasOneOf(source, {"ico"}))
+        {
+            return fail(ErrorCode::Unsupported, "pick an .ico icon");
+        }
+        auto bytes = platform::readFileLimited(source, limits::kIconMaxBytes);
+        if (!bytes)
+        {
+            return std::unexpected(std::move(bytes.error()));
+        }
+        if (auto valid = domain::validateIconFile(*bytes); !valid)
+        {
+            return std::unexpected(std::move(valid.error()));
+        }
+        const std::string name = domain::safeFileName(utf8(source.filename()), "icon.ico");
+        auto stored = copyInto(source, riceFolder / L"assets" / L"icons", name, limits::kIconMaxBytes);
+        if (!stored)
+        {
+            return stored;
+        }
+        return "assets/icons/" + *stored;
+    }
+    if (kind == AssetKind::LockScreen)
+    {
+        if (!hasOneOf(source, {"jpg", "jpeg", "png"}))
+        {
+            return fail(ErrorCode::Unsupported, "pick a .jpg or .png picture");
+        }
+        auto bytes = platform::readFileLimited(source, limits::kImageMaxBytes);
+        if (!bytes)
+        {
+            return std::unexpected(std::move(bytes.error()));
+        }
+        // Its declared size, as the core checks it (a small file can declare a huge picture).
+        const auto size = domain::rasterImageSize(*bytes);
+        if (!size || size->width == 0 || size->height == 0 || size->width > limits::kImageMaxSide ||
+            size->height > limits::kImageMaxSide ||
+            static_cast<std::uint64_t>(size->width) * size->height > limits::kImageMaxPixels)
+        {
+            return fail(ErrorCode::InvalidData, std::format("{} is not a picture the lock screen can show", utf8(source)));
+        }
+        const std::string name = domain::safeFileName(utf8(source.filename()), "lockscreen.jpg");
+        auto stored = copyInto(source, riceFolder / L"assets" / L"lockscreen", name, limits::kImageMaxBytes);
+        if (!stored)
+        {
+            return stored;
+        }
+        return "assets/lockscreen/" + *stored;
+    }
+    if (kind == AssetKind::Sound)
+    {
+        if (!hasOneOf(source, {"wav"}))
+        {
+            return fail(ErrorCode::Unsupported, "pick a .wav sound");
+        }
+        auto bytes = platform::readFileLimited(source, limits::kSoundMaxBytes);
+        if (!bytes)
+        {
+            return std::unexpected(std::move(bytes.error()));
+        }
+        if (auto valid = domain::validateWaveFile(*bytes); !valid)
+        {
+            return std::unexpected(std::move(valid.error()));
+        }
+        const std::string name = domain::safeFileName(utf8(source.filename()), "sound.wav");
+        auto stored = copyInto(source, riceFolder / L"assets" / L"sounds", name, limits::kSoundMaxBytes);
+        if (!stored)
+        {
+            return stored;
+        }
+        return "assets/sounds/" + *stored;
     }
     if (kind == AssetKind::Image || kind == AssetKind::Video)
     {

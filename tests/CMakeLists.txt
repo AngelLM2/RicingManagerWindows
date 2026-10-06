@@ -16,6 +16,8 @@ add_executable(rmw_unit_tests
     unit/ErrorTests.cpp
     unit/ExportTests.cpp
     unit/FileSystemTests.cpp
+    unit/IconsTests.cpp
+    unit/LockScreenTests.cpp
     unit/IpcTests.cpp
     unit/JsonTests.cpp
     unit/LogTests.cpp
@@ -32,6 +34,7 @@ add_executable(rmw_unit_tests
     unit/SettingsModelTests.cpp
     unit/ScopeExitTests.cpp
     unit/SettingsTests.cpp
+    unit/SoundsTests.cpp
     unit/StatementTests.cpp
     unit/SupervisorTests.cpp
     unit/TilingTests.cpp

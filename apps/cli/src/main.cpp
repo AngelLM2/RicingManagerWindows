@@ -277,16 +277,22 @@ void printReport(const Json& report, std::string_view done)
         modules += (modules.empty() ? "" : ", ") + (module.is_string() ? module.get<std::string>() : "?");
     }
     const auto historyId = json::intOr(report, "historyId", 0);
+    const bool look = json::boolOr(report, "windowLook", false);
     if (historyId == 0)
     {
-        // A rice of bars only: Windows' own settings stay, Ricing Manager's bars come.
+        // A rice of bars (or [windows]) only: Windows' own settings stay, Ricing Manager's come.
         const auto bars = json::intOr(report, "bars", 0);
-        out(bars > 0 ? std::format("{}: Ricing Manager's bar ({}); nothing of Windows changed", done, bars)
-                     : std::string("Nothing to change."));
+        std::string ours = bars > 0 ? std::format("Ricing Manager's bar ({})", bars) : std::string();
+        if (look)
+        {
+            ours += (ours.empty() ? "" : ", ") + std::string("the look of other apps' windows");
+        }
+        out(!ours.empty() ? std::format("{}: {}; nothing of Windows changed", done, ours)
+                          : std::string("Nothing to change."));
     }
     else
     {
-        out(std::format("{}: {} (history #{})", done, modules, historyId));
+        out(std::format("{}: {}{} (history #{})", done, modules, look ? ", other apps' windows" : "", historyId));
     }
     for (const auto& skipped : json::memberOr(report, "skipped", Json::array()))
     {
@@ -1014,7 +1020,14 @@ int run(std::span<const std::string> args)
             {
                 state += std::format(", restarted {} time(s)", restarts);
             }
-            out("Tiling: " + state);
+            if (json::boolOr(tilerStatus, "tiling", true))
+            {
+                out("Tiling: " + state);
+            }
+            if (json::boolOr(tilerStatus, "windowLook", false))
+            {
+                out("Other apps' windows: the rice's look (rmw-tiler " + state + ")");
+            }
         }
         if (const auto slideshows = json::intOr(*status, "slideshows", 0); slideshows > 0)
         {

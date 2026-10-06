@@ -476,6 +476,15 @@ std::string sniffFileType(const std::filesystem::path& file)
     {
         return "cur";
     }
+    if (starts({0x00, 0x00, 0x01, 0x00}))
+    {
+        return "ico";
+    }
+    if (read >= 12 && starts({'R', 'I', 'F', 'F'}) && magic[8] == 'W' && magic[9] == 'A' && magic[10] == 'V' &&
+        magic[11] == 'E')
+    {
+        return "wav";
+    }
     if (read >= 12 && starts({'R', 'I', 'F', 'F'}) && magic[8] == 'A' && magic[9] == 'C' &&
         magic[10] == 'O' && magic[11] == 'N')
     {

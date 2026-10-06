@@ -1,9 +1,13 @@
 #pragma once
 
+#include "rmw/ports/Icons.hpp"
+#include "rmw/ports/LockScreen.hpp"
 #include "rmw/ports/Registry.hpp"
 #include "rmw/ports/Shell.hpp"
 
+#include <algorithm>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -47,6 +51,21 @@ public:
         values.erase({std::string(key), std::string(name)});
         return {};
     }
+
+    // Keys are implicit here: an "empty" key is one no value lives in or under.
+    Result<void> removeKeyIfEmpty(std::string_view key) override
+    {
+        const std::string prefix = std::string(key) + "\\";
+        const bool used = std::ranges::any_of(values, [&](const auto& entry) {
+            return entry.first.first == key || entry.first.first.starts_with(prefix);
+        });
+        if (!used)
+        {
+            removedKeys.emplace_back(key);
+        }
+        return {};
+    }
+    std::vector<std::string> removedKeys;
 
     void setDword(std::string_view key, std::string_view name, std::uint32_t value)
     {
@@ -133,4 +152,83 @@ private:
     FakeRegistry& m_registry;
 };
 
+// The user's folders and shortcuts, in memory (M14).
+class FakeLockScreen final : public ports::ILockScreen
+{
+public:
+    std::string source;          // the file Windows names ("" none)
+    std::string shown = "saved"; // what currentImage() gives when the source is not there
+    std::set<std::string, std::less<>> gone;
+    int sets = 0;
+    bool broken = false;         // the API fails
+
+    Result<std::string> currentImage() override
+    {
+        if (broken)
+        {
+            return fail(ErrorCode::System, "no lock screen");
+        }
+        return !source.empty() && exists(source) ? source : shown;
+    }
+    Result<std::string> imageSource() override { return source; }
+    Result<void> setImage(const std::string& file) override
+    {
+        source = file;
+        ++sets;
+        return {};
+    }
+    bool exists(const std::string& file) override { return !gone.contains(file); }
+};
+
+class FakeIcons final : public ports::IIcons
+{
+public:
+    std::map<std::string, std::string, std::less<>> folders; // folder -> icon (absent: none)
+    std::vector<ports::Shortcut> links;
+    int refreshes = 0;
+    int shortcutWrites = 0;
+
+    Result<std::optional<std::string>> folderIcon(std::string_view folder) override
+    {
+        const auto found = folders.find(folder);
+        return found == folders.end() ? std::optional<std::string>() : std::optional(found->second);
+    }
+    Result<void> setFolderIcon(std::string_view folder, const std::optional<std::string>& icon) override
+    {
+        if (icon)
+        {
+            folders[std::string(folder)] = *icon;
+        }
+        else
+        {
+            folders.erase(std::string(folder));
+        }
+        return {};
+    }
+    Result<std::vector<ports::Shortcut>> shortcuts() override { return links; }
+    Result<void> setShortcutIcon(const std::string& path, const std::string& icon) override
+    {
+        for (auto& link : links)
+        {
+            if (link.path == path)
+            {
+                link.icon = icon;
+                ++shortcutWrites;
+                return {};
+            }
+        }
+        return fail(ErrorCode::NotFound, path);
+    }
+    Result<std::string> progIdOf(std::string_view extension) override
+    {
+        const auto found = progIds.find(std::string(extension));
+        return found == progIds.end() ? std::string() : found->second;
+    }
+    bool exists(std::string_view location) override { return !gone.contains(std::string(location)); }
+    void refresh() override { ++refreshes; }
+
+    std::map<std::string, std::string> progIds; // extension -> ProgID
+
+    std::set<std::string, std::less<>> gone; // icon locations whose file is not there
+};
 } // namespace rmw::test

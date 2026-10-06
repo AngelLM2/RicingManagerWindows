@@ -55,6 +55,7 @@ constexpr std::array<std::string_view, 25> kMethods = {
 constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
 constexpr std::string_view kBarPlanMeta = "bar_plan";
+constexpr std::string_view kWindowLookMeta = "window_look"; // the applied rice's [windows] (M14)
 constexpr std::string_view kBarOffMeta = "bar_off";
 constexpr std::string_view kBarSourceMeta = "bar_source";
 constexpr std::string_view kBarWorker = "bar";
@@ -336,6 +337,13 @@ Result<void> CoreServer::initialize()
     if (auto saved = m_state->meta(kBarPlanMeta); saved && *saved)
     {
         m_barPlan = **saved;
+    }
+    if (auto saved = m_state->meta(kWindowLookMeta); saved && *saved)
+    {
+        if (auto look = tiling::parseLook(**saved))
+        {
+            m_windowLook = std::move(*look);
+        }
     }
     if (auto saved = m_state->meta(kVideoPlanMeta); saved && *saved)
     {
@@ -722,6 +730,7 @@ Result<void> CoreServer::reloadBars()
         return std::unexpected(std::move(plan.error()));
     }
     m_plugins->setRicePlugins(RicePlugins::of(*loaded->rice)); // its plugin settings may have changed too
+    bar::addAppIcons(*plan, *loaded->rice, loaded->folder);
     setBarPlan(bar::toJson(*plan));
     return {};
 }
@@ -960,12 +969,14 @@ void CoreServer::refreshTilerPlan()
     std::optional<std::string> plan;
     {
         const std::scoped_lock lock(m_scheduleMutex);
-        if (m_tiling.enabled)
+        // Tiling, or the rice's window look alone: rmw-tiler does both.
+        if (m_tiling.enabled || m_windowLook)
         {
             tiling::Plan tiler;
             tiler.settings = m_tiling;
             tiler.border = m_tiling.borderColor.value_or(systemAccent());
             tiler.settings.borderColor.reset();
+            tiler.look = m_windowLook;
             plan = tiling::toJson(tiler);
         }
         if (plan == m_tilerPlan)
@@ -993,6 +1004,26 @@ void CoreServer::refreshTilerPlan()
     }
     log::info("tiler plan: {}", plan ? "set" : "none");
     notifyResident();
+}
+
+void CoreServer::setWindowLook(const std::optional<tiling::WindowLook>& look)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_windowLook == look)
+        {
+            return;
+        }
+        m_windowLook = look;
+    }
+    const std::string text = look ? tiling::toJson(*look) : std::string();
+    if (auto saved = m_state->setMeta(kWindowLookMeta, look ? std::optional<std::string_view>(text) : std::nullopt);
+        !saved)
+    {
+        log::warn("cannot save the window look: {}", saved.error().toString());
+    }
+    log::info("window look: {}", look ? "the rice's" : "Windows' own");
+    refreshTilerPlan();
 }
 
 std::optional<std::string> CoreServer::tilerPlan() const
@@ -1049,6 +1080,11 @@ bool CoreServer::tilerRunning() const
 Json CoreServer::tilerStatus() const
 {
     Json status{{"configured", tilerPlan().has_value()}, {"running", false}};
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        status["tiling"] = m_tiling.enabled;
+        status["windowLook"] = m_windowLook.has_value(); // rmw-tiler paints it, with tiling or alone
+    }
     if (!m_supervisor)
     {
         return status;
@@ -1740,8 +1776,9 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
         setRotation(*plan);
     }
 
-    // Ricing Manager's bars are the core's, not a module's: a rice of bars only still does something.
-    const bool bars = !rice.bars.empty();
+    // Ricing Manager's bars and the window look are the core's, not a module's: a rice of bars (or
+    // [windows]) only still does something.
+    const bool bars = !rice.bars.empty() || (rice.windows && !rice.windows->empty());
     auto report = origin == Origin::User
                       ? m_engine->apply(rice, loaded->folder, bars)
                       : m_engine->applyAutomatic(rice, loaded->folder,
@@ -1763,12 +1800,18 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
         [[maybe_unused]] auto saved = m_state->setMeta(kRicePreviousMeta, **current);
     }
     [[maybe_unused]] auto savedCurrent = m_state->setMeta(kRiceCurrentMeta, folderText);
+    if (rice.windows)
+    {
+        // Other apps' windows: rmw-tiler paints them (a rice without [windows] leaves the look as is).
+        setWindowLook(tiling::lookFromRice(*rice.windows, rice.palette, systemAccent()));
+    }
     if (!rice.bars.empty())
     {
         // The custom taskbar: rmw-bar shows this plan (palette resolved, skins applied, plugin
         // widgets found), and follows the rice's file as its author edits it.
         if (auto plan = m_plugins->barPlan(rice))
         {
+            bar::addAppIcons(*plan, rice, loaded->folder);
             setBarPlan(bar::toJson(*plan));
             setBarSource(loaded->folder);
         }
@@ -1812,6 +1855,7 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     Json result = reportJson(*report);
     result["name"] = rice.meta.name;
     result["bars"] = rice.bars.size();
+    result["windowLook"] = rice.windows && !rice.windows->empty();
     return result;
 }
 
@@ -1854,13 +1898,21 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     }
     setSchedule(std::nullopt); // going back ends any schedule and slideshow
     setRotation(Json::object());
+    bool hadLook = false;
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        hadLook = m_windowLook.has_value();
+    }
     setBarPlan(std::nullopt);
     setBarSource(std::nullopt);
     setVideoPlan(std::nullopt);
+    setWindowLook(std::nullopt);
     m_plugins->setRicePlugins({});
     [[maybe_unused]] auto current = m_state->setMeta(kRiceCurrentMeta, std::nullopt);
     notifyResident();
-    return reportJson(*report);
+    Json result = reportJson(*report);
+    result["windowLook"] = hadLook; // taken off other apps' windows
+    return result;
 }
 
 Result<Json> CoreServer::monitors()
@@ -1965,7 +2017,9 @@ Result<Json> CoreServer::exportRice(const Json& params)
     modules::CapturedLook look;
     for (auto [module, slot] :
          {std::pair{"appearance", &look.appearance}, std::pair{"taskbar", &look.taskbar},
-          std::pair{"cursors", &look.cursors}, std::pair{"wallpaper", &look.wallpaper}})
+          std::pair{"cursors", &look.cursors}, std::pair{"sounds", &look.sounds},
+          std::pair{"icons", &look.icons}, std::pair{"lockscreen", &look.lockscreen},
+          std::pair{"wallpaper", &look.wallpaper}})
     {
         auto captured = runner().capture(module, {});
         if (!captured)

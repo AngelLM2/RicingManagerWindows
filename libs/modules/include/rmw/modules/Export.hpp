@@ -32,6 +32,9 @@ struct CapturedLook
     json::Json appearance; // null when not captured
     json::Json taskbar;
     json::Json cursors;
+    json::Json sounds;
+    json::Json icons;
+    json::Json lockscreen;
     json::Json wallpaper;
     std::vector<ports::MonitorInfo> monitors;
 };

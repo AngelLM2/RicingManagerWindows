@@ -259,7 +259,7 @@ $front = [Rmw.Win]::GetForegroundWindow() -eq $app.MainWindowHandle
 Check 'settings:one-instance' ($secondGone -and (Settings-Processes).Count -eq 1) "second exited=$secondGone, processes=$((Settings-Processes).Count), first in front=$front"
 
 # ---- every page, by what Narrator reads ----------------------------------------------------------------
-$pages = 'Home', 'Rices', 'Appearance', 'Wallpapers', 'Cursors', 'Taskbar', 'Plugins', 'Tiling', 'Hotkeys and rules', 'Diagnostics', 'Settings'
+$pages = 'Home', 'Rices', 'Appearance', 'Wallpapers', 'Cursors', 'Sounds', 'Icons', 'Taskbar', 'Plugins', 'Tiling', 'Hotkeys and rules', 'Diagnostics', 'Settings'
 $reached = 0
 foreach ($page in $pages) {
     if (Press $window $page) {

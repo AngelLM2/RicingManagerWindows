@@ -25,6 +25,10 @@ namespace
 constexpr std::initializer_list<std::string_view> kImageExtensions = {"jpg", "jpeg", "png", "bmp"};
 constexpr std::initializer_list<std::string_view> kVideoExtensions = {"mp4", "m4v", "webm"};
 constexpr std::initializer_list<std::string_view> kCursorExtensions = {"cur", "ani"};
+constexpr std::initializer_list<std::string_view> kSoundExtensions = {"wav"};
+constexpr std::initializer_list<std::string_view> kIconExtensions = {"ico"};
+constexpr std::initializer_list<std::string_view> kLockScreenExtensions = {"jpg", "jpeg", "png"};
+constexpr std::size_t kMaxIconApps = limits::kRiceMaxIconApps;
 
 std::string extensionList(std::initializer_list<std::string_view> extensions)
 {
@@ -74,6 +78,22 @@ public:
         if (const auto* cursors = t.table("cursors"))
         {
             readCursors(*cursors);
+        }
+        if (const auto* sounds = t.table("sounds"))
+        {
+            readSounds(*sounds);
+        }
+        if (const auto* icons = t.table("icons"))
+        {
+            readIcons(*icons);
+        }
+        if (const auto* lockscreen = t.table("lockscreen"))
+        {
+            readLockScreen(*lockscreen);
+        }
+        if (const auto* windows = t.table("windows"))
+        {
+            readWindows(*windows);
         }
         if (const auto* taskbar = t.table("taskbar"))
         {
@@ -589,6 +609,209 @@ private:
         }
         t.reportUnknownKeys();
         m_rice.cursors = std::move(config);
+    }
+
+    void readSounds(const toml::table& table)
+    {
+        TableReader t(table, "sounds", m_diagnostics);
+        SoundsConfig config;
+        config.scheme = t.enumeration<SoundScheme>("scheme", kSoundSchemeNames);
+        if (const auto* events = t.table("events"))
+        {
+            TableReader e(*events, t.pathOf("events"), m_diagnostics);
+            for (const auto& [key, node] : *events)
+            {
+                const std::string_view name = key.str();
+                const auto event = soundEventFromRiceName(name);
+                if (!event)
+                {
+                    e.get(name);
+                    std::string known;
+                    for (const auto& entry : kSoundEventNames)
+                    {
+                        known += (known.empty() ? "" : ", ") + std::string(entry.riceName);
+                    }
+                    e.error(name, std::format("unknown sound event (known: {})", known));
+                    continue;
+                }
+                // "" silences that event; anything else is a .wav of the package.
+                if (node.is_string() && node.as_string()->get().empty())
+                {
+                    e.get(name);
+                    config.events.push_back({*event, {}});
+                }
+                else if (auto file = readPath(e, name, kSoundExtensions))
+                {
+                    config.events.push_back({*event, std::move(*file)});
+                }
+            }
+        }
+        if (!config.scheme && config.events.empty())
+        {
+            t.warning("events", "nothing to change: say scheme = \"none\" or give [sounds.events]");
+        }
+        t.reportUnknownKeys();
+        m_rice.sounds = std::move(config);
+    }
+
+    void readIcons(const toml::table& table)
+    {
+        TableReader t(table, "icons", m_diagnostics);
+        IconsConfig config;
+        for (const auto& entry : kDesktopIconNames)
+        {
+            if (auto file = readPath(t, entry.name, kIconExtensions))
+            {
+                config.desktop.emplace_back(entry.value, std::move(*file));
+            }
+        }
+        if (const auto* folders = t.table("folders"))
+        {
+            TableReader f(*folders, t.pathOf("folders"), m_diagnostics);
+            for (const auto& entry : kUserFolderNames)
+            {
+                if (auto file = readPath(f, entry.name, kIconExtensions))
+                {
+                    config.folders.emplace_back(entry.value, std::move(*file));
+                }
+            }
+            f.reportUnknownKeys();
+        }
+        if (const auto* apps = t.table("apps"))
+        {
+            TableReader a(*apps, t.pathOf("apps"), m_diagnostics);
+            for (const auto& [key, node] : *apps)
+            {
+                const std::string name(key.str());
+                if (!isValidProgramName(name))
+                {
+                    a.get(name);
+                    a.error(name, "a program's file name, as \"firefox.exe\"");
+                    continue;
+                }
+                if (config.apps.size() >= kMaxIconApps)
+                {
+                    a.get(name);
+                    a.error(name, std::format("at most {} programs", kMaxIconApps));
+                    continue;
+                }
+                if (auto file = readPath(a, name, kIconExtensions))
+                {
+                    std::string lower = name;
+                    std::ranges::transform(lower, lower.begin(), [](char c) {
+                        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+                    });
+                    config.apps.emplace_back(std::move(lower), std::move(*file));
+                }
+            }
+        }
+        if (const auto* types = t.table("types"))
+        {
+            TableReader y(*types, t.pathOf("types"), m_diagnostics);
+            for (const auto& [key, node] : *types)
+            {
+                std::string extension(key.str());
+                std::ranges::transform(extension, extension.begin(), [](char c) {
+                    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+                });
+                if (extension.starts_with('.'))
+                {
+                    extension.erase(0, 1);
+                }
+                if (!isValidFileExtension(extension))
+                {
+                    y.get(key.str());
+                    y.error(key.str(), "a file type, as \"txt\"");
+                    continue;
+                }
+                if (config.types.size() >= kMaxIconApps)
+                {
+                    y.get(key.str());
+                    y.error(key.str(), std::format("at most {} file types", kMaxIconApps));
+                    continue;
+                }
+                if (auto file = readPath(y, key.str(), kIconExtensions))
+                {
+                    config.types.emplace_back(std::move(extension), std::move(*file));
+                }
+            }
+        }
+        if (config.desktop.empty() && config.folders.empty() && config.apps.empty() && config.types.empty())
+        {
+            t.warning("folders", "nothing to change: give desktop icons, [icons.folders], [icons.apps] or [icons.types]");
+        }
+        t.reportUnknownKeys();
+        m_rice.icons = std::move(config);
+    }
+
+    void readLockScreen(const toml::table& table)
+    {
+        TableReader t(table, "lockscreen", m_diagnostics);
+        LockScreenConfig config;
+        if (auto file = readPath(t, "image", kLockScreenExtensions))
+        {
+            config.image = std::move(*file);
+        }
+        config.spotlight = t.boolean("spotlight");
+        config.tips = t.boolean("tips");
+        if (!config.image.empty() && config.spotlight == true)
+        {
+            t.error("spotlight", "Windows Spotlight shows its own pictures: give image or spotlight = true, not both");
+        }
+        if (config.image.empty() && !config.spotlight && !config.tips)
+        {
+            t.warning("image", "nothing to change: give image, spotlight or tips");
+        }
+        t.reportUnknownKeys();
+        m_rice.lockscreen = std::move(config);
+    }
+
+    void readWindows(const toml::table& table)
+    {
+        TableReader t(table, "windows", m_diagnostics);
+        WindowsLookConfig config;
+        config.corners = t.enumeration<WindowCorners>("corners", kWindowCornersNames);
+        if (const auto* border = t.raw().get("border"); border != nullptr && border->value_or(std::string_view()) == "none")
+        {
+            t.get("border");
+            config.noBorder = true;
+        }
+        else
+        {
+            config.border = readColorRef(t, "border");
+        }
+        config.caption = readColorRef(t, "caption");
+        config.title = readColorRef(t, "title");
+        config.backdrop = t.enumeration<WindowBackdrop>("backdrop", kWindowBackdropNames);
+        config.dark = t.boolean("dark");
+        if (const auto* exclude = t.array("exclude", limits::kRiceMaxIconApps))
+        {
+            std::size_t index = 0;
+            for (const auto& node : *exclude)
+            {
+                const std::string path = indexPath(t.pathOf("exclude"), index++);
+                const auto* name = node.as_string();
+                if (name == nullptr || !isValidProgramName(name->get()))
+                {
+                    errorAt(m_diagnostics, node, path, "expected a program's file name, as \"code.exe\"");
+                    continue;
+                }
+                std::string lower = name->get();
+                std::ranges::transform(lower, lower.begin(), [](char c) {
+                    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+                });
+                if (std::ranges::find(config.exclude, lower) == config.exclude.end())
+                {
+                    config.exclude.push_back(std::move(lower));
+                }
+            }
+        }
+        if (config.empty())
+        {
+            t.warning("corners", "nothing to change: give corners, border, caption, title, backdrop or dark");
+        }
+        t.reportUnknownKeys();
+        m_rice.windows = std::move(config);
     }
 
     void readTaskbar(const toml::table& table)

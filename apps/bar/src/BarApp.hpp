@@ -8,6 +8,7 @@
 #include "WinKeyHook.hpp"
 #include "Widgets.hpp"
 
+#include "rmw/bar/Plan.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
 
 #include <filesystem>
@@ -66,6 +67,8 @@ private:
     };
 
     [[nodiscard]] bool rebuild();
+    // The plan's program icons that are valid .ico files go to the icon drawing; true when they changed.
+    bool useAppIcons(const std::vector<bar::PlanAppIcon>& icons);
     void clear();
     void scheduleRebuild();
     void scheduleReload(); // a plugin being written changed: rebuild soon
@@ -105,6 +108,7 @@ private:
     std::size_t m_windowSubscription = 0;
     std::unique_ptr<StartMenu> m_start;
     bar::StartPlan m_startPlan;
+    std::map<std::wstring, std::wstring> m_appIconFiles; // the rice's program icons, checked
     std::unique_ptr<WinKeyHook> m_winKey;
     std::unique_ptr<PluginBridge> m_bridge; // last: its callbacks reach everything above
 };

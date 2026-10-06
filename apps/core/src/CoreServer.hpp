@@ -11,6 +11,7 @@
 #include "rmw/platform/MessageWindow.hpp"
 #include "rmw/platform/Pipe.hpp"
 #include "rmw/platform/Supervisor.hpp"
+#include "rmw/tiling/Plan.hpp"
 
 #include <array>
 #include <atomic>
@@ -142,6 +143,8 @@ public:
     // settings.toml [tiling] and the accent; none while tiling is off.
     void setTiling(const domain::TilingSettings& settings);
     void refreshTilerPlan(); // the accent may have changed: the border follows
+    // The rice's [windows] (M14): rmw-tiler paints it, with tiling or alone. nullopt: Windows' own.
+    void setWindowLook(const std::optional<tiling::WindowLook>& look);
     [[nodiscard]] std::optional<std::string> tilerPlan() const;
     [[nodiscard]] Result<void> startTiler();
     // Asks rmw-tiler to put every window back and leave; `force`: ends it now and puts them back
@@ -237,6 +240,7 @@ private:
     std::optional<std::string> m_videoPlan;               // mirrors meta "video_plan"
     domain::TilingSettings m_tiling;                      // settings.toml [tiling]
     std::optional<std::string> m_tilerPlan;               // what <data>\tiler\plan.json holds
+    std::optional<tiling::WindowLook> m_windowLook;       // the applied rice's [windows]
     std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
 
     // Plugins (docs/12). The pipes are named once per run: the bar serves the bridge, the host

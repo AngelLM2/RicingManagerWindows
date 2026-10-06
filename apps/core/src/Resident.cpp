@@ -109,6 +109,18 @@ std::wstring_view displayName(std::string_view module) noexcept
     {
         return text.cursors;
     }
+    if (module == "sounds")
+    {
+        return text.sounds;
+    }
+    if (module == "icons")
+    {
+        return text.icons;
+    }
+    if (module == "lockscreen")
+    {
+        return text.lockscreen;
+    }
     if (module == "taskbar")
     {
         return text.taskbar;

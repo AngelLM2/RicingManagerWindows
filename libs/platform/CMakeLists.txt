@@ -17,6 +17,8 @@ rmw_add_library(platform
         src/Supervisor.cpp
         src/ProcessHardening.cpp
         src/Win32Display.cpp
+        src/Win32Icons.cpp
+        src/Win32LockScreen.cpp
         src/Win32Registry.cpp
         src/Win32Shell.cpp
         src/Win32ThemeApi.cpp
@@ -31,7 +33,9 @@ rmw_add_library(platform
         bcrypt
         ole32
         oleaut32
+        runtimeobject
         shell32
+        shlwapi
         user32
         wtsapi32
 )

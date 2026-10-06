@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cwctype>
+#include <mutex>
 #include <filesystem>
 #include <span>
 
@@ -29,6 +31,19 @@ namespace
 constexpr int kMaxTitle = 256;
 
 std::atomic<void (*)()> g_changed{nullptr}; // WinEvent callbacks carry no context
+
+// The rice's program icons (setAppIconFiles).
+struct AppIconFiles
+{
+    std::mutex mutex;
+    std::map<std::wstring, std::wstring> byProgram;
+};
+
+AppIconFiles& appIconFiles()
+{
+    static AppIconFiles files;
+    return files;
+}
 
 void CALLBACK onEvent(HWINEVENTHOOK, DWORD event, HWND window, LONG object, LONG child, DWORD, DWORD)
 {
@@ -283,11 +298,36 @@ std::wstring appIdentity(void* window)
     return path;
 }
 
-IconPixels appIconPixels(const std::wstring& identity, int size)
+void setAppIconFiles(std::map<std::wstring, std::wstring> byProgram)
 {
-    if (identity.empty() || size <= 0)
+    auto& files = appIconFiles();
+    const std::scoped_lock lock(files.mutex);
+    files.byProgram = std::move(byProgram);
+}
+
+IconPixels appIconPixels(const std::wstring& given, int size)
+{
+    if (given.empty() || size <= 0)
     {
         return {};
+    }
+    // The rice's icon for the program, if it has one: an identity's last part names the program
+    // ("C:\...\firefox.exe", "{GUID}\Mozilla Firefox\firefox.exe").
+    std::wstring identity = given;
+    {
+        auto& files = appIconFiles();
+        const std::scoped_lock lock(files.mutex);
+        if (!files.byProgram.empty())
+        {
+            const auto slash = identity.find_last_of(L"\\/");
+            std::wstring program = identity.substr(slash == std::wstring::npos ? 0 : slash + 1);
+            std::ranges::transform(program, program.begin(),
+                                   [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+            if (const auto found = files.byProgram.find(program); found != files.byProgram.end())
+            {
+                identity = found->second;
+            }
+        }
     }
     wil::com_ptr_nothrow<IShellItem> item;
     // A path is a file; anything else is an AppUserModelID, listed in shell:AppsFolder.
