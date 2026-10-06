@@ -24,6 +24,8 @@ constexpr UINT_PTR kAnimationTimer = 1;
 constexpr UINT_PTR kTuckTimer = 2;
 constexpr UINT_PTR kSlideTimer = 3;
 constexpr UINT_PTR kFitTimer = 4;
+constexpr UINT_PTR kStripTimer = 5;
+constexpr UINT kStripCheckMs = 1000;
 constexpr double kSlideMs = 200.0; // the bar sliding in, out of sight and back (M10)
 constexpr UINT kTuckDelayMs = 700;
 constexpr LONG kPeek = 2; // physical pixels left at the edge of an auto-hidden bar
@@ -293,6 +295,8 @@ void BarWindow::place()
                       area.height(), wanted.left, wanted.top, wanted.width(), wanted.height());
             m_reserved = area;
         }
+        // Explorer works the work area out a moment later: looked at then (for the logs).
+        SetTimer(hwnd, kStripTimer, kStripCheckMs, nullptr);
     }
 
     m_placedContent = m_config.length.fit && m_contentLength ? m_contentLength() : 0.0;
@@ -317,6 +321,30 @@ void BarWindow::place()
     window().dispatch_resize_event(slint::LogicalSize(
         {static_cast<float>(rect.width() / m_scale), static_cast<float>(rect.height() / m_scale)}));
     request_redraw();
+}
+
+void BarWindow::checkStrip()
+{
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (m_config.mode != domain::BarMode::Reserve || !m_appBar || m_autohide || m_reserved.empty() ||
+        GetMonitorInfoW(static_cast<HMONITOR>(m_monitor), &info) == FALSE)
+    {
+        return;
+    }
+    const bar::Rect work = fromRect(info.rcWork);
+    if (work.left < m_reserved.right && m_reserved.left < work.right && work.top < m_reserved.bottom &&
+        m_reserved.top < work.bottom)
+    {
+        // Seen in the Sandbox, not explained: right after Windows' taskbar went in or out of
+        // auto-hide, Explorer may leave a strip it granted in the work area for a while. Asking
+        // again, the bar leaving and coming back, Explorer's own taskbar state set again and even
+        // setting the work area aside (Explorer puts its own back at once) changed nothing; its
+        // next recount does. Said here for the logs of a real PC.
+        log::warn("bar: Windows still counts the strip {},{} {}x{} in the work area ({},{} {}x{})", m_reserved.left,
+                  m_reserved.top, m_reserved.width(), m_reserved.height(), work.left, work.top, work.width(),
+                  work.height());
+    }
 }
 
 bar::Rect BarWindow::tuckedRect() const noexcept
@@ -581,6 +609,11 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
             KillTimer(hwnd, kFitTimer);
             place();
         }
+        else if (wParam == kStripTimer)
+        {
+            KillTimer(hwnd, kStripTimer);
+            checkStrip();
+        }
         else if (wParam == kTuckTimer)
         {
             KillTimer(hwnd, kTuckTimer);
@@ -662,6 +695,7 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
         {
             place(); // a floating bar follows the work area
         }
+
         break;
     case kAppBarMessage:
         if (wParam == ABN_POSCHANGED)
