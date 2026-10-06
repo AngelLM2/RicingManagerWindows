@@ -32,6 +32,8 @@ constexpr UINT kAnimationDone = WM_APP + 31; // the Animator: every move is over
 // a system popup) moved every window twice (v1.7, seen in the Sandbox as a jolt in workspace switches: it
 // lasted 18 ms). Short, so a window that opens is not seen for long where its app put it.
 constexpr UINT kAdoptDelayMs = 60;
+constexpr UINT kAdoptTickMs = 20;
+constexpr std::uint64_t kSwitchCalmMs = 400; // after our own switch, a window coming to the front is its echo
 constexpr UINT kSettleDelayMs = 200;
 constexpr UINT kAfterAnimationMs = 60;
 constexpr std::int32_t kSlideMin = 8; // closer than this to its place: a window just goes there
@@ -86,7 +88,11 @@ struct FollowerSearch
 BOOL CALLBACK collectFollower(HWND window, LPARAM context)
 {
     auto& search = *reinterpret_cast<FollowerSearch*>(context); // NOLINT(performance-no-int-to-ptr)
-    if (GetWindow(window, GW_OWNER) == search.owner && IsWindowVisible(window) != FALSE)
+    // Its dialogs (they have a title bar); never a tooltip, a menu or a list that drops down, which
+    // came back as ghosts when shown again later.
+    const auto style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+    if (GetWindow(window, GW_OWNER) == search.owner && IsWindowVisible(window) != FALSE &&
+        (style & WS_CAPTION) == WS_CAPTION)
     {
         search.found.push_back(idOf(window));
     }
@@ -133,8 +139,9 @@ TilerApp::TilerApp(std::filesystem::path planFile, platform::Heartbeat& heartbea
     , m_animator(std::make_unique<Animator>(m_window, kAnimationDone))
 {
     g_app = this;
-    // A tiler that ended badly left its windows hidden or out of place: back first.
-    putBackFromFile(m_windowsFile);
+    // A tiler that ended badly left its windows hidden or out of place: back first. Those of an admin app
+    // wait (in the file) for a tiler that may move them.
+    m_waiting = putBackFromFile(m_windowsFile);
     if (m_options.elevated && m_window != nullptr)
     {
         // The bars (not elevated) ask for a workspace; the core asks it to leave.
@@ -213,8 +220,15 @@ TilerApp::Ending TilerApp::run()
     }
     if (!readPlan())
     {
-        log::info("tiler: no plan; nothing to do");
-        return Ending::Done;
+        std::error_code ec;
+        if (!std::filesystem::exists(m_planFile, ec))
+        {
+            log::info("tiler: no plan; nothing to do");
+            return Ending::Done;
+        }
+        // There, but not readable yet (being written): read again on its next change, or in a moment.
+        log::warn("tiler: the plan cannot be read yet; trying again");
+        SetTimer(static_cast<HWND>(m_window), kPlanTimer, 500, nullptr);
     }
     log::info("tiler: running{}", m_options.elevated ? " as administrator" : "");
     while (!m_quit)
@@ -305,6 +319,12 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
             KillTimer(self, kPlanTimer);
             if (!readPlan())
             {
+                std::error_code ec;
+                if (std::filesystem::exists(m_planFile, ec))
+                {
+                    SetTimer(self, kPlanTimer, 500, nullptr); // there but unreadable for now
+                    break;
+                }
                 log::info("tiler: the plan is gone; every window goes back");
                 m_quit = true;
             }
@@ -314,10 +334,28 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
             syncMonitors();
             break;
         case kAdoptTimer: {
-            KillTimer(self, kAdoptTimer);
-            const std::set<tiling::WindowId> appearing = std::move(m_appearing);
-            m_appearing.clear();
-            for (const tiling::WindowId id : appearing)
+            // Each window when its own wait is over: popups showing all the time (a player's controls,
+            // tooltips) never put off a window that opened.
+            const std::uint64_t now = GetTickCount64();
+            std::vector<tiling::WindowId> due;
+            for (auto it = m_appearing.begin(); it != m_appearing.end();)
+            {
+                if (now - it->second >= kAdoptDelayMs)
+                {
+                    due.push_back(it->first);
+                    it = m_appearing.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            if (m_appearing.empty())
+            {
+                KillTimer(self, kAdoptTimer);
+                m_adoptTimer = false;
+            }
+            for (const tiling::WindowId id : due)
             {
                 if (IsWindow(static_cast<HWND>(windowOf(id))) != FALSE)
                 {
@@ -388,6 +426,10 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
         {
             m_quit = true;
         }
+        else if (!m_paused && m_plan && m_plan->settings.enabled)
+        {
+            start(); // the shutdown was cancelled: tiling again
+        }
         return 0;
     case WM_CLOSE:
         m_quit = true;
@@ -429,8 +471,8 @@ void TilerApp::applyPlan(tiling::Plan plan)
 {
     const std::optional<tiling::Plan> old = std::move(m_plan);
     const domain::TilingSettings& now = m_plan.emplace(std::move(plan)).settings;
-    m_looks.set(m_plan->look);
-    // Advanced mode (admin apps' windows too): an elevated copy does the work, or stops doing it.
+    // Advanced mode (admin apps' windows too): an elevated copy does the work, or stops doing it. Before
+    // the look: painting every window to reset it a moment later made them flicker.
     if (now.enabled && now.runAsAdmin && !m_options.elevated && !m_options.adminDeclined)
     {
         m_ending = Ending::BeAdmin;
@@ -442,6 +484,11 @@ void TilerApp::applyPlan(tiling::Plan plan)
         m_ending = Ending::BePlain;
         m_quit = true;
         return;
+    }
+    m_looks.set(m_plan->look);
+    if (now.enabled && (!old || !old->settings.enabled))
+    {
+        m_paused = false; // turned on in the settings: a Toggle from before does not keep it off
     }
     // The keyboard is watched only while tiling: the window look alone hears no key.
     if (now.enabled && !m_keys)
@@ -598,8 +645,8 @@ void TilerApp::stop()
     m_bordered.reset();
     m_pendingFocus.reset();
     m_desktop.reset();
-    std::error_code ec;
-    std::filesystem::remove(m_windowsFile, ec);
+    m_dragFrom.clear();
+    save(); // only what waits for an elevated tiler is left: the file goes, or keeps just those
     publish();
 }
 
@@ -684,6 +731,9 @@ void TilerApp::forget(Window window, bool gone)
         m_originals.erase(id);
         m_followers.erase(id);
         m_minimums.erase(id); // its handle may name another window later
+        m_appearing.erase(id);
+        m_dragFrom.erase(id);
+        m_hidden.erase(id); // a dialog hidden with its window (not in the model) closed meanwhile
     }
     m_animator->cancel(id);
     if (!m_desktop || !m_desktop->remove(id))
@@ -807,9 +857,10 @@ void TilerApp::layout()
         {
             Window window = windowOf(id);
             HWND w = static_cast<HWND>(window);
-            if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE)
+            if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE || isFullscreen(window) ||
+                m_dragFrom.contains(id))
             {
-                continue; // maximized by the person: theirs until they restore it
+                continue; // maximized, full screen or held by the person: theirs until they let it go
             }
             remember(id, window);
             const tiling::Rect rect = targetOf(id, slot, area);
@@ -925,7 +976,7 @@ void TilerApp::placeComing(std::span<const tiling::WindowId> coming, int side)
                 continue;
             }
             HWND w = static_cast<HWND>(windowOf(id));
-            if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE)
+            if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE || isFullscreen(windowOf(id)))
             {
                 continue;
             }
@@ -950,12 +1001,19 @@ void TilerApp::settle()
 {
     // Apps that answer late, or change their size when their DPI changes: placed once more. One that is
     // in its place but larger keeps a size of its own: the others make room for it.
+    std::vector<tiling::WindowId> gone;
     for (const auto& [id, rect] : m_targets)
     {
         Window window = windowOf(id);
         HWND w = static_cast<HWND>(window);
-        if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE || m_animator->moving(id))
+        if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE || m_animator->moving(id) ||
+            isFullscreen(window) || m_dragFrom.contains(id))
         {
+            continue;
+        }
+        if (IsWindowVisible(w) == FALSE && !m_hidden.contains(id))
+        {
+            gone.push_back(id); // the app hid it while we were showing it (its hide came first): not a slot
             continue;
         }
         const tiling::Rect frame = frameOf(window);
@@ -963,6 +1021,10 @@ void TilerApp::settle()
         {
             place(window, rect);
         }
+    }
+    for (const tiling::WindowId id : gone)
+    {
+        forget(windowOf(id), false);
     }
     if (--m_settleRounds <= 0)
     {
@@ -1013,10 +1075,15 @@ void TilerApp::onEvent(std::uint32_t event, Window window)
     case EVENT_OBJECT_SHOW:
     case EVENT_OBJECT_UNCLOAKED:
     case EVENT_SYSTEM_MINIMIZEEND:
-        if (!m_desktop->find(id))
+        // Only top-level windows can be tiled: the rest (a control, a tooltip's parts) is not even waited for.
+        if (!m_desktop->find(id) && GetAncestor(static_cast<HWND>(window), GA_ROOT) == window &&
+            !m_appearing.contains(id))
         {
-            m_appearing.insert(id);
-            SetTimer(static_cast<HWND>(m_window), kAdoptTimer, kAdoptDelayMs, nullptr);
+            m_appearing.emplace(id, GetTickCount64());
+            if (!std::exchange(m_adoptTimer, true))
+            {
+                SetTimer(static_cast<HWND>(m_window), kAdoptTimer, kAdoptTickMs, nullptr);
+            }
         }
         break;
     case EVENT_OBJECT_HIDE:
@@ -1040,7 +1107,8 @@ void TilerApp::onEvent(std::uint32_t event, Window window)
         forget(window, true);
         break;
     case EVENT_SYSTEM_MOVESIZESTART:
-        m_animator->cancel(id); // the person has it now
+        m_animator->cancel(id); // the person has it now: nothing moves it meanwhile
+        m_dragFrom[id] = frameOf(window);
         break;
     case EVENT_SYSTEM_MOVESIZEEND:
         onMoved(window);
@@ -1062,8 +1130,11 @@ void TilerApp::onForeground(Window window)
     if (place)
     {
         m_desktop->workspace(*place).focus(id);
-        // An app brought a window of a workspace not shown to the front: that workspace comes.
-        if (!mac() && !m_desktop->shown(id))
+        // An app brought a window of a workspace not shown to the front: that workspace comes. Not right
+        // after our own switch: a window we were hiding took the front for an instant (Windows gives it to
+        // the next window as the focused one hides) and the switch bounced back.
+        if (!mac() && !m_desktop->shown(id) && IsWindowVisible(static_cast<HWND>(window)) != FALSE &&
+            GetTickCount64() - m_switchedAt > kSwitchCalmMs)
         {
             log::info("tiler: window {:#x} of workspace {} came to the front; going there", id, place->workspace + 1);
             goTo(place->monitor, place->workspace);
@@ -1075,9 +1146,25 @@ void TilerApp::onForeground(Window window)
 void TilerApp::onMoved(Window window)
 {
     const tiling::WindowId id = idOf(window);
+    const auto from = m_dragFrom.find(id);
+    std::optional<tiling::Rect> before;
+    if (from != m_dragFrom.end())
+    {
+        before = from->second;
+        m_dragFrom.erase(from);
+    }
     const auto place = m_desktop->find(id);
     if (!place || m_desktop->workspace(*place).floating(id))
     {
+        return;
+    }
+    // Its size changed: an edge was dragged, not the window. Back to its slot (the cursor may well be over
+    // the neighbour, which a move would swap it with).
+    if (const tiling::Rect after = frameOf(window);
+        before && (std::abs(after.width() - before->width()) > kSlideMin ||
+                   std::abs(after.height() - before->height()) > kSlideMin))
+    {
+        scheduleLayout();
         return;
     }
     POINT cursor{};
@@ -1109,6 +1196,10 @@ void TilerApp::onMoved(Window window)
 void TilerApp::command(TilingCommand command, int number)
 {
     log::info("tiler: {}{}", domain::toString(command), number != 0 ? std::format(" {}", number) : std::string());
+    if (m_desktop && m_desktop->monitorCount() == 0)
+    {
+        return; // no screen at all (all off, a remote session starting): nothing to move or show
+    }
     if (command == TilingCommand::Toggle)
     {
         m_paused = m_desktop != nullptr;
@@ -1294,6 +1385,7 @@ void TilerApp::goTo(std::size_t monitor, int workspace, int side)
         side = workspace > now ? 1 : workspace < now ? -1 : 0; // a higher number is to the right
     }
     tiling::Change change = m_desktop->goTo(monitor, workspace);
+    m_switchedAt = GetTickCount64();
     if (!mac())
     {
         // In their slots and on top before the old ones go (v1.6: they showed under the old ones, where
@@ -1379,21 +1471,36 @@ void TilerApp::scheduleSave()
 void TilerApp::save()
 {
     std::error_code ec;
-    if (m_originals.empty())
+    // An admin app's windows a past tiler hid stay listed until a tiler that may move them puts them back.
+    std::erase_if(m_waiting, [](const tiling::Original& original) {
+        return IsWindow(static_cast<HWND>(windowOf(original.window))) == FALSE;
+    });
+    if (m_originals.empty() && m_waiting.empty())
     {
         std::filesystem::remove(m_windowsFile, ec);
         return;
     }
     std::vector<tiling::Original> windows;
-    windows.reserve(m_originals.size());
+    windows.reserve(m_originals.size() + m_waiting.size());
     for (auto [id, original] : m_originals)
     {
         original.hidden = m_hidden.contains(id);
         windows.push_back(original);
     }
+    for (const auto& waiting : m_waiting)
+    {
+        if (!m_originals.contains(waiting.window))
+        {
+            windows.push_back(waiting);
+        }
+    }
     const std::string text = tiling::toJson(windows);
     const auto* bytes = reinterpret_cast<const std::byte*>(text.data());
-    if (auto written = platform::writeFileAtomic(m_windowsFile, std::span(bytes, text.size())); !written)
+    // Not flushed to the disk: it is written at every switch, and a crash of the tiler (what it is for)
+    // leaves it in Windows' cache all the same.
+    if (auto written = platform::writeFileAtomic(m_windowsFile, std::span(bytes, text.size()),
+                                                 platform::Durability::Cached);
+        !written)
     {
         log::warn("tiler: cannot keep the list of windows to put back: {}", written.error().toString());
     }

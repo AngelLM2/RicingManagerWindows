@@ -49,8 +49,9 @@ class Desktop
 public:
     Desktop(int workspaces, LayoutKind layout);
 
-    // The monitors now (the first is the primary). One that stays keeps its workspaces; the windows of
-    // one that went away join the active workspace of the first. No monitors: nothing changes.
+    // The monitors now (the first is the primary). One that stays (same name, or same place under a new
+    // name) keeps its workspaces; the workspaces of one that went away join the first's of the same
+    // number, the one it showed joining the one shown. No monitors: nothing changes.
     Change setMonitors(std::vector<Monitor> monitors);
     [[nodiscard]] std::vector<Monitor> monitors() const;
     [[nodiscard]] std::size_t monitorCount() const noexcept { return m_screens.size(); }

@@ -90,4 +90,19 @@ TEST(Utf, LossyKeepsValidTextAroundErrors)
               L"b");
 }
 
+TEST(Utf, APrefixNeverCutsACharacter)
+{
+    const std::string japanese = "\xE6\x97\xA5\xE6\x9C\xAC"; // two characters, three bytes each
+    EXPECT_EQ(rmw::utf8Prefix(japanese, 6), japanese);
+    EXPECT_EQ(rmw::utf8Prefix(japanese, 5), "\xE6\x97\xA5");
+    EXPECT_EQ(rmw::utf8Prefix(japanese, 4), "\xE6\x97\xA5");
+    EXPECT_EQ(rmw::utf8Prefix(japanese, 2), "");
+    EXPECT_EQ(rmw::utf8Prefix("ab\xC3\xA7", 3), "ab"); // ç
+    EXPECT_EQ(rmw::utf8Prefix("abc", 0), "");
+    for (std::size_t n = 0; n <= japanese.size(); ++n)
+    {
+        EXPECT_TRUE(rmw::isValidUtf8(rmw::utf8Prefix(japanese, n))) << n;
+    }
+}
+
 } // namespace

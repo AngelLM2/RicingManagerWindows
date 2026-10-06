@@ -32,11 +32,6 @@ std::int64_t refreshPeriod() noexcept
     return kMaxFrame100ns;
 }
 
-std::int32_t mix(std::int32_t from, std::int32_t to, double t) noexcept
-{
-    return static_cast<std::int32_t>(std::lround(from + ((to - from) * t)));
-}
-
 } // namespace
 
 Animator::Animator(void* done, std::uint32_t message)
@@ -60,28 +55,6 @@ Animator::~Animator()
     {
         CloseHandle(m_timer);
     }
-}
-
-double Animator::eased(double t) noexcept
-{
-    t = std::clamp(t, 0.0, 1.0);
-    const double rest = 1.0 - t;
-    return 1.0 - (rest * rest * rest);
-}
-
-tiling::Rect Animator::at(const Move& move, double t) noexcept
-{
-    if (t >= 1.0)
-    {
-        return move.to;
-    }
-    // On the way, the smaller of the two sizes (one that shrinks does it first, one that grows at the end):
-    // it never passes the room the two places take, so nothing spills onto the next monitor.
-    const double e = eased(t);
-    const std::int32_t left = mix(move.from.left, move.to.left, e);
-    const std::int32_t top = mix(move.from.top, move.to.top, e);
-    return {left, top, left + std::min(move.from.width(), move.to.width()),
-            top + std::min(move.from.height(), move.to.height())};
 }
 
 void Animator::start(std::vector<Move> moves, std::chrono::milliseconds duration)
@@ -158,7 +131,7 @@ void Animator::run(const std::stop_token& stop)
                 it->duration.count() <= 0
                     ? 1.0
                     : std::chrono::duration<double, std::milli>(now - it->start).count() / it->duration.count();
-            const tiling::Rect frame = at(it->move, t);
+            const tiling::Rect frame = tiling::slideFrame(it->move.from, it->move.to, t);
             const bool resize = frame.width() != it->width || frame.height() != it->height;
             it->width = frame.width();
             it->height = frame.height();

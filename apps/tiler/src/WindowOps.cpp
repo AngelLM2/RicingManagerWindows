@@ -133,6 +133,32 @@ tiling::Rect rectOf(const RECT& r) noexcept
     return {r.left, r.top, r.right, r.bottom};
 }
 
+// `rect`, or (when no monitor shows a good part of it any more: a monitor unplugged since) the same size
+// moved into the work area of the nearest one, shrunk if it is larger.
+tiling::Rect onSomeMonitor(const tiling::Rect& rect) noexcept
+{
+    constexpr std::int32_t kEnough = 64; // of it in sight, each way
+    const RECT r{rect.left, rect.top, rect.right, rect.bottom};
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST), &info) == FALSE)
+    {
+        return rect;
+    }
+    const tiling::Rect work = rectOf(info.rcWork);
+    const std::int32_t seenWide = std::min(rect.right, work.right) - std::max(rect.left, work.left);
+    const std::int32_t seenHigh = std::min(rect.bottom, work.bottom) - std::max(rect.top, work.top);
+    if (seenWide >= std::min(kEnough, rect.width()) && seenHigh >= std::min(kEnough, rect.height()))
+    {
+        return rect;
+    }
+    const std::int32_t width = std::min(rect.width(), work.width());
+    const std::int32_t height = std::min(rect.height(), work.height());
+    const std::int32_t left = std::clamp(rect.left, work.left, work.right - width);
+    const std::int32_t top = std::clamp(rect.top, work.top, work.bottom - height);
+    return {left, top, left + width, top + height};
+}
+
 BOOL CALLBACK collectMonitor(HMONITOR monitor, HDC /*dc*/, LPRECT /*rect*/, LPARAM context)
 {
     auto& out = *reinterpret_cast<std::vector<tiling::Monitor>*>(context); // NOLINT(performance-no-int-to-ptr)
@@ -206,6 +232,45 @@ bool isResizable(Window window) noexcept
     return (static_cast<DWORD>(GetWindowLongPtrW(hwnd(window), GWL_STYLE)) & WS_THICKFRAME) != 0;
 }
 
+bool isFullscreen(Window window) noexcept
+{
+    HWND w = hwnd(window);
+    const auto style = static_cast<DWORD>(GetWindowLongPtrW(w, GWL_STYLE));
+    if ((style & WS_CAPTION) == WS_CAPTION)
+    {
+        return false; // a window with a title bar is not full screen (maximized ones are looked at apart)
+    }
+    RECT rect{};
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (GetWindowRect(w, &rect) == FALSE ||
+        GetMonitorInfoW(MonitorFromWindow(w, MONITOR_DEFAULTTONEAREST), &info) == FALSE)
+    {
+        return false;
+    }
+    return rect.left <= info.rcMonitor.left && rect.top <= info.rcMonitor.top && rect.right >= info.rcMonitor.right &&
+           rect.bottom >= info.rcMonitor.bottom;
+}
+
+namespace
+{
+
+// A Store app's frame (ApplicationFrameWindow) belongs to ApplicationFrameHost.exe; the app's own process
+// owns the CoreWindow inside it.
+BOOL CALLBACK findCoreWindow(HWND child, LPARAM context)
+{
+    std::array<wchar_t, 64> name{};
+    if (GetClassNameW(child, name.data(), static_cast<int>(name.size())) > 0 &&
+        std::wstring_view(name.data()) == L"Windows.UI.Core.CoreWindow")
+    {
+        *reinterpret_cast<HWND*>(context) = child; // NOLINT(performance-no-int-to-ptr)
+        return FALSE;
+    }
+    return TRUE;
+}
+
+} // namespace
+
 tiling::WindowFacts factsOf(Window window)
 {
     tiling::WindowFacts facts;
@@ -215,7 +280,20 @@ tiling::WindowFacts factsOf(Window window)
     std::array<wchar_t, 512> title{};
     const int length = GetWindowTextW(w, title.data(), static_cast<int>(title.size()));
     facts.title = utf16To8Lossy(std::wstring_view(title.data(), static_cast<std::size_t>(std::max(length, 0))));
-    const std::wstring image = imageOf(processOf(window));
+    std::wstring image = imageOf(processOf(window));
+    if (_wcsicmp(std::filesystem::path(image).filename().c_str(), L"ApplicationFrameHost.exe") == 0)
+    {
+        // Rules name the app ("CalculatorApp.exe"), not the frame every Store app shares.
+        HWND core = nullptr;
+        EnumChildWindows(w, &findCoreWindow, reinterpret_cast<LPARAM>(&core));
+        if (core != nullptr)
+        {
+            if (std::wstring app = imageOf(processOf(core)); !app.empty())
+            {
+                image = std::move(app);
+            }
+        }
+    }
     facts.app = utf16To8Lossy(std::filesystem::path(image).filename().native());
     return facts;
 }
@@ -422,13 +500,17 @@ std::vector<tiling::Original> putBack(std::span<const tiling::Original> windows)
             untouchable.push_back(original);
             continue;
         }
+        if (!original.hidden && IsWindowVisible(w) == FALSE)
+        {
+            continue; // the app hid it itself (Discord, Spotify closed to the tray): showing it would pop it up
+        }
         if (original.hidden)
         {
             ShowWindowAsync(w, SW_SHOWNA);
         }
         if (original.placed && IsIconic(w) == FALSE)
         {
-            const tiling::Rect& r = original.rect;
+            const tiling::Rect r = onSomeMonitor(original.rect);
             SetWindowPos(w, nullptr, r.left, r.top, r.width(), r.height(),
                          SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
             if (original.maximized)
@@ -441,12 +523,12 @@ std::vector<tiling::Original> putBack(std::span<const tiling::Original> windows)
     return untouchable;
 }
 
-bool putBackFromFile(const std::filesystem::path& file)
+std::vector<tiling::Original> putBackFromFile(const std::filesystem::path& file)
 {
     std::error_code ec;
     if (!std::filesystem::exists(file, ec))
     {
-        return false;
+        return {};
     }
     auto bytes = platform::readFileLimited(file, kMaxOriginalsBytes);
     if (bytes)
@@ -454,7 +536,7 @@ bool putBackFromFile(const std::filesystem::path& file)
         const std::string_view text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
         if (auto windows = tiling::parseOriginals(text))
         {
-            const auto left = putBack(*windows);
+            auto left = putBack(*windows);
             log::info("tiler: {} window(s) put back from the last run", windows->size() - left.size());
             if (!left.empty())
             {
@@ -465,7 +547,7 @@ bool putBackFromFile(const std::filesystem::path& file)
                 const auto* data = reinterpret_cast<const std::byte*>(kept.data());
                 if (platform::writeFileAtomic(file, std::span(data, kept.size())))
                 {
-                    return true;
+                    return left;
                 }
             }
         }
@@ -475,7 +557,7 @@ bool putBackFromFile(const std::filesystem::path& file)
         }
     }
     std::filesystem::remove(file, ec);
-    return true;
+    return {};
 }
 
 } // namespace rmw::tilerapp

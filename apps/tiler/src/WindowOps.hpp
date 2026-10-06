@@ -31,6 +31,8 @@ using Window = void*; // HWND
 [[nodiscard]] bool isAppWindow(Window window) noexcept;
 // It can be resized (a fixed-size window floats).
 [[nodiscard]] bool isResizable(Window window) noexcept;
+// Full screen without a title bar (a browser's F11, a video, a game): left alone, like a maximized one.
+[[nodiscard]] bool isFullscreen(Window window) noexcept;
 [[nodiscard]] tiling::WindowFacts factsOf(Window window);
 [[nodiscard]] std::uint32_t processOf(Window window) noexcept;
 // Its process runs at our integrity level or below (Windows lets us move it). An admin app's
@@ -83,8 +85,9 @@ void focus(Window window) noexcept;
 // this process may not touch (an admin app's, for a tiler that is not elevated).
 std::vector<tiling::Original> putBack(std::span<const tiling::Original> windows);
 // The same, from the file a tiler that ended badly left: removed, or left with only the windows that
-// need an elevated tiler (advanced mode puts them back when it starts). False when there was none.
-bool putBackFromFile(const std::filesystem::path& file);
+// need an elevated tiler (advanced mode puts them back when it starts), which it returns: whoever writes
+// the file next must keep them in it, or they stay hidden for good.
+std::vector<tiling::Original> putBackFromFile(const std::filesystem::path& file);
 
 // Marks the keys the tiler sends itself, so its hook lets them through.
 inline constexpr std::uintptr_t kOurKeys = 0x524D5754; // "RMWT"

@@ -32,6 +32,8 @@ Rect inset(const Rect& rect, std::int32_t by) noexcept
 
 // Below this, a window of unknown minimum counts as this big when minimums do not fit (pixels).
 constexpr std::int32_t kUnknownMinimum = 64;
+// When a cut makes room for a neighbour's minimum, a window keeps at least this (or a quarter of the room).
+constexpr std::int32_t kUsefulSlot = 200;
 
 Size minimumAt(std::span<const Size> minimums, std::size_t index) noexcept
 {
@@ -129,9 +131,13 @@ std::vector<std::int32_t> shares(std::int32_t room, std::size_t count, std::span
 }
 
 // The first part's length when `room` is cut in two: `share` of it, moved so each part keeps its
-// minimum when both fit, in proportion to the minimums when they do not.
+// minimum when both fit, in proportion to the minimums when they do not. A part with no minimum known
+// still keeps a useful width (never 60 px so that a neighbour gets its minimum).
 std::int32_t firstPart(std::int32_t room, double share, std::int32_t needFirst, std::int32_t needSecond) noexcept
 {
+    const std::int32_t useful = std::min(kUsefulSlot, room / 4);
+    needFirst = std::max(needFirst, useful);
+    needSecond = std::max(needSecond, useful);
     auto first = static_cast<std::int32_t>(std::lround(room * share));
     const std::int64_t needed = static_cast<std::int64_t>(needFirst) + needSecond;
     if (needed <= room)
@@ -332,6 +338,23 @@ Rect fitted(const Rect& slot, const Size& minimum, const Rect& area) noexcept
     out.right = out.left + width;
     out.bottom = out.top + height;
     return out;
+}
+
+Rect slideFrame(const Rect& from, const Rect& to, double t) noexcept
+{
+    if (!(t < 1.0)) // NaN too
+    {
+        return to;
+    }
+    t = std::max(t, 0.0);
+    const double rest = 1.0 - t;
+    const double eased = 1.0 - (rest * rest * rest); // ease-out cubic
+    const auto mix = [eased](std::int32_t a, std::int32_t b) {
+        return static_cast<std::int32_t>(std::lround(a + ((static_cast<double>(b) - a) * eased)));
+    };
+    const std::int32_t left = mix(from.left, to.left);
+    const std::int32_t top = mix(from.top, to.top);
+    return {left, top, left + std::min(from.width(), to.width()), top + std::min(from.height(), to.height())};
 }
 
 std::optional<std::size_t> neighbor(std::span<const Rect> rects, std::size_t from, Direction direction) noexcept
