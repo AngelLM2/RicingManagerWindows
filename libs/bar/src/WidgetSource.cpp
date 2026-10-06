@@ -2,6 +2,7 @@
 
 #include "rmw/base/Utf.hpp"
 #include "rmw/domain/PathRules.hpp"
+#include "rmw/domain/PluginManifest.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,6 +22,7 @@ constexpr std::size_t kMaxIdentifierBytes = 64;
 constexpr std::size_t kMaxStringBytes = 4'096;
 constexpr std::size_t kMaxInterpolationTokens = 64;
 constexpr std::int64_t kMaxRepeat = 256;
+constexpr std::int64_t kMaxElements = 4096; // repeaters inside repeaters, all counts multiplied
 
 constexpr std::string_view kStdWidgets = "std-widgets.slint";
 
@@ -517,10 +519,42 @@ private:
         return fail(ErrorCode::InvalidData, std::format("{}:{}: {}", m_file, at.line, message));
     }
 
+    // The properties declared as lists (`in property <[Item]> items;`): what a repeater may go over besides a
+    // number. A plugin's lists hold at most kWidgetListMaxItems (the bar checks every value it is sent).
+    void collectLists(const std::vector<Token>& tokens)
+    {
+        for (std::size_t i = 0; i + 3 < tokens.size(); ++i)
+        {
+            if (!tokens[i].isWord("property") || !tokens[i + 1].is("<") || !tokens[i + 2].is("["))
+            {
+                continue;
+            }
+            for (std::size_t j = i + 3; j + 1 < tokens.size() && j < i + 64; ++j)
+            {
+                if (tokens[j].is(">"))
+                {
+                    if (tokens[j + 1].kind == Token::Kind::Identifier)
+                    {
+                        m_lists.push_back(normalized(tokens[j + 1].text));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     // Rules that hold anywhere, interpolations included.
     Result<void> checkTokens(std::vector<Token>& tokens, bool interpolation)
     {
+        if (!interpolation)
+        {
+            collectLists(tokens);
+        }
         std::vector<char> open;
+        // What each open bracket multiplies the elements inside it by (a repeater's count, or 1): repeaters
+        // inside repeaters multiply (three nested `for x in 256` were 16 million elements).
+        std::vector<std::int64_t> factors;
+        std::int64_t pending = 1; // a repeater's count, for the next `{`
         for (std::size_t i = 0; i < tokens.size(); ++i)
         {
             Token& token = tokens[i];
@@ -545,10 +579,12 @@ private:
                 }
                 if (name == "for")
                 {
-                    if (auto repeat = checkRepeater(tokens, i); !repeat)
+                    auto repeat = checkRepeater(tokens, i);
+                    if (!repeat)
                     {
-                        return repeat;
+                        return std::unexpected(std::move(repeat.error()));
                     }
+                    pending = *repeat;
                 }
                 break;
             }
@@ -578,6 +614,18 @@ private:
                     {
                         return error(token, "nested too deeply");
                     }
+                    const std::int64_t factor = token.is("{") ? std::exchange(pending, 1) : 1;
+                    factors.push_back(factor);
+                    std::int64_t total = 1;
+                    for (const std::int64_t f : factors)
+                    {
+                        total = std::min(total * f, kMaxElements + 1);
+                    }
+                    if (total > kMaxElements)
+                    {
+                        return error(token, std::format("repeaters inside repeaters make more than {} elements",
+                                                        kMaxElements));
+                    }
                 }
                 else if (token.is("}") || token.is(")") || token.is("]"))
                 {
@@ -587,6 +635,7 @@ private:
                         return error(token, std::format("unbalanced '{}'", token.text));
                     }
                     open.pop_back();
+                    factors.pop_back();
                 }
                 break;
             default:
@@ -600,29 +649,61 @@ private:
         return {};
     }
 
-    // for x in 1000000: Rectangle {} — a repeater with a literal count stays small.
-    Result<void> checkRepeater(const std::vector<Token>& tokens, std::size_t at)
+    // A repeater goes over a number written as it is (`for x in 12:`, at most kMaxRepeat) or a list property
+    // (`for item in root.items:`): never an expression, which could make millions of elements
+    // (`for x in 200 * 200 * 200`, `for x in root.n` with n set by the script). Its count: the number, or
+    // the most a list may hold.
+    Result<std::int64_t> checkRepeater(const std::vector<Token>& tokens, std::size_t at)
     {
+        const auto refuse = [&](const Token& token) {
+            return error(token, std::format("a repeater takes a number (at most {}) or a list property "
+                                            "(in property <[T]> name)",
+                                            kMaxRepeat));
+        };
         for (std::size_t i = at + 1; i < tokens.size() && i < at + 8; ++i)
         {
             if (!tokens[i].isWord("in"))
             {
                 continue;
             }
-            if (i + 1 < tokens.size() && tokens[i + 1].kind == Token::Kind::Number)
+            if (i + 2 >= tokens.size())
             {
-                const std::string& text = tokens[i + 1].text;
-                std::int64_t count = 0;
-                const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), count);
-                if (ec != std::errc{} || count > kMaxRepeat || ptr != text.data() + text.size())
-                {
-                    return error(tokens[i + 1],
-                                 std::format("a repeater makes at most {} elements", kMaxRepeat));
-                }
+                return refuse(tokens[i]);
             }
-            break;
+            const Token& source = tokens[i + 1];
+            if (source.kind == Token::Kind::Number)
+            {
+                std::int64_t count = 0;
+                const auto [ptr, ec] = std::from_chars(source.text.data(), source.text.data() + source.text.size(), count);
+                if (ec != std::errc{} || count < 0 || count > kMaxRepeat ||
+                    ptr != source.text.data() + source.text.size() || !tokens[i + 2].is(":"))
+                {
+                    return refuse(source);
+                }
+                return std::max<std::int64_t>(count, 1);
+            }
+            // `items`, `root.items`, `self.items`: a list property, then the `:` that ends the header.
+            std::size_t j = i + 1;
+            std::string last;
+            while (j < tokens.size() && tokens[j].kind == Token::Kind::Identifier)
+            {
+                last = normalized(tokens[j].text);
+                if (j + 1 < tokens.size() && tokens[j + 1].is("."))
+                {
+                    j += 2;
+                    continue;
+                }
+                ++j;
+                break;
+            }
+            if (last.empty() || j >= tokens.size() || !tokens[j].is(":") ||
+                std::ranges::find(m_lists, last) == m_lists.end())
+            {
+                return refuse(source);
+            }
+            return static_cast<std::int64_t>(domain::kWidgetListMaxItems);
         }
-        return {};
+        return refuse(tokens[at]);
     }
 
     // @image-url("icons/play.svg") -> @image-url("C:/.../icons/play.svg")
@@ -932,6 +1013,7 @@ private:
     const WidgetSourceOptions& m_options;
     std::vector<Token> m_output;
     std::vector<std::string> m_stdWidgets;
+    std::vector<std::string> m_lists; // list properties (normalized): what a repeater may go over
     std::vector<std::pair<std::string, std::string>> m_names; // normalized -> renamed
     std::vector<std::string> m_components;                    // normalized
     std::vector<std::pair<std::string, std::pair<std::size_t, std::size_t>>> m_bodies;

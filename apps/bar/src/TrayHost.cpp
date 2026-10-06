@@ -39,7 +39,9 @@ constexpr UINT kFrontIntervalMs = 250;   // apps that find Explorer's window fir
 constexpr UINT kPublishDelayMs = 50;     // bursts of updates reach the UI once
 constexpr UINT kInviteAgainMs = 2000;    // after Explorer restarts, for apps that raced us
 constexpr int kPruneEveryTicks = 20;     // dead owners every 5 s
-constexpr UINT kForwardTimeoutMs = 1500; // app bars (ours too) wait for this: below the bar's hang time
+constexpr UINT kForwardTimeoutMs = 1500; // what other programs ask the taskbar: below the bar's hang time
+constexpr UINT kAppBarTimeoutMs = 500;   // an app bar's call (SHAppBarMessage): several in a row
+constexpr ULONG_PTR kAppBarData = 0;     // WM_COPYDATA's dwData for SHAppBarMessage (1 is the tray's)
 constexpr std::size_t kMaxSettings = 2048;
 constexpr auto kStopDelay = 3s;
 constexpr auto kAnchorLife = 5s;
@@ -153,7 +155,8 @@ public:
 private:
     LRESULT handle(UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT onCopyData(WPARAM wParam, LPARAM lParam);
-    LRESULT forward(UINT message, WPARAM wParam, LPARAM lParam, bool& delivered) const;
+    LRESULT forward(UINT message, WPARAM wParam, LPARAM lParam, bool& delivered,
+                    UINT timeoutMs = kForwardTimeoutMs) const;
     void apply(const tray::Update& update);
     std::optional<LRESULT> answerRect(const tray::RectQuery& query);
     void keepInFront();
@@ -354,7 +357,7 @@ LRESULT Worker::handle(UINT message, WPARAM wParam, LPARAM lParam)
     return DefWindowProcW(m_window, message, wParam, lParam);
 }
 
-LRESULT Worker::forward(UINT message, WPARAM wParam, LPARAM lParam, bool& delivered) const
+LRESULT Worker::forward(UINT message, WPARAM wParam, LPARAM lParam, bool& delivered, UINT timeoutMs) const
 {
     delivered = false;
     auto* const real = static_cast<HWND>(platform::nativeTrayWindow());
@@ -363,8 +366,7 @@ LRESULT Worker::forward(UINT message, WPARAM wParam, LPARAM lParam, bool& delive
         return 0;
     }
     DWORD_PTR result = 0;
-    delivered =
-        SendMessageTimeoutW(real, message, wParam, lParam, SMTO_ABORTIFHUNG, kForwardTimeoutMs, &result) != 0;
+    delivered = SendMessageTimeoutW(real, message, wParam, lParam, SMTO_ABORTIFHUNG, timeoutMs, &result) != 0;
     return static_cast<LRESULT>(result);
 }
 
@@ -394,9 +396,12 @@ LRESULT Worker::onCopyData(WPARAM wParam, LPARAM lParam)
             }
         }
     }
-    // App bars and anything else: Explorer answers, now.
+    // App bars and anything else: Explorer answers, now. An app bar's call (ours from the bar's own thread,
+    // two or three for each placing) waits less: three times 1.5 s behind a slow Explorer took the bar
+    // past its heartbeat.
     bool delivered = false;
-    return forward(WM_COPYDATA, wParam, lParam, delivered);
+    const bool appBar = data != nullptr && data->dwData == kAppBarData;
+    return forward(WM_COPYDATA, wParam, lParam, delivered, appBar ? kAppBarTimeoutMs : kForwardTimeoutMs);
 }
 
 void Worker::apply(const tray::Update& update)
@@ -425,11 +430,9 @@ void Worker::apply(const tray::Update& update)
         DWORD pid = 0;
         GetWindowThreadProcessId(windowOf(icon->owner), &pid);
         view.pid = pid;
-        auto& path = m_paths[pid];
-        if (path.empty())
-        {
-            path = processPath(pid);
-        }
+        // Asked each time (an icon is added now and then): a process id is reused once its process ends,
+        // and a remembered path named the wrong app (and put its icon in or out of the overflow).
+        const std::wstring& path = m_paths[pid] = processPath(pid);
         view.app = utf16To8Lossy(std::filesystem::path(path).filename().native());
         view.promoted = promotedFor(view);
         log::info("tray: icon {} added by {} (pid {})", result.number, view.app.empty() ? "?" : view.app,

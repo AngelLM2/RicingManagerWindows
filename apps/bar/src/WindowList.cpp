@@ -190,23 +190,27 @@ void WindowTracker::forgetIcons()
     schedule(); // drawn again a few at a time, like new windows
 }
 
-slint::Image WindowTracker::iconFor(void* window)
+slint::Image WindowTracker::iconFor(void* window, bool& fromApp)
 {
+    fromApp = false;
     const std::wstring identity = providers::appIdentity(window);
     if (!identity.empty())
     {
-        if (const auto cached = m_appIcons.find(identity); cached != m_appIcons.end())
-        {
-            return cached->second;
-        }
-        const auto pixels = providers::appIconPixels(identity, kAppIconSize);
-        if (!pixels.empty())
+        auto cached = m_appIcons.find(identity);
+        if (cached == m_appIcons.end())
         {
             if (m_appIcons.size() >= kAppIconsKept)
             {
                 m_appIcons.clear();
             }
-            return m_appIcons.emplace(identity, imageFromPixels(pixels)).first->second;
+            // Also when the Shell has none: not asked again at every title change.
+            cached = m_appIcons.emplace(identity, imageFromPixels(providers::appIconPixels(identity, kAppIconSize)))
+                         .first;
+        }
+        if (cached->second.size().width > 0)
+        {
+            fromApp = true;
+            return cached->second;
         }
     }
     return imageOf(iconHandle(static_cast<HWND>(window)));
@@ -229,7 +233,9 @@ void WindowTracker::refresh()
         if (std::string title = providers::windowTitle(entry.window); title != entry.title)
         {
             entry.title = std::move(title);
-            entry.iconLoaded = false; // browsers change both together
+            // A window's own icon may change with its title (some apps show what they hold); the app's
+            // does not (a browser's title changes all the time).
+            entry.iconLoaded = entry.iconLoaded && entry.appIcon;
             changed = true;
         }
         next.push_back(std::move(entry));
@@ -239,7 +245,7 @@ void WindowTracker::refresh()
     {
         if (std::ranges::none_of(next, [&](const Entry& entry) { return entry.window == *it; }))
         {
-            next.push_back({*it, providers::windowTitle(*it), {}, false});
+            next.push_back({*it, providers::windowTitle(*it), {}, false, false});
             changed = true;
         }
     }
@@ -256,7 +262,7 @@ void WindowTracker::refresh()
             iconsLeft = true;
             continue;
         }
-        entry.icon = iconFor(entry.window);
+        entry.icon = iconFor(entry.window, entry.appIcon);
         entry.iconLoaded = true;
         changed = true;
     }

@@ -179,6 +179,11 @@ TEST(WidgetSource, WhatWouldHurtTheBarIsRejected)
              "ContextMenuArea { }",
              "animate x { duration: 1s; iteration-count: -1; }",
              "for i in 100000: Rectangle { }",
+             // Repeaters that would make millions of elements another way.
+             "for i in 200 * 200 * 200: Rectangle { }",
+             "for i in root.width / 1px: Rectangle { }",
+             "for i in 200: Rectangle { for j in 200: Rectangle { } }",
+             "for i in 256: Rectangle { for j in 256: Rectangle { for k in 256: Rectangle { } } }",
              "RmwClock { }",
              "rmw_thing := Rectangle { }",
              "@children-of-something",
