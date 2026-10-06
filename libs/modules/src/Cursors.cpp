@@ -34,7 +34,8 @@ Json stringField(const std::optional<ports::RegistryValue>& value)
                 {"data", value->text}};
 }
 
-Result<void> writeStringField(ports::IRegistry& registry, std::string_view name, const Json& value)
+Result<void> writeStringField(ports::IRegistry& registry, ports::IShell& shell, std::string_view name,
+                              const Json& value)
 {
     if (value.is_null())
     {
@@ -47,7 +48,10 @@ Result<void> writeStringField(ports::IRegistry& registry, std::string_view name,
     {
         return fail(ErrorCode::InvalidArgument, std::format("cursor field '{}' is malformed", name));
     }
-    const auto& text = data->get_ref<const std::string&>();
+    // The file the user had while it is there, else its copy in the store.
+    const std::string copy = json::stringOr(value, "copy", "");
+    const std::string& text =
+        copy.empty() || shell.fileExists(data->get_ref<const std::string&>()) ? data->get_ref<const std::string&>() : copy;
     return registry.write(kCursors, name,
                           *type == "string" ? ports::RegistryValue::fromString(text)
                                             : ports::RegistryValue::fromExpandString(text));
@@ -206,9 +210,21 @@ Result<void> CursorsLogic::internalize(Json& state, engine::IAssetSink& assets) 
             continue;
         }
         const std::u8string storedPath = stored->u8string();
-        (*field)["data"] = std::string(storedPath.begin(), storedPath.end());
+        (*field)["copy"] = std::string(storedPath.begin(), storedPath.end());
     }
     return {};
+}
+
+bool CursorsLogic::fieldEquivalent(std::string_view /*field*/, const Json& a, const Json& b) const
+{
+    const auto plain = [](Json value) {
+        if (value.is_object())
+        {
+            value.erase("copy");
+        }
+        return value;
+    };
+    return plain(a) == plain(b);
 }
 
 Result<engine::CaptureResult> CursorsSystem::capture()
@@ -255,7 +271,7 @@ Result<void> CursorsSystem::apply(const Json& desired)
         const std::string_view name = domain::registryValueName(static_cast<domain::CursorRole>(i));
         if (const auto value = desired.find(name); value != desired.end())
         {
-            if (auto written = writeStringField(m_registry, name, *value); !written)
+            if (auto written = writeStringField(m_registry, m_shell, name, *value); !written)
             {
                 return written;
             }
@@ -264,7 +280,7 @@ Result<void> CursorsSystem::apply(const Json& desired)
     }
     if (const auto scheme = desired.find("scheme"); scheme != desired.end())
     {
-        if (auto written = writeStringField(m_registry, "", *scheme); !written)
+        if (auto written = writeStringField(m_registry, m_shell, "", *scheme); !written)
         {
             return written;
         }

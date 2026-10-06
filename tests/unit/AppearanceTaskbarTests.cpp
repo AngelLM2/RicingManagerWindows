@@ -67,8 +67,11 @@ TEST(Appearance, RiceBecomesFields)
     ASSERT_TRUE(desired.has_value());
     EXPECT_EQ(
         *desired,
-        (Json{
-            {"appsLight", false}, {"systemLight", false}, {"accent", "#7AA2F7"}, {"accentOnTaskbar", true}}));
+        (Json{{"appsLight", false},
+              {"systemLight", false},
+              {"accent", "#7AA2F7"},
+              {"accentOnTaskbar", true},
+              {"theme", "ricing-manager"}})); // the look goes through our managed theme
 
     rice.appearance->mode = rmw::domain::ThemeMode::System;
     EXPECT_FALSE(AppearanceLogic().desiredFromRice(rice, assets)->contains("appsLight"));
@@ -106,7 +109,8 @@ TEST(Appearance, CaptureUsesWindowsDefaultsForMissingValues)
                                      {"systemLight", true},
                                      {"transparency", true},
                                      {"accentOnTaskbar", false},
-                                     {"accent", "#0078D4"}}));
+                                     {"accent", "#0078D4"},
+                                     {"theme", nullptr}}));
 }
 
 TEST(Appearance, ModeAndAccentGoThroughTheManagedTheme)
@@ -146,6 +150,66 @@ TEST(Appearance, ThemeFailureFallsBackForModeButNotForAccent)
     const auto accent = system.apply({{"accent", "#FF0000"}});
     ASSERT_FALSE(accent.has_value());
     EXPECT_EQ(accent.error().code(), rmw::ErrorCode::Timeout);
+}
+
+TEST(Appearance, ARestoreBringsTheUsersThemeBack)
+{
+    FakeRegistry registry;
+    const std::string original = R"(C:\Windows\resources\Themes\dark.theme)";
+    registry.values[{R"(Software\Microsoft\Windows\CurrentVersion\Themes)", "CurrentTheme"}] =
+        rmw::ports::RegistryValue::fromString(original);
+    registry.setDword(kPersonalize, "AppsUseLightTheme", 0);
+    registry.setDword(kPersonalize, "SystemUsesLightTheme", 0);
+    registry.setDword(kDwm, "ColorizationColor", 0xC4123456);
+    FakeShell shell;
+    FakeThemeApi theme(registry);
+    theme.looks[original] = rmw::ports::ThemeLook{false, false, 0xC4123456};
+    AppearanceSystem system(registry, shell, theme);
+    const auto before = system.capture();
+    ASSERT_TRUE(before.has_value());
+    EXPECT_EQ(before->state["theme"], original);
+
+    // A rice: light, another accent; ours is the current theme now.
+    const Json rice = {{"appsLight", true}, {"systemLight", true}, {"accent", "#7AA2F7"}, {"theme", "ricing-manager"}};
+    ASSERT_TRUE(system.apply(rice));
+    const auto after = system.capture();
+    ASSERT_TRUE(after.has_value());
+    EXPECT_TRUE(AppearanceLogic().fieldEquivalent("theme", rice["theme"], after->state["theme"]));
+    EXPECT_FALSE(AppearanceLogic().fieldEquivalent("theme", rice["theme"], before->state["theme"]));
+
+    // The restore: the user's theme file again, and nothing more (it already shows their look).
+    const std::size_t looks = theme.applied.size();
+    ASSERT_TRUE(system.apply(before->state));
+    ASSERT_EQ(theme.files.size(), 1u);
+    EXPECT_EQ(theme.files[0], original);
+    EXPECT_EQ(theme.applied.size(), looks);
+    EXPECT_EQ(registry.dword(kPersonalize, "AppsUseLightTheme"), 0u);
+
+    // A theme that is gone: its look comes back through ours.
+    Json gone = before->state;
+    gone["theme"] = R"(C:\Users\me\deleted.theme)";
+    gone["appsLight"] = false;
+    ASSERT_TRUE(system.apply(gone));
+    EXPECT_EQ(theme.files.size(), 2u);
+}
+
+TEST(Appearance, ATakenThemeWithoutItsAccentStillEndsAsTheUsers)
+{
+    FakeRegistry registry;
+    const std::string original = R"(C:\Windows\resources\Themes\aero.theme)";
+    FakeShell shell;
+    FakeThemeApi theme(registry);
+    // Windows takes the theme but keeps the rice's accent.
+    theme.looks[original] = rmw::ports::ThemeLook{true, true, 0xC47AA2F7};
+    AppearanceSystem system(registry, shell, theme, std::chrono::milliseconds(0));
+    const Json before = {{"appsLight", true}, {"systemLight", true}, {"accent", "#0078D4"}, {"theme", original}};
+    ASSERT_TRUE(system.apply(before));
+    ASSERT_EQ(theme.files.size(), 1u);
+    ASSERT_EQ(theme.applied.size(), 1u); // the look, through ours
+    EXPECT_EQ(theme.applied[0].colorizationArgb & 0x00FFFFFFu, 0x0078D4u);
+    ASSERT_EQ(theme.named.size(), 1u); // and the user's theme named again
+    EXPECT_EQ(theme.named[0], original);
+    EXPECT_EQ(system.capture()->state["theme"], original);
 }
 
 TEST(Appearance, AccentComparisonIgnoresCase)

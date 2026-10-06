@@ -37,8 +37,8 @@ using winrt::Windows::System::UserProfile::LockScreen;
 
 using Clock = std::chrono::steady_clock;
 
-// Each call, whole, within the apply helper's 15 s (kHelperTimeout), even on a busy PC.
-constexpr auto kBudget = std::chrono::seconds(9);
+// Each call, whole, within what the apply helper gives this module (45 s), even on a busy PC.
+constexpr auto kBudget = std::chrono::seconds(30);
 constexpr auto kSettle = std::chrono::milliseconds(100);
 constexpr auto kSettleAtMost = std::chrono::seconds(3); // Windows takes the new picture in about a second (spike S9)
 

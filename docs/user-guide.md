@@ -61,6 +61,11 @@ edit is the applied one, its bar follows each change by itself.
 - **Your Rice** is a kit: the Diva Stage colors, cursors and bar with no picture of ours.
   *Duplicate* it, then choose your own wallpaper in **Wallpapers → Choose…**. The picture is copied
   into your copy and stays on your PC.
+- **Restore the original Windows** brings back what you had: the theme you had selected (Settings
+  shows it selected again), your mouse pointers as you had them (your own pointer style and size
+  included), your sounds, icons, lock screen and wallpaper. Your own files are put back where they
+  were; Ricing Manager keeps a copy only for when one of them was deleted. A rice never touches your
+  recent colors or your pointer style behind your back.
 - A rice is plain text (`rice.toml`) plus its files; the format is in the
   [README](../README.md) and in `docs/03-arquitetura.md`.
 
@@ -100,6 +105,10 @@ it cannot be shared or packed.
   Your own shortcuts to it take the icon (in your Start menu, on your desktop and pinned to the
   taskbar), and Ricing Manager's bar, dock and Start show it too. **File types** work the same way
   (`txt`): their files show the icon. Only `.ico` files, checked first.
+- **Every folder and drive (advanced):** a rice can also change the icon of every folder and every
+  drive, for every user of the PC. Turn on **Folder and drive icons for the whole PC** in
+  **Settings** first; Windows then asks for administrator each time a rice changes them or you
+  restore. Ricing Manager is not signed: the prompt says "unknown publisher".
 - **Other apps' windows:** at the end of **Appearance**, a rice can give every app's window
   (Windows 11) its corners, border color, title bar and title colors, a Mica or Acrylic title bar and
   dark title bars, and leave some programs out. Ricing Manager sets them from the outside while it

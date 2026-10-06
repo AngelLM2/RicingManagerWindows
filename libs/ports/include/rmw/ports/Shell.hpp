@@ -26,6 +26,8 @@ public:
     // True for files Windows ships (under the Windows folder, %VARS% expanded): a snapshot
     // keeps pointing at them instead of copying them.
     [[nodiscard]] virtual bool isWindowsFile(std::string_view file) = 0;
+    // Whether a file is there (%VARS% expanded): a captured file may have been deleted since.
+    [[nodiscard]] virtual bool fileExists(std::string_view file) = 0;
 
     // Native taskbar auto-hide (SHAppBarMessage ABM_GETSTATE / ABM_SETSTATE).
     [[nodiscard]] virtual Result<bool> taskbarAutoHide() = 0;
@@ -51,6 +53,13 @@ public:
     // with this look and applies it, ignoring wallpaper, cursors, icons, sounds and screensaver.
     // Returns once Windows reports the look, or Timeout.
     [[nodiscard]] virtual Result<void> applyLook(const ThemeLook& look) = 0;
+    // Applies a theme file of the user's again (a restore: the theme they had selected), its look only
+    // where Windows allows. Neither call changes the pointers or Settings' recent colors: what a theme
+    // apply changes there is put back.
+    [[nodiscard]] virtual Result<void> applyThemeFile(const std::string& file) = 0;
+    // Names a theme file of the user's as the current one (Settings shows it selected) without applying
+    // it: after the look it carries was set another way.
+    [[nodiscard]] virtual Result<void> nameCurrentTheme(const std::string& file) = 0;
 };
 
 } // namespace rmw::ports

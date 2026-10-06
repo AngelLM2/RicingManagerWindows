@@ -643,3 +643,9 @@ File types	Tipos de arquivo
 File type	Tipo de arquivo
 Choose an icon for the file type	Escolher um ícone para o tipo de arquivo
 Files of that type show the icon, for the program that opens them now.	Os arquivos desse tipo mostram o ícone, para o programa que os abre agora.
+Every folder and drive (advanced)	Todas as pastas e unidades (avançado)
+Every folder	Todas as pastas
+Every drive	Todas as unidades
+For every user of this PC. It needs "Folder and drive icons for the whole PC" on in Settings, and Windows asks for administrator each time.	Para todos os usuários deste PC. Precisa de "Ícones de pastas e unidades para o PC inteiro" ligado nas Configurações, e o Windows pede administrador a cada vez.
+Folder and drive icons for the whole PC	Ícones de pastas e unidades para o PC inteiro
+Advanced: a rice may change every folder's and drive's icon, for every user of this PC. Windows asks for administrator each time.	Avançado: um rice pode mudar o ícone de todas as pastas e unidades, para todos os usuários deste PC. O Windows pede administrador a cada vez.

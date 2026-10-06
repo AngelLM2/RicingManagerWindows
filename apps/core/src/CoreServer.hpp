@@ -11,6 +11,7 @@
 #include "rmw/platform/MessageWindow.hpp"
 #include "rmw/platform/Pipe.hpp"
 #include "rmw/platform/Supervisor.hpp"
+#include "rmw/machine/MachineIcons.hpp"
 #include "rmw/tiling/Plan.hpp"
 
 #include <array>
@@ -145,6 +146,9 @@ public:
     void refreshTilerPlan(); // the accent may have changed: the border follows
     // The rice's [windows] (M14): rmw-tiler paints it, with tiling or alone. nullopt: Windows' own.
     void setWindowLook(const std::optional<tiling::WindowLook>& look);
+    // settings.toml [icons] machine (M14 advanced): a rice may change every folder's and drive's icon
+    // for the whole PC, through rmw-elevated and the UAC.
+    void setMachineIcons(bool allowed);
     [[nodiscard]] std::optional<std::string> tilerPlan() const;
     [[nodiscard]] Result<void> startTiler();
     // Asks rmw-tiler to put every window back and leave; `force`: ends it now and puts them back
@@ -241,7 +245,13 @@ private:
     domain::TilingSettings m_tiling;                      // settings.toml [tiling]
     std::optional<std::string> m_tilerPlan;               // what <data>\tiler\plan.json holds
     std::optional<tiling::WindowLook> m_windowLook;       // the applied rice's [windows]
-    std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
+    bool m_machineIconsAllowed = false;                   // settings.toml [icons] machine
+    // rmw-elevated running (or done): a restore that succeeded forgets the machine icons.
+    struct MachineJob;
+    std::shared_ptr<MachineJob> m_machineJob;
+    // rmw-elevated through the UAC, on a thread of its own (the prompt waits for the person).
+    void runMachineHelper(const machine::Command& command);
+    void collectMachineJob();    std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
 
     // Plugins (docs/12). The pipes are named once per run: the bar serves the bridge, the host
     // the control pipe; `m_blame` is the mapping where the host writes which plugin runs.
