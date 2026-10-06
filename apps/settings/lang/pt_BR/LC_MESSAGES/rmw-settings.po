@@ -170,8 +170,8 @@ msgstr "Ajustes de plugins"
 msgid "Bar"
 msgstr "Barra"
 
-msgid "Video wallpaper"
-msgstr "Wallpaper em vídeo"
+msgid "Live wallpaper"
+msgstr "Wallpaper vivo"
 
 msgid "Light/dark schedule"
 msgstr "Horário de claro/escuro"
@@ -181,6 +181,39 @@ msgstr "Modo seguro"
 
 msgid "Other customizers"
 msgstr "Outros personalizadores"
+
+msgid "Looking for Wallpaper Engine's wallpapers…"
+msgstr "Procurando os wallpapers do Wallpaper Engine…"
+
+msgid "No Wallpaper Engine wallpapers found. If yours are somewhere else, look in their folder."
+msgstr "Nenhum wallpaper do Wallpaper Engine encontrado. Se os seus estão em outro lugar, procure na pasta deles."
+
+msgid "Wallpapers found: {}"
+msgstr "Wallpapers encontrados: {}"
+
+msgid "Video"
+msgstr "Vídeo"
+
+msgid "Scene"
+msgstr "Cena"
+
+msgid "Web page"
+msgstr "Página web"
+
+msgid "Application"
+msgstr "Aplicativo"
+
+msgid "Other"
+msgstr "Outro"
+
+msgid "Nothing in it we can show (no video, no picture)"
+msgstr "Nada nele que dê para mostrar (sem vídeo, sem imagem)"
+
+msgid "Plays as a video"
+msgstr "Toca como vídeo"
+
+msgid "Its picture, with a slow zoom"
+msgstr "A imagem dele, com um zoom lento"
 
 msgid "running"
 msgstr "rodando"
@@ -289,6 +322,18 @@ msgstr "Bateria"
 
 msgid "Notifications"
 msgstr "Notificações"
+
+msgid "Space"
+msgstr "Espaço"
+
+msgid "Separator line"
+msgstr "Linha separadora"
+
+msgid "Text or icon"
+msgstr "Texto ou ícone"
+
+msgid "Dock (pinned and open apps)"
+msgstr "Dock (apps fixados e abertos)"
 
 msgid "read the local time"
 msgstr "ler a hora local"
@@ -590,11 +635,29 @@ msgstr "Se algo der errado, Ctrl+Alt+Win+T desliga a barra e traz de volta a bar
 msgid "Add a bar"
 msgstr "Adicionar uma barra"
 
+msgid "Duplicate this bar"
+msgstr "Duplicar esta barra"
+
 msgid "Remove this bar"
 msgstr "Remover esta barra"
 
 msgid "No bar: Windows' taskbar stays. Add one to have your own."
 msgstr "Nenhuma barra: fica a barra de tarefas do Windows. Adicione uma para ter a sua."
+
+msgid "Dock"
+msgstr "Dock"
+
+msgid "Pinned apps stay in the dock; every app with a window open shows up after them."
+msgstr "Os apps fixados ficam no dock; todo app com uma janela aberta aparece depois deles."
+
+msgid "Unpin"
+msgstr "Desafixar"
+
+msgid "Unpin {}"
+msgstr "Desafixar {}"
+
+msgid "Pin an app…"
+msgstr "Fixar um app…"
 
 msgid "Widgets"
 msgstr "Widgets"
@@ -604,6 +667,33 @@ msgstr "Arraste um widget para outra zona, ou selecione-o e use os botões."
 
 msgid "Place and size"
 msgstr "Posição e tamanho"
+
+msgid "Style"
+msgstr "Estilo"
+
+msgid "A ready-made bar. What you change below stays yours; the style fills the rest."
+msgstr "Uma barra pronta. O que você mudar abaixo fica seu; o estilo preenche o resto."
+
+msgid "My own"
+msgstr "Do meu jeito"
+
+msgid "Windows (apps in the middle)"
+msgstr "Windows (apps no meio)"
+
+msgid "Dock (floating, icons that grow)"
+msgstr "Dock (flutuante, ícones que crescem)"
+
+msgid "Island (a pill at the top)"
+msgstr "Ilha (uma pílula no topo)"
+
+msgid "Status line (thin, at the top)"
+msgstr "Linha de status (fina, no topo)"
+
+msgid "Side (on the left)"
+msgstr "Lateral (à esquerda)"
+
+msgid "Style of the bar"
+msgstr "Estilo da barra"
 
 msgid "Monitor"
 msgstr "Monitor"
@@ -623,9 +713,6 @@ msgstr "Embaixo"
 msgid "Right"
 msgstr "Direita"
 
-msgid "Space"
-msgstr "Espaço"
-
 msgid "Reserve: maximized windows stop at the bar. Float: over the desktop."
 msgstr "Reservar: janelas maximizadas param na barra. Flutuar: por cima da área de trabalho."
 
@@ -643,6 +730,15 @@ msgstr "De 16 a 512 pixels, em escala de 100%."
 
 msgid "Length"
 msgstr "Comprimento"
+
+msgid "As long as what it shows, in the middle of its edge."
+msgstr "Do tamanho do que mostra, no meio da borda."
+
+msgid "auto"
+msgstr "auto"
+
+msgid "As long as what it shows"
+msgstr "Do tamanho do que mostra"
 
 msgid "in %"
 msgstr "em %"
@@ -1097,6 +1193,123 @@ msgstr "Adicionar uma regra"
 msgid "{} (main)"
 msgstr "{} (principal)"
 
+msgid "Drawn by Ricing Manager while the rice is on; Windows keeps the plain picture underneath."
+msgstr "Desenhados pelo Ricing Manager enquanto o rice está aplicado; o Windows mantém a imagem simples por baixo."
+
+msgid "Reset effects"
+msgstr "Zerar efeitos"
+
+msgid "Reset the effects of this wallpaper"
+msgstr "Zerar os efeitos deste wallpaper"
+
+msgid "Brightness"
+msgstr "Brilho"
+
+msgid "Contrast"
+msgstr "Contraste"
+
+msgid "Saturation"
+msgstr "Saturação"
+
+msgid "Hue"
+msgstr "Matiz"
+
+msgid "Speed"
+msgstr "Velocidade"
+
+msgid "How fast the video plays."
+msgstr "A velocidade em que o vídeo toca."
+
+msgid "Blur"
+msgstr "Desfoque"
+
+msgid "Parallax"
+msgstr "Parallax"
+
+msgid "The picture leans a little away from the mouse, for depth."
+msgstr "A imagem se inclina um pouco para longe do mouse, dando profundidade."
+
+msgid "Slow zoom"
+msgstr "Zoom lento"
+
+msgid "A slow zoom and pan, back and forth."
+msgstr "Um zoom e um deslize lentos, de ida e volta."
+
+msgid "Vignette"
+msgstr "Vinheta"
+
+msgid "Darker corners."
+msgstr "Cantos mais escuros."
+
+msgid "Sparkles"
+msgstr "Brilhos"
+
+msgid "Stars"
+msgstr "Estrelas"
+
+msgid "Snow"
+msgstr "Neve"
+
+msgid "Rain"
+msgstr "Chuva"
+
+msgid "Petals"
+msgstr "Pétalas"
+
+msgid "Fireflies"
+msgstr "Vaga-lumes"
+
+msgid "Magic dust"
+msgstr "Poeira mágica"
+
+msgid "Music notes"
+msgstr "Notas musicais"
+
+msgid "Hearts"
+msgstr "Corações"
+
+msgid "Bubbles"
+msgstr "Bolhas"
+
+msgid "Particles"
+msgstr "Partículas"
+
+msgid "Sparkles, petals, snow… drawn over the wallpaper. They rest when the wallpaper pauses."
+msgstr "Brilhos, pétalas, neve… desenhados sobre o wallpaper. Param quando o wallpaper pausa."
+
+msgid "Kind of particles"
+msgstr "Tipo de partículas"
+
+msgid "Its own color"
+msgstr "Cor própria"
+
+msgid "Color of the particles (#RRGGBB or palette.name)"
+msgstr "Cor das partículas (#RRGGBB ou palette.nome)"
+
+msgid "Glow"
+msgstr "Halo"
+
+msgid "Remove these particles"
+msgstr "Remover estas partículas"
+
+msgid "How many"
+msgstr "Quantas"
+
+msgid "How many particles"
+msgstr "Quantas partículas"
+
+msgid "Size of the particles"
+msgstr "Tamanho das partículas"
+
+msgid "Speed of the particles"
+msgstr "Velocidade das partículas"
+
+msgid "Particles to add"
+msgstr "Partículas para adicionar"
+
+msgid "Add particles"
+msgstr "Adicionar partículas"
+
 msgid "When several rules fit a monitor, the first one counts; “Every monitor” takes the rest."
 msgstr "Quando várias regras servem para um monitor, vale a primeira; “Todos os monitores” fica com o resto."
 
@@ -1108,9 +1321,6 @@ msgstr "Imagem"
 
 msgid "Slideshow (a folder)"
 msgstr "Apresentação (uma pasta)"
-
-msgid "Video"
-msgstr "Vídeo"
 
 msgid "Solid color"
 msgstr "Cor sólida"
@@ -1129,6 +1339,12 @@ msgstr "Arquivo de imagem"
 
 msgid "Nothing chosen yet. It is copied into the rice."
 msgstr "Nada escolhido ainda. Ele é copiado para o rice."
+
+msgid "From Wallpaper Engine…"
+msgstr "Do Wallpaper Engine…"
+
+msgid "Use a wallpaper from Wallpaper Engine"
+msgstr "Usar um wallpaper do Wallpaper Engine"
 
 msgid "Choose…"
 msgstr "Escolher…"
@@ -1175,8 +1391,26 @@ msgstr "Ordem aleatória"
 msgid "Remove this wallpaper rule"
 msgstr "Remover esta regra de wallpaper"
 
-msgid "An image, a slideshow, a video or a color on each monitor."
-msgstr "Uma imagem, uma apresentação, um vídeo ou uma cor em cada monitor."
+msgid "Look in a folder…"
+msgstr "Procurar numa pasta…"
+
+msgid "Look for Wallpaper Engine wallpapers in a folder"
+msgstr "Procurar wallpapers do Wallpaper Engine numa pasta"
+
+msgid "Close the Wallpaper Engine list"
+msgstr "Fechar a lista do Wallpaper Engine"
+
+msgid "They stay Wallpaper Engine's and their authors': a rice that uses one is for this computer only and cannot be shared."
+msgstr "Eles continuam sendo do Wallpaper Engine e dos seus autores: um rice que usa um deles é só para este computador e não pode ser compartilhado."
+
+msgid "Use"
+msgstr "Usar"
+
+msgid "Use {}"
+msgstr "Usar {}"
+
+msgid "An image, a slideshow, a video or a color on each monitor, with effects and particles."
+msgstr "Uma imagem, uma apresentação, um vídeo ou uma cor em cada monitor, com efeitos e partículas."
 
 msgid "Monitors"
 msgstr "Monitores"
@@ -1193,14 +1427,23 @@ msgstr "Adicionar uma regra para o monitor principal"
 msgid "Slideshow"
 msgstr "Apresentação"
 
+msgid "live"
+msgstr "vivo"
+
 msgid "Rule for {}"
 msgstr "Regra para {}"
 
-msgid "Videos"
-msgstr "Vídeos"
+msgid "Wallpaper Engine"
+msgstr "Wallpaper Engine"
 
-msgid "A video pauses when nobody would see it, and frees its memory after 2 minutes paused."
-msgstr "Um vídeo pausa quando ninguém o veria, e libera a memória depois de 2 minutos pausado."
+msgid "The wallpapers Wallpaper Engine has on this computer. Videos play as they are; scenes and web wallpapers only play inside it, so their picture is used, with a slow zoom."
+msgstr "Os wallpapers que o Wallpaper Engine tem neste computador. Vídeos tocam como são; cenas e wallpapers web só tocam dentro dele, então a imagem deles é usada, com um zoom lento."
+
+msgid "Videos and live wallpapers"
+msgstr "Vídeos e wallpapers vivos"
+
+msgid "A live wallpaper pauses when nobody would see it, and frees its memory after 2 minutes paused."
+msgstr "Um wallpaper vivo pausa quando ninguém o veria, e libera a memória depois de 2 minutos pausado."
 
 msgid "Pause while a game or video is fullscreen"
 msgstr "Pausar enquanto um jogo ou vídeo está em tela cheia"

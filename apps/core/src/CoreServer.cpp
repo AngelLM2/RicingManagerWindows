@@ -103,6 +103,20 @@ void writeStartupAttempts(const std::filesystem::path& file, int attempts)
     }
 }
 
+// Windows' accent color (DWM keeps it as ABGR), for particles in "palette.accent".
+domain::Color systemAccent()
+{
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\DWM)", L"AccentColor", RRF_RT_REG_DWORD,
+                     nullptr, &value, &size) != ERROR_SUCCESS)
+    {
+        return {0x00, 0x78, 0xD4};
+    }
+    return {static_cast<std::uint8_t>(value & 0xFFU), static_cast<std::uint8_t>((value >> 8U) & 0xFFU),
+            static_cast<std::uint8_t>((value >> 16U) & 0xFFU)};
+}
+
 std::string timeText(domain::TimeOfDay time)
 {
     return std::format("{:02}:{:02}", time.hour, time.minute);
@@ -764,26 +778,54 @@ Result<std::optional<std::string>> CoreServer::videoPlanFor(const domain::Rice& 
     }
     video::Plan plan;
     plan.policy = video::policyOf(rice.wallpaper->policy);
+    plan.background = rice.wallpaper->background.value_or(domain::Color{});
+    const domain::Color accent = systemAccent();
     for (const auto& rule : rice.wallpaper->monitors)
     {
         video::Entry entry;
         entry.monitor = rule.match;
         entry.fit = rule.fit;
-        if (rule.kind == domain::WallpaperKind::Video)
+        if (rule.live())
         {
-            // Into the store: the rice's folder may move or go; the plan in meta keeps the copy.
-            auto stored =
-                m_store->import(folder / std::filesystem::path(utf8To16Lossy(rule.source)), kVideoMaxBytes);
-            if (!stored)
+            entry.effects = video::effectsOf(rule.effects);
+            for (const auto& layer : rule.particles)
             {
-                return std::unexpected(
-                    std::move(stored.error()).withContext(std::format("video '{}'", rule.source)));
+                entry.particles.push_back(video::particlesOf(layer, rice, accent));
             }
-            entry.file = std::move(*stored);
+            switch (rule.kind)
+            {
+            case domain::WallpaperKind::Video:
+            case domain::WallpaperKind::Image: {
+                // Into the store: the rice's folder may move or go; the plan in meta keeps the copy.
+                const bool isVideo = rule.kind == domain::WallpaperKind::Video;
+                auto stored = m_store->import(folder / std::filesystem::path(utf8To16Lossy(rule.source)),
+                                              isVideo ? kVideoMaxBytes : limits::kImageMaxBytes);
+                if (!stored)
+                {
+                    return std::unexpected(std::move(stored.error())
+                                               .withContext(std::format("{} '{}'", isVideo ? "video" : "picture",
+                                                                        rule.source)));
+                }
+                entry.source = isVideo ? video::Source::Video : video::Source::Image;
+                entry.file = std::move(*stored);
+                break;
+            }
+            case domain::WallpaperKind::Color:
+                // The color effects change one color once: the worker only draws it.
+                entry.source = video::Source::Color;
+                entry.color = video::applyMatrix(video::colorMatrix(entry.effects), rule.color.value_or(domain::Color{}));
+                entry.effects.brightness = 0.0;
+                entry.effects.contrast = 1.0;
+                entry.effects.saturation = 1.0;
+                entry.effects.hue = 0.0;
+                break;
+            case domain::WallpaperKind::Slideshow:
+                break; // never live (the parser leaves its effects out)
+            }
         }
         plan.entries.push_back(std::move(entry));
     }
-    if (!plan.hasVideo())
+    if (!plan.hasLive())
     {
         return std::optional<std::string>();
     }

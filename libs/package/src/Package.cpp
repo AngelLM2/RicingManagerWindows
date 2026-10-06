@@ -6,6 +6,7 @@
 #include "rmw/domain/CursorFiles.hpp"
 #include "rmw/domain/Images.hpp"
 #include "rmw/domain/PathRules.hpp"
+#include "rmw/domain/RiceParser.hpp"
 #include "rmw/platform/FileSystem.hpp"
 
 #include <windows.h>
@@ -74,7 +75,7 @@ bool isNoticeFile(std::string_view path)
 
 bool isVideo(std::string_view extension)
 {
-    return extension == "mp4" || extension == "m4v";
+    return extension == "mp4" || extension == "m4v" || extension == "webm";
 }
 
 bool isText(std::string_view extension)
@@ -486,8 +487,8 @@ bool allowedFile(Kind kind, std::string_view path)
         return true;
     }
     const std::string extension = lowerExtension(path);
-    constexpr std::array kRice = {"toml", "png", "jpg", "jpeg", "bmp", "mp4",
-                                  "m4v",  "cur", "ani", "inf",  "md",  "txt"};
+    constexpr std::array kRice = {"toml", "png", "jpg", "jpeg", "bmp", "mp4", "m4v",
+                                  "webm", "cur", "ani", "inf",  "md",  "txt"};
     constexpr std::array kPlugin = {"toml", "luau", "slint", "png", "jpg",
                                     "jpeg", "svg",  "json",  "md",  "txt"};
     const auto has = [&](const auto& list) {
@@ -584,6 +585,15 @@ Result<void> checkContent(std::string_view path, std::span<const std::byte> head
     }
     if (isVideo(extension))
     {
+        if (extension == "webm")
+        {
+            // A WebM is an EBML document: it starts with the EBML header's id.
+            if (!startsWith(head, "\x1A\x45\xDF\xA3"))
+            {
+                return bad(path, "not a WebM video");
+            }
+            return {};
+        }
         // An MP4 starts with a box: 4 bytes of size, then "ftyp".
         if (head.size() < 8 || !startsWith(head.subspan(4), "ftyp"))
         {
@@ -646,6 +656,22 @@ Result<std::uint64_t> pack(const fs::path& folder, Kind kind, const fs::path& ou
     if (!root)
     {
         return std::unexpected(std::move(root.error()));
+    }
+    if (kind == Kind::Rice)
+    {
+        // A rice with others' files in it (a Wallpaper Engine wallpaper) is for this computer only.
+        if (auto bytes = platform::readFileLimited(*root / L"rice.toml", limits::kManifestMaxBytes))
+        {
+            domain::Diagnostics diagnostics;
+            const auto rice = domain::parseRice(
+                std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), diagnostics);
+            if (rice && !rice->meta.canShare())
+            {
+                return fail(ErrorCode::AccessDenied,
+                            "this rice holds wallpapers that belong to their authors (from Wallpaper Engine): it "
+                            "is yours to use on this computer, not to share");
+            }
+        }
     }
     std::vector<std::pair<std::string, fs::path>> files;
     std::error_code ec;

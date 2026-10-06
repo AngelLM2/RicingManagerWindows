@@ -107,6 +107,8 @@ Seed-Text 'url' 'seed.txt' "https://api.open-meteo.com/v1/forecast?latitude=-23.
 Seed-Text 'bridge' 'hello.json' '{"type":"hello","version":1,"plugins":[{"id":"io.github.x.y","instance":1}]}'
 Seed-Text 'bridge' 'set.json' '{"type":"set","instance":3,"property":"title","value":"Song"}'
 Seed-Text 'plans' 'video.json' '{"version":1,"entries":[{"monitor":"primary","file":"C:\\v\\a.mp4","fit":"fill"},{"monitor":"all","file":"","fit":"fill"}],"policy":{"pauseOnFullscreen":true,"pauseOnBattery":true,"pauseWhenCovered":true,"fpsLimit":30,"mute":true}}' 2
+Seed-Text 'plans' 'live.json' '{"version":2,"background":"#101020","entries":[{"monitor":"all","source":"image","file":"C:\\s\\a.png","fit":"tile","effects":{"brightness":0.1,"contrast":1.2,"saturation":0.5,"hue":30,"speed":1,"blur":4,"parallax":0.5,"zoom":0.3,"vignette":0.4},"particles":[{"kind":"snow","color":"#ffffff","count":50,"size":1,"speed":1,"direction":90,"glow":false},{"kind":"fireflies","count":20}]}],"policy":{"fps_limit":30}}' 2
+Seed-Text 'steam_vdf' 'libraryfolders.vdf' "`"libraryfolders`"`n{`n`t`"0`"`n`t{`n`t`t`"path`"`t`t`"C:\\Program Files (x86)\\Steam`"`n`t}`n`t`"1`"`n`t{`n`t`t`"path`"`t`t`"D:\\SteamLibrary`"`n`t}`n}"
 Seed-Text 'plans' 'host.json' '{"version":1,"plugins":[]}' 1
 Seed-Text 'plans' 'bar.json' '{"version":1,"bars":[]}' 0
 Add-Type -AssemblyName System.IO.Compression

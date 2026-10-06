@@ -22,6 +22,9 @@ constexpr UINT kAppBarMessage = WM_APP + 10;
 constexpr UINT kRender = WM_APP + 11;
 constexpr UINT_PTR kAnimationTimer = 1;
 constexpr UINT_PTR kTuckTimer = 2;
+constexpr UINT_PTR kSlideTimer = 3;
+constexpr UINT_PTR kFitTimer = 4;
+constexpr double kSlideMs = 200.0; // the bar sliding in, out of sight and back (M10)
 constexpr UINT kTuckDelayMs = 700;
 constexpr LONG kPeek = 2; // physical pixels left at the edge of an auto-hidden bar
 constexpr UINT kFrameMs = 16;
@@ -45,6 +48,20 @@ struct CompositionData
 using SetCompositionFn = BOOL(WINAPI*)(HWND, CompositionData*);
 constexpr int kAccentAcrylic = 4;
 constexpr int kAccentPolicyAttribute = 19;
+
+// Windows' "Animation effects" (Settings > Accessibility > Visual effects): off, nothing slides.
+bool animationsWanted() noexcept
+{
+    BOOL enabled = TRUE;
+    return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0) == FALSE || enabled != FALSE;
+}
+
+// Fast at first, gentle at the end.
+double easeOut(double t) noexcept
+{
+    const double rest = 1.0 - t;
+    return 1.0 - (rest * rest * rest);
+}
 
 UINT edgeOf(domain::BarPosition position) noexcept
 {
@@ -181,7 +198,17 @@ void BarWindow::set_visible(bool visible)
     {
         if (m_rect.empty())
         {
+            // The first time: it slides in from its edge.
+            if (!m_introduced && animationsWanted())
+            {
+                m_reveal = 0.0;
+            }
+            m_introduced = true;
             place();
+            if (m_reveal < 1.0)
+            {
+                slideTo(1.0);
+            }
         }
         ShowWindow(static_cast<HWND>(m_window), SW_SHOWNOACTIVATE);
         request_redraw();
@@ -261,7 +288,8 @@ void BarWindow::place()
         area = fromRect(data.rc);
     }
 
-    const bar::Rect rect = bar::windowRect(m_config, area, m_scale);
+    m_placedContent = m_config.length.fit && m_contentLength ? m_contentLength() : 0.0;
+    const bar::Rect rect = bar::windowRect(m_config, area, m_scale, m_placedContent);
     if (rect.empty())
     {
         return;
@@ -271,7 +299,7 @@ void BarWindow::place()
         resizeTarget(rect.width(), rect.height());
     }
     m_rect = rect;
-    const bar::Rect at = m_tucked ? tuckedRect() : rect;
+    const bar::Rect at = currentRect();
     SetWindowPos(hwnd, m_besideFullscreen ? HWND_NOTOPMOST : HWND_TOPMOST, at.left, at.top, rect.width(),
                  rect.height(), SWP_NOACTIVATE);
     if (m_autohide && !m_tucked)
@@ -313,19 +341,76 @@ bar::Rect BarWindow::tuckedRect() const noexcept
 
 void BarWindow::tuck()
 {
-    m_tucked = true;
-    const bar::Rect at = tuckedRect();
-    SetWindowPos(static_cast<HWND>(m_window), nullptr, at.left, at.top, 0, 0,
-                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-    request_redraw();
+    if (!animationsWanted())
+    {
+        m_reveal = 0.0;
+        m_revealTarget = 0.0;
+        m_tucked = true;
+        const bar::Rect at = currentRect();
+        SetWindowPos(static_cast<HWND>(m_window), nullptr, at.left, at.top, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        request_redraw();
+        return;
+    }
+    slideTo(0.0); // tucked when it gets there
 }
 
 void BarWindow::untuck()
 {
     m_tucked = false;
-    SetWindowPos(static_cast<HWND>(m_window), nullptr, m_rect.left, m_rect.top, 0, 0,
+    request_redraw(); // its transparent pixels let the mouse through again
+    if (!animationsWanted())
+    {
+        m_reveal = 1.0;
+        m_revealTarget = 1.0;
+        SetWindowPos(static_cast<HWND>(m_window), nullptr, m_rect.left, m_rect.top, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        return;
+    }
+    slideTo(1.0);
+}
+
+bar::Rect BarWindow::currentRect() const noexcept
+{
+    if (m_reveal >= 1.0)
+    {
+        return m_rect;
+    }
+    const bar::Rect hidden = tuckedRect();
+    const double t = easeOut(std::clamp(m_reveal, 0.0, 1.0));
+    const auto mix = [t](std::int32_t from, std::int32_t to) {
+        return from + static_cast<std::int32_t>(std::lround((to - from) * t));
+    };
+    return {mix(hidden.left, m_rect.left), mix(hidden.top, m_rect.top), mix(hidden.right, m_rect.right),
+            mix(hidden.bottom, m_rect.bottom)};
+}
+
+void BarWindow::slideTo(double reveal)
+{
+    m_revealTarget = reveal;
+    m_slideLast = std::chrono::steady_clock::now();
+    SetTimer(static_cast<HWND>(m_window), kSlideTimer, kFrameMs, nullptr);
+}
+
+void BarWindow::slideStep()
+{
+    const auto now = std::chrono::steady_clock::now();
+    const double step = std::chrono::duration<double, std::milli>(now - m_slideLast).count() / kSlideMs;
+    m_slideLast = now;
+    m_reveal = m_revealTarget > m_reveal ? std::min(m_revealTarget, m_reveal + step)
+                                         : std::max(m_revealTarget, m_reveal - step);
+    const bar::Rect at = currentRect();
+    SetWindowPos(static_cast<HWND>(m_window), nullptr, at.left, at.top, 0, 0,
                  SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-    request_redraw();
+    if (m_reveal == m_revealTarget)
+    {
+        KillTimer(static_cast<HWND>(m_window), kSlideTimer);
+        if (m_revealTarget <= 0.0)
+        {
+            m_tucked = true;
+            request_redraw(); // tucked: nothing quite transparent, so the edge still catches the mouse
+        }
+    }
 }
 
 void BarWindow::resizeTarget(std::int32_t width, std::int32_t height)
@@ -391,6 +476,11 @@ void BarWindow::render()
         m_translucent && m_matte, [this](bool white) { m_matte(white); });
     m_painting = false;
     present();
+    // A bar as long as what it shows follows it (an app opens, the tray grows).
+    if (m_config.length.fit && m_contentLength && std::abs(m_contentLength() - m_placedContent) >= 1.0)
+    {
+        SetTimer(static_cast<HWND>(m_window), kFitTimer, 0, nullptr);
+    }
     if (window().has_active_animations())
     {
         SetTimer(static_cast<HWND>(m_window), kAnimationTimer, kFrameMs,
@@ -415,7 +505,7 @@ void BarWindow::present()
                 pixel = (pixel >> 24) == 0 ? 0x01000000U : pixel;
             }
         }
-        const bar::Rect at = m_tucked ? tuckedRect() : m_rect;
+        const bar::Rect at = currentRect();
         POINT position{at.left, at.top};
         SIZE extent{m_rect.width(), m_rect.height()};
         POINT origin{0, 0};
@@ -475,6 +565,15 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
             KillTimer(hwnd, kAnimationTimer);
             request_redraw();
         }
+        else if (wParam == kSlideTimer)
+        {
+            slideStep();
+        }
+        else if (wParam == kFitTimer)
+        {
+            KillTimer(hwnd, kFitTimer);
+            place();
+        }
         else if (wParam == kTuckTimer)
         {
             KillTimer(hwnd, kTuckTimer);
@@ -482,7 +581,7 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
             RECT now{};
             GetCursorPos(&cursor);
             GetWindowRect(hwnd, &now);
-            if (m_autohide && !m_tucked && PtInRect(&now, cursor) == FALSE)
+            if (m_autohide && !m_tucked && m_revealTarget > 0.0 && PtInRect(&now, cursor) == FALSE)
             {
                 tuck();
             }
@@ -503,9 +602,9 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
     case WM_MOUSEMOVE:
-        if (m_tucked)
+        if (m_tucked || m_revealTarget < 1.0)
         {
-            untuck();
+            untuck(); // also while it slides away
         }
         if (!m_trackingMouse)
         {

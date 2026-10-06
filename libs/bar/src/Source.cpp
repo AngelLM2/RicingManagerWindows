@@ -138,6 +138,13 @@ GeneratedBar generateBarSource(const domain::BarConfig& bar, std::span<const Wid
     root += std::format("    out property <length> layout-start-end: start-zone.{0} + start-zone.{1};\n"
                         "    out property <length> layout-center-start: center-zone.{0};\n",
                         axis, along);
+    // As long as the bar must be to show everything (length = "auto"): the center stays centered,
+    // so it needs as much room on each side as the longer of the other two, plus the corners.
+    root += std::format(
+        "    out property <length> content-length: root.bar-radius + (center-zone.preferred-{0} > 0px\n"
+        "        ? center-zone.preferred-{0} + 2 * max(start-zone.preferred-{0}, end-zone.preferred-{0}) + 28px\n"
+        "        : start-zone.preferred-{0} + end-zone.preferred-{0} + 20px);\n",
+        along);
     // Nothing a widget draws spills past the bar's corners.
     root += "    Rectangle {\n"
             "        background: root.bar-background;\n"

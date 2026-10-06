@@ -494,6 +494,16 @@ bool BarApp::rebuild()
             if (m_created != nullptr)
             {
                 const slint::ComponentWeakHandle<slint::interpreter::ComponentInstance> weak(instance);
+                m_created->setContentLength([weak] {
+                    if (auto strong = weak.lock())
+                    {
+                        if (auto value = (*strong)->get_property("content-length"))
+                        {
+                            return value->to_number().value_or(0.0);
+                        }
+                    }
+                    return 0.0;
+                });
                 m_created->setMatte([weak](bool white) {
                     if (auto strong = weak.lock())
                     {

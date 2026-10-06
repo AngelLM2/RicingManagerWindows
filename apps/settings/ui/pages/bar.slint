@@ -418,6 +418,13 @@ export component BarPage inherits ScrollView {
                 }
 
                 if Api.selected-bar >= 0: Button {
+                    text: @tr("Duplicate this bar");
+                    clicked => {
+                        Api.bar-duplicate();
+                    }
+                }
+
+                if Api.selected-bar >= 0: Button {
                     text: @tr("Remove this bar");
                     clicked => {
                         Api.confirm-what = "remove-bar";
@@ -431,6 +438,40 @@ export component BarPage inherits ScrollView {
             }
         }
 
+        if Api.editing && Api.selected-bar >= 0 && Api.bar-has-dock: Card {
+            title: @tr("Dock");
+            subtitle: @tr("Pinned apps stay in the dock; every app with a window open shows up after them.");
+
+            for app[i] in Api.dock-pinned: HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: app.name;
+                    color: Palette.foreground;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                Button {
+                    text: @tr("Unpin");
+                    accessible-label: @tr("Unpin {}", app.name);
+                    clicked => {
+                        Api.dock-unpin(i);
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: @tr("Pin an app…");
+                    clicked => {
+                        Api.pick-app-for(2, 0);
+                    }
+                }
+            }
+        }
+
         if Api.editing && Api.selected-bar >= 0: Card {
             title: @tr("Widgets");
             subtitle: @tr("Drag a widget to another zone, or select it and use the buttons.");
@@ -440,6 +481,21 @@ export component BarPage inherits ScrollView {
 
         if Api.editing && Api.selected-bar >= 0: Card {
             title: @tr("Place and size");
+
+            SettingRow {
+                label: @tr("Style");
+                description: @tr("A ready-made bar. What you change below stays yours; the style fills the rest.");
+                ComboBox {
+                    width: 260px;
+                    model: [@tr("My own"), @tr("Windows (apps in the middle)"), @tr("Dock (floating, icons that grow)"),
+                        @tr("Island (a pill at the top)"), @tr("Status line (thin, at the top)"), @tr("Side (on the left)")];
+                    current-index: Api.bar.style;
+                    accessible-label: @tr("Style of the bar");
+                    selected => {
+                        Api.bar-style(self.current-index);
+                    }
+                }
+            }
 
             SettingRow {
                 label: @tr("Monitor");
@@ -503,7 +559,18 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Length");
+                description: Api.bar.length-auto ? @tr("As long as what it shows, in the middle of its edge.") : "";
                 Switch {
+                    text: @tr("auto");
+                    checked: Api.bar.length-auto;
+                    accessible-label: @tr("As long as what it shows");
+                    toggled => {
+                        Api.bar.length-auto = self.checked;
+                        Api.bar-edited();
+                    }
+                }
+
+                if !Api.bar.length-auto: Switch {
                     text: @tr("in %");
                     checked: Api.bar.length-percent;
                     accessible-label: @tr("Length in percent");
@@ -514,7 +581,7 @@ export component BarPage inherits ScrollView {
                     }
                 }
 
-                SpinBox {
+                if !Api.bar.length-auto: SpinBox {
                     width: 140px;
                     minimum: Api.bar.length-percent ? 1 : 16;
                     maximum: Api.bar.length-percent ? 100 : 16384;

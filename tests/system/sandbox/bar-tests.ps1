@@ -52,6 +52,8 @@ public static extern int ReleaseDC(System.IntPtr window, System.IntPtr dc);
 public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern bool SystemParametersInfoW(uint action, uint param, ref RECT value, uint winIni);
+[System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+public static extern bool SystemParameterBool(uint action, uint param, ref bool value, uint winIni);
 [System.Runtime.InteropServices.DllImport("gdi32.dll")]
 public static extern bool BitBlt(System.IntPtr target, int x, int y, int width, int height, System.IntPtr source, int sourceX, int sourceY, uint operation);
 '@
@@ -296,6 +298,63 @@ Check 'bar:two-bars-reserve' $both "work=$(Work-Area)"
 Start-Sleep -Seconds 3
 Shot 'bar-3-acrylic-and-left'
 
+# ---- 4b. M10: the five styles; a dock as long as its apps; the bar slides in ----------------------
+function Centered($Rect) { [Math]::Abs(($Rect.Left + $Rect.Right) - ($screen.Left + $screen.Right)) -le 4 }
+$styled = Join-Path $Work 'rice-styled'
+$styleChecks = [ordered]@{
+    'windows' = { (Work-Area).Bottom -eq $screen.Bottom - 48 -and (Bar-Rect).Width -eq $screen.Width }
+    'status'  = { (Work-Area).Top -eq $screen.Top + 28 -and (Bar-Rect).Height -eq 28 }
+    'side'    = { (Work-Area).Left -eq $screen.Left + 52 -and (Bar-Rect).Width -eq 52 }
+    'island'  = { $b = Bar-Rect; (Work-Area).Top -eq $screen.Top -and $b.Top -eq $screen.Top + 8 -and $b.Width -lt $screen.Width -and (Centered $b) }
+    'dock'    = { $b = Bar-Rect; (Work-Area).Bottom -eq $screen.Bottom -and $b.Bottom -eq $screen.Bottom - 10 -and $b.Width -lt $screen.Width / 2 -and (Centered $b) }
+}
+$animations = $true
+[void][Rmw.Win]::SystemParameterBool(0x1042, 0, [ref]$animations, 0) # SPI_GETCLIENTAREAANIMATION
+Note 'animations' "Windows' animation effects: $animations"
+foreach ($style in $styleChecks.Keys) {
+    Write-Rice $styled "[[bar]]`nstyle = `"$style`"`n"
+    # Applied in the background while the bar's place is watched: it slides in from its edge.
+    $applying = Start-Process $rmw -ArgumentList @('apply', "`"$styled`"", '--wait', '--data-dir', "`"$data`"") -WindowStyle Hidden -PassThru
+    $positions = New-Object System.Collections.Generic.HashSet[string]
+    $sampleUntil = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $sampleUntil -and -not ($applying.HasExited -and $positions.Count -gt 3)) {
+        $now = Bar-Rect
+        if ($now.Width -gt 0) { [void]$positions.Add("$($now.Left),$($now.Top)") }
+        Start-Sleep -Milliseconds 10
+    }
+    $applying.WaitForExit(30000) | Out-Null
+    $r = [pscustomobject]@{ code = $applying.ExitCode; output = '' }
+    $placed = Wait-Until $styleChecks[$style] 10
+    Check "bar:style-$style" ($r.code -eq 0 -and $placed) "work=$(Work-Area) bar=$(Bar-Rect) apply=$($r.code): $($r.output)"
+    if ($style -eq 'island') {
+        Check 'bar:slides-in' ((-not $animations) -or $positions.Count -ge 3) "$($positions.Count) positions while it came (animations: $animations)"
+    }
+    Start-Sleep -Seconds 2
+    Shot "bar-4b-style-$style"
+}
+# The dock: as long as its apps; another app, a longer dock.
+$before = (Bar-Rect).Width
+$console = Start-Process cmd.exe -PassThru
+$grew = Wait-Until { (Bar-Rect).Width -ge $before + 30 -and (Centered (Bar-Rect)) } 10
+Check 'bar:dock-grows-with-its-apps' $grew "before=$before now=$((Bar-Rect).Width)"
+Shot 'bar-4b-dock-more-apps'
+$bar = Bar-Process
+if ($bar) {
+    Start-Sleep -Seconds 2
+    $bar.Refresh(); $cpuBefore = $bar.TotalProcessorTime
+    Start-Sleep -Seconds 10
+    $bar.Refresh()
+    $cpu = ($bar.TotalProcessorTime - $cpuBefore).TotalMilliseconds / 10000.0 * 100.0
+    $privateMb = $bar.PrivateMemorySize64 / 1MB
+    Check 'bar:dock-memory-under-25mb' ($privateMb -le 25) ('{0:N1} MB private' -f $privateMb)
+    Check 'bar:dock-cpu-idle' ($cpu -lt 1.0) ('{0:N2}% over 10 s' -f $cpu)
+}
+if ($console) { Stop-Process -Id $console.Id -Force -ErrorAction SilentlyContinue }
+
+# Back to the two reserving bars the next steps expect.
+$r = Invoke-Rmw @('apply', $acrylic, '--wait')
+[void](Wait-Until { (Work-Area).Bottom -eq $screen.Bottom - 48 } 10)
+
 # ---- 5. Explorer restarts: the bars and the hidden taskbar survive -------------------------------
 Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 if (-not (Wait-Until { Get-Process explorer -ErrorAction SilentlyContinue } 20)) { Start-Process explorer.exe }
@@ -317,8 +376,10 @@ Shot 'bar-5-restored'
 
 Invoke-Rmw @('shutdown') | Out-Null
 Start-Sleep -Seconds 2
-foreach ($folder in 'logs') {
-    if (Test-Path (Join-Path $data $folder)) { Copy-Item (Join-Path $data $folder) (Join-Path $Out $folder) -Recurse -Force }
+# Its own folder: another suite's logs go to theirs.
+if (Test-Path (Join-Path $data 'logs')) {
+    Remove-Item (Join-Path $Out 'bar-logs') -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item (Join-Path $data 'logs') (Join-Path $Out 'bar-logs') -Recurse -Force
 }
 
 $results | ConvertTo-Json -Depth 4 | Out-File (Join-Path $Out 'bar.json') -Encoding utf8

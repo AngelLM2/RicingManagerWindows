@@ -24,6 +24,7 @@ description = "Line one\nLine two\tand a tab, a \\ and ü"
 version     = "1.2.3"
 license     = "CC-BY-4.0"
 min_app     = "0.1.0"
+shareable   = false
 
 [palette]
 base = "#1a1b26"
@@ -57,6 +58,11 @@ kind           = "video"
 source         = "assets/city.mp4"
 fallback_image = "assets/city.jpg"
 fit            = "fit"
+effects        = { saturation = 1.2, hue = -15, speed = 0.5, vignette = 0.3 }
+particles      = [
+    { kind = "sparkles", color = "palette.text", count = 80, glow = true },
+    { kind = "petals", size = 1.5, speed = 0.75, direction = 100 },
+]
 
 [[wallpaper.monitor]]
 match    = "left"
@@ -69,6 +75,7 @@ shuffle  = true
 match = "right"
 kind  = "color"
 color = "#000000"
+particles = [{ kind = "stars" }]
 
 [[wallpaper.monitor]]
 match  = "all"
@@ -87,6 +94,12 @@ alignment = "left"
 autohide  = false
 task_view = true
 search    = "hidden"
+
+[start]
+menu            = "ours"
+pinned          = ["Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\notepad.exe"]
+layout          = "more-pins"
+recommendations = false
 
 [plugins]
 requires = ["io.github.someone.now-playing@^1.2", "io.github.someone.weather"]
@@ -140,6 +153,13 @@ TEST(RiceWriter, WritesWhatReadsBackTheSame)
     EXPECT_EQ(writeRice(again), written);
 
     EXPECT_EQ(again.meta.name, "Tokyo \"Night\"");
+    EXPECT_FALSE(again.meta.canShare());
+    ASSERT_TRUE(again.start);
+    EXPECT_EQ(again.start->menu, StartMenuKind::Ours);
+    ASSERT_EQ(again.start->pinned.size(), 2u);
+    EXPECT_EQ(again.start->pinned[1], "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\notepad.exe");
+    EXPECT_EQ(again.start->layout, StartLayout::MorePins);
+    EXPECT_EQ(again.start->recommendations, false);
     EXPECT_EQ(again.meta.description, "Line one\nLine two\tand a tab, a \\ and \xC3\xBC");
     ASSERT_TRUE(again.appearance && again.appearance->schedule);
     EXPECT_EQ(again.appearance->schedule->lightAt.hour, 6);
@@ -149,6 +169,14 @@ TEST(RiceWriter, WritesWhatReadsBackTheSame)
     EXPECT_EQ(again.wallpaper->monitors[0].fallbackImage, "assets/city.jpg");
     EXPECT_EQ(again.wallpaper->monitors[1].intervalSeconds, 600u);
     EXPECT_EQ(again.wallpaper->policy.fpsLimit, 24u);
+    EXPECT_EQ(again.wallpaper->monitors[0].effects, original.wallpaper->monitors[0].effects);
+    EXPECT_EQ(again.wallpaper->monitors[0].effects.hue, -15.0);
+    ASSERT_EQ(again.wallpaper->monitors[0].particles.size(), 2u);
+    EXPECT_EQ(again.wallpaper->monitors[0].particles, original.wallpaper->monitors[0].particles);
+    EXPECT_EQ(again.wallpaper->monitors[0].particles[0].color->toString(), "palette.text");
+    EXPECT_EQ(again.wallpaper->monitors[2].particles.size(), 1u);
+    EXPECT_TRUE(again.wallpaper->monitors[2].live());
+    EXPECT_FALSE(again.wallpaper->monitors[3].live());
     ASSERT_EQ(again.pluginRequirements.size(), 2u);
     EXPECT_EQ(again.pluginRequirements[0].version.toString(), "^1.2");
     ASSERT_EQ(again.pluginSettings.size(), 1u);

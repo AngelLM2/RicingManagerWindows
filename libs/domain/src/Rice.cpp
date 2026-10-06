@@ -57,6 +57,105 @@ std::optional<CursorRole> cursorRoleFromRiceName(std::string_view name) noexcept
     return std::nullopt;
 }
 
+namespace
+{
+
+std::vector<BarItem> items(std::initializer_list<std::string_view> ids)
+{
+    std::vector<BarItem> out;
+    for (const std::string_view id : ids)
+    {
+        out.push_back({std::string(id), {}});
+    }
+    return out;
+}
+
+} // namespace
+
+BarConfig barStyle(BarStyle style)
+{
+    BarConfig bar;
+    bar.keys = {"position", "mode",       "thickness", "length",          "margin", "radius",
+                "background", "autohide", "hide_native_taskbar", "left",  "center", "right"};
+    bar.hideNativeTaskbar = true;
+    bar.autohide = false;
+    switch (style)
+    {
+    case BarStyle::Windows:
+        bar.position = BarPosition::Bottom;
+        bar.mode = BarMode::Reserve;
+        bar.thickness = 48;
+        bar.length = {true, 100.0, false};
+        bar.margin = {0, 0, 0, 0};
+        bar.radius = 0;
+        bar.background = {BarBackground::Kind::Acrylic, std::nullopt, 0.85};
+        bar.left = {};
+        bar.center = items({"start", "windows"});
+        bar.right = items({"tray", "network", "volume", "battery", "clock"});
+        break;
+    case BarStyle::Dock:
+        bar.position = BarPosition::Bottom;
+        bar.mode = BarMode::Float;
+        bar.thickness = 60;
+        bar.length = {true, 100.0, true};
+        bar.margin = {0, 0, 10, 0};
+        bar.radius = 20;
+        bar.background = {BarBackground::Kind::Acrylic, std::nullopt, 0.7};
+        bar.left = {};
+        bar.center = items({"start", "dock", "separator", "tray", "clock"});
+        bar.right = {};
+        break;
+    case BarStyle::Island:
+        bar.position = BarPosition::Top;
+        bar.mode = BarMode::Float;
+        bar.thickness = 36;
+        bar.length = {true, 100.0, true};
+        bar.margin = {8, 0, 0, 0};
+        bar.radius = 18;
+        bar.background = {BarBackground::Kind::Acrylic, std::nullopt, 0.8};
+        bar.left = {};
+        bar.center = items({"start", "windows", "separator", "media", "volume", "network", "battery", "clock"});
+        bar.right = {};
+        break;
+    case BarStyle::Status:
+        bar.position = BarPosition::Top;
+        bar.mode = BarMode::Reserve;
+        bar.thickness = 28;
+        bar.length = {true, 100.0, false};
+        bar.margin = {0, 0, 0, 0};
+        bar.radius = 0;
+        bar.background = {BarBackground::Kind::Solid, std::nullopt, 0.95};
+        bar.left = items({"start", "desktops", "windows"});
+        bar.center = items({"clock"});
+        bar.right = items({"cpu", "memory", "network", "volume", "battery", "tray"});
+        break;
+    case BarStyle::Side:
+        bar.position = BarPosition::Left;
+        bar.mode = BarMode::Reserve;
+        bar.thickness = 52;
+        bar.length = {true, 100.0, false};
+        bar.margin = {0, 0, 0, 0};
+        bar.radius = 0;
+        bar.background = {BarBackground::Kind::Acrylic, std::nullopt, 0.85};
+        bar.left = items({"start", "desktops", "windows"});
+        bar.center = {};
+        bar.right = items({"tray", "volume", "network", "battery", "clock"});
+        break;
+    }
+    return bar;
+}
+
+BarConfig withStyle(const BarConfig& bar)
+{
+    return bar.style ? applySkin(bar, barStyle(*bar.style)) : bar;
+}
+
+bool WallpaperEffects::empty() const noexcept
+{
+    return !brightness && !contrast && !saturation && !hue && !speed && !blur && !parallax && !zoom &&
+           !vignette;
+}
+
 bool BarItem::isPlugin() const noexcept
 {
     // Built-in widgets never contain a dot; plugin ids are reverse-DNS.
@@ -165,6 +264,11 @@ std::string_view toString(WallpaperFit value) noexcept
     return enumToName<WallpaperFit>(kWallpaperFitNames, value);
 }
 
+std::string_view toString(ParticleKind value) noexcept
+{
+    return enumToName<ParticleKind>(kParticleKindNames, value);
+}
+
 std::string_view toString(TaskbarAlignment value) noexcept
 {
     return enumToName<TaskbarAlignment>(kTaskbarAlignmentNames, value);
@@ -178,6 +282,21 @@ std::string_view toString(TaskbarSearch value) noexcept
 std::string_view toString(BarPosition value) noexcept
 {
     return enumToName<BarPosition>(kBarPositionNames, value);
+}
+
+std::string_view toString(StartMenuKind value) noexcept
+{
+    return enumToName<StartMenuKind>(kStartMenuNames, value);
+}
+
+std::string_view toString(StartLayout value) noexcept
+{
+    return enumToName<StartLayout>(kStartLayoutNames, value);
+}
+
+std::string_view toString(BarStyle value) noexcept
+{
+    return enumToName<BarStyle>(kBarStyleNames, value);
 }
 
 std::string_view toString(BarMode value) noexcept

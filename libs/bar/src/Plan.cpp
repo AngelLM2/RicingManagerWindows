@@ -79,6 +79,7 @@ public:
 
         const Json length = json::memberOr(json, "length", Json::object());
         bar.length.percent = json::boolOr(length, "percent", true);
+        bar.length.fit = json::boolOr(length, "fit", false);
         const Json lengthValue = json::memberOr(length, "value", Json());
         if (!lengthValue.is_number())
         {
@@ -220,8 +221,10 @@ Result<Plan> planFromRice(const domain::Rice& rice)
         color->value = entry->color;
         return {};
     };
-    for (domain::BarConfig bar : rice.bars)
+    for (const domain::BarConfig& config : rice.bars)
     {
+        // Its style fills what the bar (and its skin, applied by the core) leaves out.
+        domain::BarConfig bar = domain::withStyle(config);
         if (auto tint = resolve(bar.background.tint); !tint)
         {
             return std::unexpected(std::move(tint.error()));
@@ -256,7 +259,7 @@ std::string toJson(const Plan& plan)
              {"position", domain::toString(bar.position)},
              {"mode", domain::toString(bar.mode)},
              {"thickness", bar.thickness},
-             {"length", {{"percent", bar.length.percent}, {"value", bar.length.value}}},
+             {"length", {{"percent", bar.length.percent}, {"value", bar.length.value}, {"fit", bar.length.fit}}},
              {"margin", bar.margin},
              {"radius", bar.radius},
              {"background",

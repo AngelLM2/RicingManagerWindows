@@ -13,6 +13,8 @@
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/plugins/HostPlan.hpp"
 #include "rmw/plugins/PluginFiles.hpp"
+#include "rmw/settings/WallpaperEngine.hpp"
+#include "rmw/video/Effects.hpp"
 
 #include <windows.h>
 
@@ -22,6 +24,7 @@
 #include <climits>
 #include <cmath>
 #include <ctime>
+#include <cwctype>
 #include <format>
 #include <map>
 
@@ -65,6 +68,79 @@ std::string text(const slint::SharedString& value)
 slint::SharedString shared(std::string_view value)
 {
     return {value};
+}
+
+// The bar's dock item, made the bar's own: a dock that comes with the bar's style is first copied
+// into the bar (that zone becomes its own). nullptr: no dock (or `make` is false and it is the style's).
+domain::BarItem* dockOf(domain::BarConfig& bar, bool make)
+{
+    for (auto* zone : {&bar.left, &bar.center, &bar.right})
+    {
+        for (auto& item : *zone)
+        {
+            if (item.id == "dock")
+            {
+                return &item;
+            }
+        }
+    }
+    if (!make)
+    {
+        return nullptr;
+    }
+    const domain::BarConfig shown = domain::withStyle(bar);
+    const std::array<std::pair<const std::vector<domain::BarItem>*, std::vector<domain::BarItem>*>, 3> zones = {
+        {{&shown.left, &bar.left}, {&shown.center, &bar.center}, {&shown.right, &bar.right}}};
+    constexpr std::array<std::string_view, 3> kKeys = {"left", "center", "right"};
+    for (std::size_t i = 0; i < zones.size(); ++i)
+    {
+        if (std::ranges::any_of(*zones[i].first, [](const auto& item) { return item.id == "dock"; }))
+        {
+            *zones[i].second = *zones[i].first;
+            settings::markKey(bar, kKeys[i]);
+            return dockOf(bar, false);
+        }
+    }
+    return nullptr;
+}
+
+std::vector<std::string> pinnedOf(const domain::BarItem& item)
+{
+    std::vector<std::string> ids;
+    if (const auto* pinned = item.config.find("pinned"))
+    {
+        if (const auto* list = std::get_if<domain::Value::Array>(&pinned->data))
+        {
+            for (const auto& entry : *list)
+            {
+                if (const auto* id = std::get_if<std::string>(&entry.data))
+                {
+                    ids.push_back(*id);
+                }
+            }
+        }
+    }
+    return ids;
+}
+
+void setPinned(domain::BarItem& item, const std::vector<std::string>& ids)
+{
+    if (!std::holds_alternative<domain::Value::Table>(item.config.data))
+    {
+        item.config.data = domain::Value::Table{};
+    }
+    auto& table = std::get<domain::Value::Table>(item.config.data);
+    std::erase_if(table, [](const domain::ValueMember& member) { return member.key == "pinned"; });
+    if (ids.empty())
+    {
+        return;
+    }
+    domain::Value::Array list;
+    for (const auto& id : ids)
+    {
+        list.push_back(domain::Value{id});
+    }
+    table.push_back({"pinned", domain::Value{std::move(list)}});
 }
 
 template <class T>
@@ -646,7 +722,8 @@ void SettingsApp::refreshRices()
                         shared(entry.problem),
                         sameFolder(entry.folder, fs::path(utf8To16Lossy(current))),
                         {},
-                        false});
+                        false,
+                        entry.shareable});
     }
     auto model = modelOf(std::move(rows));
     m_ui->global<Api>().set_rices(model);
@@ -1214,6 +1291,31 @@ void SettingsApp::showWallpapers()
             row.color = rule.color ? shared(rule.color->toHex()) : slint::SharedString();
             row.interval = static_cast<int>(rule.intervalSeconds.value_or(900) / 60);
             row.shuffle = rule.shuffle.value_or(false);
+            const auto& e = rule.effects;
+            row.brightness = static_cast<float>(e.brightness.value_or(0.0));
+            row.contrast = static_cast<float>(e.contrast.value_or(1.0));
+            row.saturation = static_cast<float>(e.saturation.value_or(1.0));
+            row.hue = static_cast<float>(e.hue.value_or(0.0));
+            row.speed = static_cast<float>(e.speed.value_or(1.0));
+            row.blur = static_cast<float>(e.blur.value_or(0.0));
+            row.parallax = static_cast<float>(e.parallax.value_or(0.0));
+            row.zoom = static_cast<float>(e.zoom.value_or(0.0));
+            row.vignette = static_cast<float>(e.vignette.value_or(0.0));
+            std::vector<ParticleRow> layers;
+            for (const auto& layer : rule.particles)
+            {
+                const auto defaults = video::defaultsFor(layer.kind);
+                ParticleRow particles{};
+                particles.kind = static_cast<int>(layer.kind);
+                particles.color = layer.color ? shared(layer.color->toString()) : slint::SharedString();
+                particles.count = static_cast<int>(layer.count.value_or(defaults.count));
+                particles.size = static_cast<float>(layer.size.value_or(1.0));
+                particles.speed = static_cast<float>(layer.speed.value_or(1.0));
+                particles.glow = layer.glow.value_or(defaults.glow);
+                layers.push_back(std::move(particles));
+            }
+            row.particles = modelOf(std::move(layers));
+            row.live = !e.empty() || !rule.particles.empty();
             rules.push_back(std::move(row));
             previewFiles.push_back(previewOf(m_edit->folder, rule));
         }
@@ -1358,7 +1460,8 @@ void SettingsApp::showBars()
     {
         return;
     }
-    const domain::BarConfig& bar = rice.bars[static_cast<std::size_t>(selected)];
+    // What it looks like: its style fills what it leaves out (M10).
+    const domain::BarConfig bar = domain::withStyle(rice.bars[static_cast<std::size_t>(selected)]);
     const auto chips = [&](const std::vector<domain::BarItem>& items) {
         std::vector<WidgetChip> out;
         out.reserve(items.size());
@@ -1393,10 +1496,27 @@ void SettingsApp::showBars()
     model.autohide = bar.autohide;
     model.hide_native = bar.hideNativeTaskbar;
     model.skin = shared(bar.skin);
+    model.style = bar.style ? static_cast<int>(*bar.style) + 1 : 0;
+    model.length_auto = bar.length.fit;
     model.left = chips(bar.left);
     model.center = chips(bar.center);
     model.right = chips(bar.right);
     api.set_bar(model);
+    // Its dock's pinned apps, by the names the app list has (or their ids, before it came).
+    domain::BarConfig shownBar = bar;
+    const domain::BarItem* dock = dockOf(shownBar, false);
+    api.set_bar_has_dock(dock != nullptr);
+    std::vector<AppChoice> pinned;
+    if (dock != nullptr)
+    {
+        for (const auto& id : pinnedOf(*dock))
+        {
+            const auto app = std::ranges::find_if(
+                m_apps, [&](const Json& entry) { return json::stringOr(entry, "id", "") == id; });
+            pinned.push_back({shared(id), shared(app != m_apps.end() ? json::stringOr(*app, "name", id) : id)});
+        }
+    }
+    api.set_dock_pinned(modelOf(std::move(pinned)));
 }
 
 void SettingsApp::pluginConfig()
@@ -1460,6 +1580,64 @@ void SettingsApp::pluginConfig()
         }
     }
     api.set_plugin_config(modelOf(std::move(fields)));
+}
+
+void SettingsApp::engineScan()
+{
+    auto& api = m_ui->global<Api>();
+    api.set_engine_status(slint::SharedString(m_ui->global<Words>().invoke_engine_looking()));
+    api.set_engine_items(modelOf(std::vector<EngineItem>{}));
+    auto found = std::make_shared<std::vector<settings::EngineWallpaper>>();
+    background(
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+        [found, folders = m_engineFolders]() -> Reply {
+            *found = settings::findEngineWallpapers(folders);
+            return Json::object();
+        },
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+        [this, found](Reply reply) {
+            if (!reply)
+            {
+                failed(reply.error());
+                return;
+            }
+            m_engine = std::move(*found);
+            const auto& words = m_ui->global<Words>();
+            std::vector<EngineItem> items;
+            items.reserve(m_engine.size());
+            for (const auto& wallpaper : m_engine)
+            {
+                EngineItem item{};
+                item.title = shared(wallpaper.title);
+                item.kind = words.invoke_engine_kind(shared(std::string(settings::toString(wallpaper.kind))));
+                item.usable = wallpaper.usable();
+                item.note = words.invoke_engine_note(shared(std::string(settings::toString(wallpaper.kind))),
+                                                     wallpaper.usable(), !wallpaper.video.empty());
+                items.push_back(std::move(item));
+            }
+            auto model = modelOf(std::move(items));
+            auto& api = m_ui->global<Api>();
+            api.set_engine_items(model);
+            api.set_engine_status(words.invoke_engine_found(static_cast<int>(m_engine.size())));
+            for (std::size_t i = 0; i < m_engine.size(); ++i)
+            {
+                if (m_engine[i].preview.empty())
+                {
+                    continue;
+                }
+                const std::weak_ptr<slint::VectorModel<EngineItem>> weak = model;
+                m_thumbnails.request(m_engine[i].preview, kPreviewWidth, kPreviewHeight,
+                                     [weak, i](const slint::Image& image) {
+                                         if (auto rows = weak.lock(); rows && i < rows->row_count())
+                                         {
+                                             auto row = *rows->row_data(i);
+                                             row.preview = image;
+                                             row.has_preview = true;
+                                             rows->set_row_data(i, row);
+                                         }
+                                     });
+            }
+        });
 }
 
 void SettingsApp::saveEdited(bool show)
@@ -1908,7 +2086,7 @@ void SettingsApp::bind()
         }
         else if (kind == K::Video)
         {
-            picked = pickFile(window(), {{L"Videos (MP4)", L"*.mp4;*.m4v"}});
+            picked = pickFile(window(), {{L"Videos (MP4, WebM)", L"*.mp4;*.m4v;*.webm"}});
             asset = settings::AssetKind::Video;
         }
         else if (kind == K::Slideshow)
@@ -1960,6 +2138,11 @@ void SettingsApp::bind()
                 rule.source.clear();
                 rule.fallbackImage.clear();
                 rule.color = rule.color.value_or(domain::Color{30, 30, 46, 255});
+                // Nothing to blur, lean or zoom in a color.
+                rule.effects.blur.reset();
+                rule.effects.parallax.reset();
+                rule.effects.zoom.reset();
+                rule.effects.speed.reset();
             }
             else
             {
@@ -1983,6 +2166,16 @@ void SettingsApp::bind()
                 if (kind == domain::WallpaperKind::Slideshow && !rule.intervalSeconds)
                 {
                     rule.intervalSeconds = 900;
+                }
+                if (kind == domain::WallpaperKind::Slideshow)
+                {
+                    // A slideshow is Windows' own: no effects, no particles.
+                    rule.effects = {};
+                    rule.particles.clear();
+                }
+                if (kind != domain::WallpaperKind::Video)
+                {
+                    rule.effects.speed.reset();
                 }
             }
         }
@@ -2074,6 +2267,306 @@ void SettingsApp::bind()
         }
         m_ui->global<Api>().set_selected_rule(-1);
         saveEdited();
+    });
+    // ---- live wallpapers (M12): effects and particles ----------------------------------------------------
+    const auto ruleAt = [this](int index) -> domain::MonitorWallpaper* {
+        domain::Rice* rice = edited();
+        if (rice == nullptr || !rice->wallpaper || index < 0 ||
+            static_cast<std::size_t>(index) >= rice->wallpaper->monitors.size())
+        {
+            return nullptr;
+        }
+        return &rice->wallpaper->monitors[static_cast<std::size_t>(index)];
+    };
+    api.on_rule_effect([this, ruleAt](int index, const slint::SharedString& field, float value) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr)
+        {
+            return;
+        }
+        auto& e = rule->effects;
+        // Two decimals are plenty; the neutral value is "leave it" (not written).
+        const double rounded = std::round(static_cast<double>(value) * 100.0) / 100.0;
+        const auto set = [rounded](std::optional<double>& slot, double neutral, double low, double high) {
+            const double v = std::clamp(rounded, low, high);
+            if (std::abs(v - neutral) < 0.005)
+            {
+                slot.reset();
+            }
+            else
+            {
+                slot = v;
+            }
+        };
+        const std::string name = text(field);
+        if (name == "brightness")
+        {
+            set(e.brightness, 0.0, -1.0, 1.0);
+        }
+        else if (name == "contrast")
+        {
+            set(e.contrast, 1.0, 0.0, 2.0);
+        }
+        else if (name == "saturation")
+        {
+            set(e.saturation, 1.0, 0.0, 2.0);
+        }
+        else if (name == "hue")
+        {
+            set(e.hue, 0.0, -180.0, 180.0);
+        }
+        else if (name == "speed" && rule->kind == domain::WallpaperKind::Video)
+        {
+            set(e.speed, 1.0, 0.25, 4.0);
+        }
+        else if (name == "blur" && rule->kind != domain::WallpaperKind::Color)
+        {
+            set(e.blur, 0.0, 0.0, 40.0);
+        }
+        else if (name == "parallax" && rule->kind != domain::WallpaperKind::Color)
+        {
+            set(e.parallax, 0.0, 0.0, 1.0);
+        }
+        else if (name == "zoom" && rule->kind != domain::WallpaperKind::Color)
+        {
+            set(e.zoom, 0.0, 0.0, 1.0);
+        }
+        else if (name == "vignette")
+        {
+            set(e.vignette, 0.0, 0.0, 1.0);
+        }
+        else
+        {
+            return;
+        }
+        // Saved a moment after the last change (a slider moves many times).
+        m_barSave.start(slint::TimerMode::SingleShot, kBarSaveDelay, [this] { saveEdited(); });
+    });
+    api.on_rule_effects_reset([this, ruleAt](int index) {
+        if (auto* rule = ruleAt(index); rule != nullptr && !rule->effects.empty())
+        {
+            rule->effects = {};
+            saveEdited();
+        }
+    });
+    api.on_particle_add([this, ruleAt](int index, int kind) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr || rule->kind == domain::WallpaperKind::Slideshow ||
+            rule->particles.size() >= limits::kWallpaperMaxParticleLayers)
+        {
+            return;
+        }
+        domain::ParticleLayer layer;
+        layer.kind = static_cast<domain::ParticleKind>(std::clamp(kind, 0, 9));
+        rule->particles.push_back(layer);
+        saveEdited();
+    });
+    api.on_particle_field([this, ruleAt](int index, int which, const slint::SharedString& field,
+                                         const slint::SharedString& value) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr || which < 0 || static_cast<std::size_t>(which) >= rule->particles.size())
+        {
+            return;
+        }
+        auto& layer = rule->particles[static_cast<std::size_t>(which)];
+        const std::string name = text(field);
+        const std::string v = text(value);
+        double number = 0.0;
+        std::from_chars(v.data(), v.data() + v.size(), number);
+        if (name == "kind")
+        {
+            layer.kind = static_cast<domain::ParticleKind>(std::clamp(std::atoi(v.c_str()), 0, 9));
+        }
+        else if (name == "color")
+        {
+            const auto first = v.find_first_not_of(" 	");
+            const std::string trimmed =
+                first == std::string::npos ? std::string() : v.substr(first, v.find_last_not_of(" 	") - first + 1);
+            if (trimmed.empty())
+            {
+                layer.color.reset();
+            }
+            else if (trimmed.starts_with("palette."))
+            {
+                const std::string entry = trimmed.substr(8);
+                const domain::Rice* rice = edited();
+                if (entry != "accent" && (rice == nullptr || rice->findPalette(entry) == nullptr))
+                {
+                    failed(Error(ErrorCode::InvalidArgument, std::format("'{}' is not in the rice's palette", trimmed)));
+                    return;
+                }
+                layer.color = domain::ColorRef{entry};
+            }
+            else
+            {
+                auto color = domain::Color::parse(trimmed);
+                if (!color)
+                {
+                    failed(color.error());
+                    return;
+                }
+                layer.color = domain::ColorRef{*color};
+            }
+        }
+        else if (name == "count")
+        {
+            layer.count = static_cast<std::uint32_t>(
+                std::clamp(std::atoi(v.c_str()), 1, static_cast<int>(limits::kParticleMaxCount)));
+        }
+        else if (name == "size")
+        {
+            const double size = std::clamp(std::round(number * 100.0) / 100.0, 0.25, 4.0);
+            layer.size = std::abs(size - 1.0) < 0.005 ? std::nullopt : std::optional(size);
+        }
+        else if (name == "speed")
+        {
+            const double speed = std::clamp(std::round(number * 100.0) / 100.0, 0.0, 4.0);
+            layer.speed = std::abs(speed - 1.0) < 0.005 ? std::nullopt : std::optional(speed);
+        }
+        else if (name == "glow")
+        {
+            layer.glow = v == "true";
+        }
+        else
+        {
+            return;
+        }
+        if (name == "size" || name == "speed")
+        {
+            m_barSave.start(slint::TimerMode::SingleShot, kBarSaveDelay, [this] { saveEdited(); });
+            return;
+        }
+        saveEdited();
+    });
+    api.on_particle_remove([this, ruleAt](int index, int which) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr || which < 0 || static_cast<std::size_t>(which) >= rule->particles.size())
+        {
+            return;
+        }
+        rule->particles.erase(rule->particles.begin() + which);
+        saveEdited();
+    });
+    // ---- Wallpaper Engine (M12): its wallpapers, read where Steam keeps them ------------------------------
+    api.on_engine_browse([this](int index) {
+        m_engineRule = index;
+        auto& api = m_ui->global<Api>();
+        api.set_engine_open(true);
+        engineScan();
+    });
+    api.on_engine_add_folder([this] {
+        if (auto folder = pickFolder(window()))
+        {
+            m_engineFolders.push_back(*folder);
+            engineScan();
+        }
+    });
+    api.on_engine_close([this] {
+        m_ui->global<Api>().set_engine_open(false);
+        m_engine.clear();
+    });
+    api.on_engine_use([this](int item) {
+        if (!m_edit || item < 0 || static_cast<std::size_t>(item) >= m_engine.size())
+        {
+            return;
+        }
+        const settings::EngineWallpaper chosen = m_engine[static_cast<std::size_t>(item)];
+        const fs::path folder = m_edit->folder;
+        const int ruleIndex = m_engineRule;
+        // Copied into the rice (a video can be large): on the worker thread.
+        auto stored = std::make_shared<std::pair<std::string, std::string>>(); // source, picture
+        background(
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+            [chosen, folder, stored]() -> Reply {
+                const auto picture = [&]() -> Result<std::string> {
+                    if (chosen.preview.empty())
+                    {
+                        return std::string();
+                    }
+                    fs::path file = chosen.preview;
+                    std::error_code ec;
+                    std::wstring extension = file.extension().native();
+                    std::ranges::transform(extension, extension.begin(),
+                                           [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+                    if (extension == L".gif")
+                    {
+                        // The first frame, as a PNG named after the wallpaper.
+                        const fs::path png = fs::temp_directory_path(ec) /
+                                             fs::path(utf8To16Lossy(domain::safeFileName(chosen.title, "wallpaper") + ".png"));
+                        if (auto saved = savePng(file, png); !saved)
+                        {
+                            return std::unexpected(std::move(saved.error()));
+                        }
+                        file = png;
+                    }
+                    auto imported = settings::importAsset(folder, file, settings::AssetKind::Image);
+                    if (file != chosen.preview)
+                    {
+                        fs::remove(file, ec);
+                    }
+                    return imported;
+                }();
+                if (!picture)
+                {
+                    return std::unexpected(picture.error());
+                }
+                stored->second = *picture;
+                if (!chosen.video.empty())
+                {
+                    auto video = settings::importAsset(folder, chosen.video, settings::AssetKind::Video);
+                    if (!video)
+                    {
+                        return std::unexpected(std::move(video.error()));
+                    }
+                    stored->first = *video;
+                }
+                return Json::object();
+            },
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+            [this, chosen, ruleIndex, stored](Reply reply) {
+                if (!reply)
+                {
+                    failed(reply.error());
+                    return;
+                }
+                domain::Rice* rice = edited();
+                if (rice == nullptr || !rice->wallpaper || ruleIndex < 0 ||
+                    static_cast<std::size_t>(ruleIndex) >= rice->wallpaper->monitors.size())
+                {
+                    return;
+                }
+                auto& rule = rice->wallpaper->monitors[static_cast<std::size_t>(ruleIndex)];
+                if (!stored->first.empty())
+                {
+                    rule.kind = domain::WallpaperKind::Video;
+                    rule.source = stored->first;
+                    rule.fallbackImage = stored->second;
+                    if (rule.fit == domain::WallpaperFit::Tile)
+                    {
+                        rule.fit = domain::WallpaperFit::Fill;
+                    }
+                }
+                else
+                {
+                    // A scene or a web page plays only inside Wallpaper Engine: its picture, alive.
+                    rule.kind = domain::WallpaperKind::Image;
+                    rule.source = stored->second;
+                    rule.fallbackImage.clear();
+                    rule.effects.speed.reset();
+                    if (!rule.effects.zoom)
+                    {
+                        rule.effects.zoom = 0.3;
+                    }
+                }
+                rule.intervalSeconds.reset();
+                rule.shuffle.reset();
+                // Its files are Wallpaper Engine's and their author's: this rice stays here.
+                rice->meta.shareable = false;
+                m_ui->global<Api>().set_engine_open(false);
+                m_engine.clear();
+                notice(NoticeKind::Imported, chosen.title);
+                saveEdited();
+            });
     });
     api.on_policy_edited([this] {
         domain::Rice* rice = edited();
@@ -2183,6 +2676,64 @@ void SettingsApp::bind()
         m_ui->global<Api>().set_selected_bar(static_cast<int>(rice->bars.size()) - 1);
         saveEdited();
     });
+    api.on_bar_duplicate([this] {
+        domain::Rice* rice = edited();
+        const int index = m_ui->global<Api>().get_selected_bar();
+        if (rice == nullptr || index < 0 || static_cast<std::size_t>(index) >= rice->bars.size() ||
+            rice->bars.size() >= limits::kRiceMaxBars)
+        {
+            return;
+        }
+        rice->bars.push_back(rice->bars[static_cast<std::size_t>(index)]);
+        m_ui->global<Api>().set_selected_bar(static_cast<int>(rice->bars.size()) - 1);
+        saveEdited();
+    });
+    api.on_bar_style([this](int style) {
+        domain::Rice* rice = edited();
+        const int index = m_ui->global<Api>().get_selected_bar();
+        if (rice == nullptr || index < 0 || static_cast<std::size_t>(index) >= rice->bars.size())
+        {
+            return;
+        }
+        domain::BarConfig& bar = rice->bars[static_cast<std::size_t>(index)];
+        const std::optional<domain::BarStyle> wanted =
+            style <= 0 ? std::nullopt : std::optional(static_cast<domain::BarStyle>(std::clamp(style, 1, 5) - 1));
+        if (wanted == bar.style)
+        {
+            return;
+        }
+        if (wanted)
+        {
+            // The style, whole: what the bar set before gives way (its monitor and skin stay).
+            bar.style = wanted;
+            bar.keys.clear();
+        }
+        else
+        {
+            // Its own again: it keeps the look it had, now as its own settings.
+            bar = domain::withStyle(bar);
+            bar.style.reset();
+        }
+        saveEdited();
+    });
+    api.on_dock_unpin([this](int which) {
+        domain::Rice* rice = edited();
+        const int selected = m_ui->global<Api>().get_selected_bar();
+        if (rice == nullptr || selected < 0 || static_cast<std::size_t>(selected) >= rice->bars.size())
+        {
+            return;
+        }
+        if (auto* dock = dockOf(rice->bars[static_cast<std::size_t>(selected)], true))
+        {
+            auto ids = pinnedOf(*dock);
+            if (which >= 0 && static_cast<std::size_t>(which) < ids.size())
+            {
+                ids.erase(ids.begin() + which);
+                setPinned(*dock, ids);
+                saveEdited();
+            }
+        }
+    });
     api.on_bar_remove([this] {
         const int index = m_ui->global<Api>().get_selected_bar();
         m_ui->global<Api>().set_confirm_what("remove-bar");
@@ -2196,6 +2747,8 @@ void SettingsApp::bind()
             return;
         }
         domain::BarConfig& bar = rice->bars[static_cast<std::size_t>(index)];
+        // Compared with what it shows (its style filled in): only what the user changed is its own.
+        const domain::BarConfig shown = domain::withStyle(bar);
         const BarModel model = m_ui->global<Api>().get_bar();
         const auto changed = [&bar](std::string_view key, bool differs) {
             if (differs)
@@ -2209,22 +2762,25 @@ void SettingsApp::bind()
         {
             bar.monitor = *monitor;
         }
-        if (changed("position", static_cast<int>(bar.position) != model.position))
+        if (changed("position", static_cast<int>(shown.position) != model.position))
         {
             bar.position = static_cast<domain::BarPosition>(std::clamp(model.position, 0, 3));
         }
-        if (changed("mode", static_cast<int>(bar.mode) != model.mode))
+        if (changed("mode", static_cast<int>(shown.mode) != model.mode))
         {
             bar.mode = static_cast<domain::BarMode>(std::clamp(model.mode, 0, 1));
         }
-        if (changed("thickness", std::cmp_not_equal(bar.thickness, model.thickness)))
+        if (changed("thickness", std::cmp_not_equal(shown.thickness, model.thickness)))
         {
             bar.thickness = static_cast<std::uint32_t>(std::clamp(model.thickness, 16, 512));
         }
-        const domain::BarLength length{model.length_percent, model.length_percent
-                                                                 ? std::clamp(model.length, 1, 100) * 1.0
-                                                                 : std::clamp(model.length, 16, 16384) * 1.0};
-        if (changed("length", length.percent != bar.length.percent || length.value != bar.length.value))
+        const domain::BarLength length{model.length_percent,
+                                       model.length_percent ? std::clamp(model.length, 1, 100) * 1.0
+                                                            : std::clamp(model.length, 16, 16384) * 1.0,
+                                       model.length_auto};
+        if (changed("length", length.fit != shown.length.fit ||
+                                  (!length.fit && (length.percent != shown.length.percent ||
+                                                   length.value != shown.length.value))))
         {
             bar.length = length;
         }
@@ -2233,11 +2789,11 @@ void SettingsApp::bind()
             static_cast<std::uint32_t>(std::clamp(model.margin_right, 0, 1024)),
             static_cast<std::uint32_t>(std::clamp(model.margin_bottom, 0, 1024)),
             static_cast<std::uint32_t>(std::clamp(model.margin_left, 0, 1024))};
-        if (changed("margin", margin != bar.margin))
+        if (changed("margin", margin != shown.margin))
         {
             bar.margin = margin;
         }
-        if (changed("radius", std::cmp_not_equal(bar.radius, model.radius)))
+        if (changed("radius", std::cmp_not_equal(shown.radius, model.radius)))
         {
             bar.radius = static_cast<std::uint32_t>(std::clamp(model.radius, 0, 256));
         }
@@ -2255,10 +2811,10 @@ void SettingsApp::bind()
             }
         }
         background.opacity = std::clamp(model.opacity, 0, 100) / 100.0;
-        if (changed("background", background.kind != bar.background.kind ||
-                                      background.tint != bar.background.tint ||
+        if (changed("background", background.kind != shown.background.kind ||
+                                      background.tint != shown.background.tint ||
                                       std::lround(background.opacity.value_or(1.0) * 100) !=
-                                          std::lround(bar.background.opacity.value_or(1.0) * 100)))
+                                          std::lround(shown.background.opacity.value_or(1.0) * 100)))
         {
             bar.background = background;
         }
@@ -2274,15 +2830,15 @@ void SettingsApp::bind()
                 foreground = domain::ColorRef{*color};
             }
         }
-        if (changed("foreground", foreground != bar.foreground))
+        if (changed("foreground", foreground != shown.foreground))
         {
             bar.foreground = foreground;
         }
-        if (changed("autohide", bar.autohide != model.autohide))
+        if (changed("autohide", shown.autohide != model.autohide))
         {
             bar.autohide = model.autohide;
         }
-        if (changed("hide_native_taskbar", bar.hideNativeTaskbar != model.hide_native))
+        if (changed("hide_native_taskbar", shown.hideNativeTaskbar != model.hide_native))
         {
             bar.hideNativeTaskbar = model.hide_native;
         }
@@ -2749,12 +3305,35 @@ void SettingsApp::bind()
     api.on_app_picked([this](const slint::SharedString& id) {
         m_ui->global<Api>().set_picking_app(false);
         const auto target = std::exchange(m_appFor, std::nullopt);
-        if (id.empty() || !target || !m_settings)
+        if (id.empty() || !target || (target->first != 2 && !m_settings))
         {
-            refreshSettings(); // what the window showed goes back to the file's
+            if (!target || target->first != 2)
+            {
+                refreshSettings(); // what the window showed goes back to the file's
+            }
             return;
         }
         const auto [kind, index] = *target;
+        if (kind == 2)
+        {
+            // Pinned to the selected bar's dock.
+            domain::Rice* rice = edited();
+            const int selected = m_ui->global<Api>().get_selected_bar();
+            if (rice != nullptr && selected >= 0 && static_cast<std::size_t>(selected) < rice->bars.size())
+            {
+                if (auto* dock = dockOf(rice->bars[static_cast<std::size_t>(selected)], true))
+                {
+                    auto ids = pinnedOf(*dock);
+                    if (std::ranges::find(ids, text(id)) == ids.end() && ids.size() < 32)
+                    {
+                        ids.push_back(text(id));
+                        setPinned(*dock, ids);
+                        saveEdited();
+                    }
+                }
+            }
+            return;
+        }
         domain::ActionCall* action = nullptr;
         if (kind == 0 && index >= 0 && static_cast<std::size_t>(index) < m_settings->hotkeys.size())
         {

@@ -70,10 +70,32 @@ A video plays behind the desktop icons and pauses by itself when it is not seen 
 or game, the desktop covered, the screen off or locked) and on battery, where the rice's still
 picture shows instead. After two minutes paused, its memory is given back.
 
+## Live wallpapers: effects and particles
+
+In **Wallpapers**, a picture, a video or a color can have **effects** (brightness, contrast,
+saturation, hue, blur, a parallax that follows the mouse, a slow zoom, a vignette; a video also has
+a speed) and **particles** over it: sparkles, stars, snow, rain, petals, fireflies, magic dust,
+music notes, hearts or bubbles, each with its own color, amount, size, speed and an optional glow.
+Ricing Manager draws them behind the desktop icons; Windows keeps the plain picture underneath. A
+still picture costs nothing once drawn, and what moves pauses like a video.
+
+## Wallpaper Engine
+
+If you have Wallpaper Engine, **Wallpapers → From Wallpaper Engine…** lists the wallpapers it has on
+this computer (read where Steam keeps them; nothing is downloaded or changed). If yours are
+somewhere else, **Look in a folder…**. A video plays as it is; a scene or a web wallpaper only plays
+inside Wallpaper Engine, so its picture is used, with a slow zoom (add particles to bring it to
+life). Those wallpapers belong to their authors: a rice that uses one is marked as yours alone, and
+it cannot be shared or packed.
+
 ## Bars of your own
 
 A rice can hide Windows' taskbar and show its own bars, with Start, your windows, the system tray,
-the clock, media, volume, network, battery and more (plugins add widgets). **If anything goes
+the clock, media, volume, network, battery and more (plugins add widgets). In **Taskbar**, a
+**Style** gives a whole bar at once: **Windows** (apps in the middle), **Dock** (floating, icons
+that grow under the mouse), **Island** (a pill at the top), **Status line** or **Side**. Whatever
+you change below the style stays yours. A dock shows the apps you pin (**Pin an app…**) and every
+app with a window open; a bar can be **auto** long, as long as what it shows. **If anything goes
 wrong, Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back. If the bar hangs or
 stops, Windows' taskbar comes back in under a second.
 

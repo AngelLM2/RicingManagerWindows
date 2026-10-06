@@ -1,5 +1,5 @@
-import { Button, ComboBox, LineEdit, ScrollView, SpinBox, Switch, CheckBox, Palette } from "std-widgets.slint";
-import { Api, MonitorBox, WallRule } from "../api.slint";
+import { Button, ComboBox, LineEdit, ScrollView, Slider, SpinBox, Switch, CheckBox, Palette } from "std-widgets.slint";
+import { Api, EngineItem, MonitorBox, ParticleRow, WallRule } from "../api.slint";
 import { Card, Chip, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
 import { EditingBanner } from "editing.slint";
 import { Words } from "../words.slint";
@@ -59,6 +59,308 @@ component MonitorMap inherits Rectangle {
     }
 }
 
+// One effect: a slider that saves when let go, and its value as people read it.
+component EffectSlider inherits SettingRow {
+    in property <int> index;
+    in property <string> field;
+    in property <float> value;
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <float> scale: 100; // shown as value x scale...
+    in property <string> unit: "%"; // ...and this
+
+    // Another rule, or the effects reset: the slider shows it (a drag replaced its binding).
+    changed value => {
+        slider.value = root.value;
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        slider := Slider {
+            width: 200px;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            value: root.value;
+            accessible-label: root.label;
+            changed(value) => {
+                Api.rule-effect(root.index, root.field, value);
+            }
+        }
+
+        Text {
+            width: 52px;
+            text: "\{Math.round(slider.value * root.scale)}\{root.unit}";
+            color: Palette.foreground;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+    }
+}
+
+component EffectsEditor inherits VerticalLayout {
+    in property <int> index;
+    in property <WallRule> rule;
+    spacing: 10px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            Text {
+                text: @tr("Effects");
+                color: Palette.foreground;
+                font-weight: 600;
+            }
+
+            Hint {
+                text: @tr("Drawn by Ricing Manager while the rice is on; Windows keeps the plain picture underneath.");
+            }
+        }
+
+        Button {
+            text: @tr("Reset effects");
+            accessible-label: @tr("Reset the effects of this wallpaper");
+            clicked => {
+                Api.rule-effects-reset(root.index);
+            }
+        }
+    }
+
+    EffectSlider {
+        label: @tr("Brightness");
+        index: root.index;
+        field: "brightness";
+        value: root.rule.brightness;
+        minimum: -1;
+        maximum: 1;
+    }
+
+    EffectSlider {
+        label: @tr("Contrast");
+        index: root.index;
+        field: "contrast";
+        value: root.rule.contrast;
+        minimum: 0;
+        maximum: 2;
+    }
+
+    EffectSlider {
+        label: @tr("Saturation");
+        index: root.index;
+        field: "saturation";
+        value: root.rule.saturation;
+        minimum: 0;
+        maximum: 2;
+    }
+
+    EffectSlider {
+        label: @tr("Hue");
+        index: root.index;
+        field: "hue";
+        value: root.rule.hue;
+        minimum: -180;
+        maximum: 180;
+        scale: 1;
+        unit: "°";
+    }
+
+    if root.rule.kind == 2: EffectSlider {
+        label: @tr("Speed");
+        description: @tr("How fast the video plays.");
+        index: root.index;
+        field: "speed";
+        value: root.rule.speed;
+        minimum: 0.25;
+        maximum: 4;
+    }
+
+    if root.rule.kind != 3: EffectSlider {
+        label: @tr("Blur");
+        index: root.index;
+        field: "blur";
+        value: root.rule.blur;
+        minimum: 0;
+        maximum: 40;
+        scale: 1;
+        unit: "";
+    }
+
+    if root.rule.kind != 3: EffectSlider {
+        label: @tr("Parallax");
+        description: @tr("The picture leans a little away from the mouse, for depth.");
+        index: root.index;
+        field: "parallax";
+        value: root.rule.parallax;
+        minimum: 0;
+        maximum: 1;
+    }
+
+    if root.rule.kind != 3: EffectSlider {
+        label: @tr("Slow zoom");
+        description: @tr("A slow zoom and pan, back and forth.");
+        index: root.index;
+        field: "zoom";
+        value: root.rule.zoom;
+        minimum: 0;
+        maximum: 1;
+    }
+
+    EffectSlider {
+        label: @tr("Vignette");
+        description: @tr("Darker corners.");
+        index: root.index;
+        field: "vignette";
+        value: root.rule.vignette;
+        minimum: 0;
+        maximum: 1;
+    }
+}
+
+component ParticlesEditor inherits VerticalLayout {
+    in property <int> index;
+    in property <WallRule> rule;
+    property <[string]> kinds: [@tr("Sparkles"), @tr("Stars"), @tr("Snow"), @tr("Rain"), @tr("Petals"), @tr("Fireflies"),
+        @tr("Magic dust"), @tr("Music notes"), @tr("Hearts"), @tr("Bubbles")];
+    spacing: 10px;
+
+    VerticalLayout {
+        Text {
+            text: @tr("Particles");
+            color: Palette.foreground;
+            font-weight: 600;
+        }
+
+        Hint {
+            text: @tr("Sparkles, petals, snow… drawn over the wallpaper. They rest when the wallpaper pauses.");
+        }
+    }
+
+    for layer[i] in root.rule.particles: Rectangle {
+        border-radius: 6px;
+        background: Palette.foreground.transparentize(95%);
+
+        VerticalLayout {
+            padding: 10px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                ComboBox {
+                    width: 170px;
+                    model: root.kinds;
+                    current-index: layer.kind;
+                    accessible-label: @tr("Kind of particles");
+                    selected => {
+                        Api.particle-field(root.index, i, "kind", self.current-index);
+                    }
+                }
+
+                LineEdit {
+                    width: 150px;
+                    text: layer.color;
+                    placeholder-text: @tr("Its own color");
+                    accessible-label: @tr("Color of the particles (#RRGGBB or palette.name)");
+                    accepted(text) => {
+                        Api.particle-field(root.index, i, "color", text);
+                    }
+                }
+
+                Switch {
+                    text: @tr("Glow");
+                    checked: layer.glow;
+                    toggled => {
+                        Api.particle-field(root.index, i, "glow", self.checked ? "true" : "false");
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                Button {
+                    text: @tr("Remove");
+                    accessible-label: @tr("Remove these particles");
+                    clicked => {
+                        Api.particle-remove(root.index, i);
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: @tr("How many");
+                    color: Palette.foreground;
+                    vertical-alignment: center;
+                }
+
+                SpinBox {
+                    width: 120px;
+                    minimum: 1;
+                    maximum: 1000;
+                    value: layer.count;
+                    accessible-label: @tr("How many particles");
+                    edited(value) => {
+                        Api.particle-field(root.index, i, "count", value);
+                    }
+                }
+
+                Text {
+                    text: @tr("Size");
+                    color: Palette.foreground;
+                    vertical-alignment: center;
+                }
+
+                Slider {
+                    width: 120px;
+                    minimum: 0.25;
+                    maximum: 4;
+                    value: layer.size;
+                    accessible-label: @tr("Size of the particles");
+                    changed(value) => {
+                        Api.particle-field(root.index, i, "size", value);
+                    }
+                }
+
+                Text {
+                    text: @tr("Speed");
+                    color: Palette.foreground;
+                    vertical-alignment: center;
+                }
+
+                Slider {
+                    width: 120px;
+                    minimum: 0;
+                    maximum: 4;
+                    value: layer.speed;
+                    accessible-label: @tr("Speed of the particles");
+                    changed(value) => {
+                        Api.particle-field(root.index, i, "speed", value);
+                    }
+                }
+            }
+        }
+    }
+
+    if root.rule.particles.length < 8: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        add := ComboBox {
+            width: 170px;
+            model: root.kinds;
+            current-index: 0;
+            accessible-label: @tr("Particles to add");
+        }
+
+        Button {
+            text: @tr("Add particles");
+            clicked => {
+                Api.particle-add(root.index, add.current-index);
+            }
+        }
+    }
+}
+
 component RuleEditor inherits VerticalLayout {
     in property <int> index;
     in property <WallRule> rule;
@@ -94,6 +396,14 @@ component RuleEditor inherits VerticalLayout {
     if root.rule.kind != 3: SettingRow {
         label: root.rule.kind == 1 ? @tr("Folder") : root.rule.kind == 2 ? @tr("Video file") : @tr("Image file");
         description: root.rule.source == "" ? @tr("Nothing chosen yet. It is copied into the rice.") : root.rule.source;
+        if root.rule.kind != 1: Button {
+            text: @tr("From Wallpaper Engine…");
+            accessible-label: @tr("Use a wallpaper from Wallpaper Engine");
+            clicked => {
+                Api.engine-browse(root.index);
+            }
+        }
+
         Button {
             text: @tr("Choose…");
             accessible-label: @tr("Choose the wallpaper");
@@ -167,6 +477,16 @@ component RuleEditor inherits VerticalLayout {
         }
     }
 
+    if root.rule.kind != 1: EffectsEditor {
+        index: root.index;
+        rule: root.rule;
+    }
+
+    if root.rule.kind != 1: ParticlesEditor {
+        index: root.index;
+        rule: root.rule;
+    }
+
     HorizontalLayout {
         alignment: end;
         Button {
@@ -174,6 +494,109 @@ component RuleEditor inherits VerticalLayout {
             accessible-label: @tr("Remove this wallpaper rule");
             clicked => {
                 Api.rule-remove(root.index);
+            }
+        }
+    }
+}
+
+// The Wallpaper Engine wallpapers this computer has: one click uses one for the selected rule.
+component EnginePicker inherits VerticalLayout {
+    spacing: 10px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        Hint {
+            horizontal-stretch: 1;
+            text: Api.engine-status;
+            vertical-alignment: center;
+        }
+
+        Button {
+            text: @tr("Look in a folder…");
+            accessible-label: @tr("Look for Wallpaper Engine wallpapers in a folder");
+            clicked => {
+                Api.engine-add-folder();
+            }
+        }
+
+        Button {
+            text: @tr("Close");
+            accessible-label: @tr("Close the Wallpaper Engine list");
+            clicked => {
+                Api.engine-close();
+            }
+        }
+    }
+
+    Hint {
+        text: @tr("They stay Wallpaper Engine's and their authors': a rice that uses one is for this computer only and cannot be shared.");
+    }
+
+    ScrollView {
+        height: min(420px, max(1, Api.engine-items.length) * 70px);
+
+        VerticalLayout {
+            spacing: 4px;
+            for item[i] in Api.engine-items: Rectangle {
+                height: 66px;
+                border-radius: 6px;
+                background: touch.has-hover && item.usable ? Palette.foreground.transparentize(94%) : transparent;
+                accessible-role: AccessibleRole.button;
+                accessible-label: item.title;
+                accessible-description: item.note;
+                accessible-action-default => {
+                    if (item.usable) {
+                        Api.engine-use(i);
+                    }
+                }
+
+                touch := TouchArea {
+                    enabled: item.usable;
+                    clicked => {
+                        Api.engine-use(i);
+                    }
+                }
+
+                HorizontalLayout {
+                    padding: 5px;
+                    spacing: 12px;
+
+                    Rectangle {
+                        width: 100px;
+                        border-radius: 4px;
+                        clip: true;
+                        background: Palette.foreground.transparentize(92%);
+
+                        if item.has-preview: Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: item.preview;
+                            image-fit: cover;
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: item.title;
+                            color: item.usable ? Palette.foreground : Palette.foreground.transparentize(50%);
+                            overflow: elide;
+                        }
+
+                        Hint {
+                            text: item.kind + " · " + item.note;
+                        }
+                    }
+
+                    if item.usable: Button {
+                        text: @tr("Use");
+                        accessible-label: @tr("Use {}", item.title);
+                        clicked => {
+                            Api.engine-use(i);
+                        }
+                    }
+                }
             }
         }
     }
@@ -187,7 +610,7 @@ export component WallpapersPage inherits ScrollView {
 
         PageHeader {
             title: @tr("Wallpapers");
-            subtitle: @tr("An image, a slideshow, a video or a color on each monitor.");
+            subtitle: @tr("An image, a slideshow, a video or a color on each monitor, with effects and particles.");
         }
 
         EditingBanner { }
@@ -265,7 +688,8 @@ export component WallpapersPage inherits ScrollView {
 
                         Hint {
                             text: (rule.kind == 0 ? @tr("Image") : rule.kind == 1 ? @tr("Slideshow") : rule.kind == 2 ? @tr("Video") : @tr("Color"))
-                                + (rule.source != "" ? " · " + rule.source : rule.kind == 3 ? " · " + rule.color : "");
+                                + (rule.source != "" ? " · " + rule.source : rule.kind == 3 ? " · " + rule.color : "")
+                                + (rule.live ? " · " + @tr("live") : "");
                         }
                     }
                 }
@@ -281,9 +705,16 @@ export component WallpapersPage inherits ScrollView {
             }
         }
 
+        if Api.editing && Api.engine-open: Card {
+            title: @tr("Wallpaper Engine");
+            subtitle: @tr("The wallpapers Wallpaper Engine has on this computer. Videos play as they are; scenes and web wallpapers only play inside it, so their picture is used, with a slow zoom.");
+
+            EnginePicker { }
+        }
+
         if Api.editing: Card {
-            title: @tr("Videos");
-            subtitle: @tr("A video pauses when nobody would see it, and frees its memory after 2 minutes paused.");
+            title: @tr("Videos and live wallpapers");
+            subtitle: @tr("A live wallpaper pauses when nobody would see it, and frees its memory after 2 minutes paused.");
 
             SettingRow {
                 label: @tr("Pause while a game or video is fullscreen");

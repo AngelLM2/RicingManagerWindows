@@ -45,7 +45,7 @@ Rect reservation(const domain::BarConfig& bar, const Rect& monitor, double scale
     return strip;
 }
 
-Rect windowRect(const domain::BarConfig& bar, const Rect& area, double scale) noexcept
+Rect windowRect(const domain::BarConfig& bar, const Rect& area, double scale, double content) noexcept
 {
     const auto& margin = bar.margin; // top, right, bottom, left
     const bool horizontal = isHorizontal(bar.position);
@@ -56,9 +56,9 @@ Rect windowRect(const domain::BarConfig& bar, const Rect& area, double scale) no
     const std::int32_t after = px(horizontal ? margin[1] : margin[2], scale);
     const std::int32_t edge = horizontal ? area.width() : area.height();
     const std::int32_t available = std::max(0, edge - before - after);
-    const std::int32_t wanted = bar.length.percent
-                                    ? static_cast<std::int32_t>(std::lround(edge * bar.length.value / 100.0))
-                                    : px(bar.length.value, scale);
+    const std::int32_t wanted = bar.length.fit       ? std::max(px(content, scale), thickness)
+                                : bar.length.percent ? static_cast<std::int32_t>(std::lround(edge * bar.length.value / 100.0))
+                                                     : px(bar.length.value, scale);
     const std::int32_t length = std::clamp(wanted, 0, available);
     const std::int32_t start = (horizontal ? area.left : area.top) + before + ((available - length) / 2);
 
