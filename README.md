@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: v1.0.0 (milestone M8 "Package").** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows and video wallpapers; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
+**Status: v1.1.0 (milestone M9 "Polish").** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows and video wallpapers; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
 
 ---
 
@@ -116,7 +116,7 @@ when = "battery"             # "time" (com at = "HH:MM"), "battery", "ac", "moni
 action = "appearance.dark"
 ```
 
-Ações: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next`, `launch.app` (com `app = "<id>"`, de `rmw apps`) — e as dos plugins, como `<id do plugin>:<ação>`. Com atalhos, regras ou agendamento, o app fica residente (ícone na bandeja); sem nada disso, ele aplica e sai.
+Ações: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next`, `launch.app` (com `app = "<id>"`, de `rmw apps`) — e as dos plugins, como `<id do plugin>:<ação>`. O ícone fica na bandeja, perto do relógio: um clique abre a janela; o botão direito tem "Iniciar com o Windows". Quem quiser que nada fique rodando sem atalhos, regras ou agendamento usa `keep_in_tray = false` (Configurações).
 
 ```powershell
 rmw autostart on               # iniciar com o Windows (desligado até você pedir)
@@ -249,7 +249,7 @@ rmw status                     # what is managed, schedule, hotkeys, safe mode
 
 Settings you change yourself after applying stop following the rice (your change stays) and are not undone by mistake (`--force` restores them anyway).
 
-**Hotkeys and rules** live in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (example above; re-read as soon as you save it). Actions: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next`, `launch.app` (with `app = "<id>"`, from `rmw apps`) — and plugins' own, as `<plugin id>:<action>`. With hotkeys, rules or a schedule the app stays resident (tray icon); otherwise it applies and exits.
+**Hotkeys and rules** live in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml` (example above; re-read as soon as you save it). Actions: `rice.apply`, `rice.undo`, `restore.original`, `appearance.toggle`, `appearance.dark`, `appearance.light`, `bar.toggle`, `bar.on`, `bar.off`, `wallpaper.next`, `launch.app` (with `app = "<id>"`, from `rmw apps`) — and plugins' own, as `<plugin id>:<action>`. Its icon stays in the tray, next to the clock: a click opens the window; the right click has "Start with Windows". For nothing to keep running without hotkeys, rules or a schedule, use `keep_in_tray = false` (Settings).
 
 ```powershell
 rmw autostart on               # start with Windows (off until you ask)

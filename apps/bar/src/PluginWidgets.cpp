@@ -261,6 +261,8 @@ void PluginWidgets::load(const std::vector<bar::PlanPlugin>& plugins)
         widget->kind.callbacks = widget->callbacks;
         widget->kind.takesForeground = declares(widget->checked.interface.inProperties, "foreground");
         widget->kind.takesVertical = declares(widget->checked.interface.inProperties, "vertical");
+        widget->kind.takesItemRadius = declares(widget->checked.interface.inProperties, "item-radius");
+        widget->kind.takesAccent = declares(widget->checked.interface.inProperties, "accent");
         log::info("bar: plugin widget {} ready", plugin.id);
         m_widgets.push_back(std::move(widget));
     }

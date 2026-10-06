@@ -16,6 +16,8 @@ struct UiStrings
     std::wstring_view restoreOriginal;
     std::wstring_view reloadSettings;
     std::wstring_view exit;
+    std::wstring_view openSettings;
+    std::wstring_view startWithWindows;
     std::wstring_view safeModeItem;
 
     std::wstring_view safeModeTitle;
@@ -54,6 +56,8 @@ inline constexpr UiStrings kEnglish{
     .restoreOriginal = L"Restore original Windows",
     .reloadSettings = L"Reload settings",
     .exit = L"Exit",
+    .openSettings = L"Open Ricing Manager",
+    .startWithWindows = L"Start with Windows",
     .safeModeItem = L"Safe mode: nothing runs automatically",
     .safeModeTitle = L"Ricing Manager started in safe mode",
     .safeModeText =
@@ -88,6 +92,8 @@ inline constexpr UiStrings kPortuguese{
     .restoreOriginal = L"Restaurar Windows original",
     .reloadSettings = L"Recarregar configurações",
     .exit = L"Sair",
+    .openSettings = L"Abrir o Ricing Manager",
+    .startWithWindows = L"Iniciar com o Windows",
     .safeModeItem = L"Modo seguro: nada roda automaticamente",
     .safeModeTitle = L"Ricing Manager iniciou no modo seguro",
     .safeModeText =

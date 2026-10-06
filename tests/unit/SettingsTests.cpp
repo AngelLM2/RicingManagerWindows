@@ -85,8 +85,10 @@ action = "restore.original"
     EXPECT_EQ(settings->rules[2].monitor->edidKey, "DEL40F7-UID256");
     EXPECT_TRUE(settings->needsResidency());
 
+    // Since v1.1 the tray icon stays unless the user turns it off ("zero resident").
     Diagnostics empty;
-    EXPECT_FALSE(parse("", empty)->needsResidency());
+    EXPECT_TRUE(parse("", empty)->needsResidency());
+    EXPECT_FALSE(parse("[core]\nkeep_in_tray = false\n", empty)->needsResidency());
 }
 
 TEST(Settings, ReportsMistakesWithLocations)

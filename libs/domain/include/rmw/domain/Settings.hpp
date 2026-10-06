@@ -68,7 +68,8 @@ inline constexpr std::string_view kLanguagePortuguese = "pt-BR";
 
 struct Settings
 {
-    bool keepInTray = false;
+    bool keepInTray =
+        true; // the tray icon stays (the user asked for it in the v1.0 test); off: "zero resident"
     std::string language; // [ui] language: kLanguageEnglish, kLanguagePortuguese or empty
     std::vector<Hotkey> hotkeys;
     std::vector<Rule> rules;

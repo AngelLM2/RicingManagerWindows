@@ -1,67 +1,90 @@
 import { Button, ScrollView, Palette } from "std-widgets.slint";
 import { Api, RiceRow } from "../api.slint";
-import { Card, Hint, PageHeader, Chip, Problem, Metrics } from "../common.slint";
+import { Hint, PageHeader, Chip, Problem, Metrics, IconButton } from "../common.slint";
 
+// One rice in the gallery: its picture, its name, and what to do with it.
 component RiceCard inherits Rectangle {
     in property <RiceRow> rice;
     background: Palette.alternate-background;
-    border-radius: Metrics.radius;
+    border-radius: 12px;
     border-width: root.rice.active ? 2px : 1px;
-    border-color: root.rice.active ? Palette.accent-background : Palette.border;
+    border-color: root.rice.active ? Palette.accent-background : hover.has-hover ? Palette.foreground.transparentize(70%) : Palette.border;
+    animate border-color { duration: 150ms; }
+    clip: true;
     accessible-role: AccessibleRole.groupbox;
     accessible-label: root.rice.name;
 
-    HorizontalLayout {
-        padding: 12px;
-        spacing: 14px;
+    hover := TouchArea {
+        // Double-click: apply, like opening a file.
+        double-clicked => {
+            if (root.rice.problem == "" && !Api.busy) {
+                Api.apply-rice(root.rice.folder);
+            }
+        }
+    }
 
+    VerticalLayout {
+        spacing: 0px;
+
+        // The picture, 16:9; a soft zoom when the pointer is over it.
         Rectangle {
-            width: 160px;
-            height: 90px;
-            border-radius: 6px;
+            height: self.width * 9 / 16;
             clip: true;
             background: Palette.foreground.transparentize(90%);
 
             if root.rice.has-preview: Image {
-                width: parent.width;
-                height: parent.height;
+                property <float> zoom: hover.has-hover ? 1.04 : 1.0;
+                animate zoom { duration: 250ms; easing: ease-out; }
+                width: parent.width * self.zoom;
+                height: parent.height * self.zoom;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
                 source: root.rice.preview;
                 image-fit: cover;
+            }
+
+            if !root.rice.has-preview: Text {
+                text: "\u{E8B9}";
+                font-family: "Segoe Fluent Icons";
+                font-size: 32px;
+                color: Palette.foreground.transparentize(55%);
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if root.rice.active: Rectangle {
+                x: 10px;
+                y: 10px;
+                width: label.preferred-width + 16px;
+                height: 24px;
+                border-radius: 12px;
+                background: Palette.accent-background;
+                label := Text {
+                    text: @tr("applied");
+                    color: Palette.accent-foreground;
+                    font-size: 12px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
         }
 
         VerticalLayout {
-            spacing: 4px;
-            horizontal-stretch: 1;
-            alignment: center;
+            padding: 12px;
+            spacing: 6px;
 
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-
-                Text {
-                    text: root.rice.name;
-                    font-size: 16px;
-                    font-weight: 600;
-                    color: Palette.foreground;
-                    vertical-alignment: center;
-                }
-
-                if root.rice.active: Chip {
-                    text: @tr("applied");
-                    strong: true;
-                }
-            }
-
-            if root.rice.author != "": Hint {
-                text: @tr("by {}", root.rice.author);
-            }
-
-            if root.rice.description != "": Text {
-                text: root.rice.description;
-                wrap: word-wrap;
+            Text {
+                text: root.rice.name;
+                font-size: 15px;
+                font-weight: 600;
                 color: Palette.foreground;
-                font-size: Metrics.small-text;
+                overflow: elide;
+            }
+
+            Hint {
+                text: root.rice.author != "" ? @tr("by {}", root.rice.author) : " ";
+                overflow: elide;
             }
 
             if root.rice.problem != "": Problem {
@@ -69,12 +92,12 @@ component RiceCard inherits Rectangle {
             }
 
             HorizontalLayout {
-                spacing: 8px;
+                spacing: 2px;
                 alignment: start;
 
                 Button {
-                    text: @tr("Apply");
-                    primary: true;
+                    text: root.rice.active ? @tr("Apply again") : @tr("Apply");
+                    primary: !root.rice.active;
                     enabled: root.rice.problem == "" && !Api.busy;
                     accessible-label: @tr("Apply {}", root.rice.name);
                     clicked => {
@@ -82,36 +105,38 @@ component RiceCard inherits Rectangle {
                     }
                 }
 
-                Button {
-                    text: @tr("Edit");
+                Rectangle { width: 6px; }
+
+                IconButton {
+                    glyph: "\u{E70F}";
+                    label: @tr("Edit {}", root.rice.name);
                     enabled: root.rice.problem == "";
-                    accessible-label: @tr("Edit {}", root.rice.name);
                     clicked => {
                         Api.edit-rice(root.rice.folder);
                     }
                 }
 
-                Button {
-                    text: @tr("Duplicate");
+                IconButton {
+                    glyph: "\u{E8C8}";
+                    label: @tr("Duplicate {}", root.rice.name);
                     enabled: root.rice.problem == "";
-                    accessible-label: @tr("Duplicate {}", root.rice.name);
                     clicked => {
                         Api.duplicate-rice(root.rice.folder);
                     }
                 }
 
-                Button {
-                    text: @tr("Share…");
+                IconButton {
+                    glyph: "\u{E72D}";
+                    label: @tr("Share {} as a .rice file", root.rice.name);
                     enabled: root.rice.problem == "" && !Api.busy;
-                    accessible-label: @tr("Share {} as a .rice file", root.rice.name);
                     clicked => {
                         Api.share-rice(root.rice.folder);
                     }
                 }
 
-                Button {
-                    text: @tr("Open folder");
-                    accessible-label: @tr("Open the folder of {}", root.rice.name);
+                IconButton {
+                    glyph: "\u{E838}";
+                    label: @tr("Open the folder of {}", root.rice.name);
                     clicked => {
                         Api.open-folder(root.rice.folder);
                     }
@@ -124,7 +149,7 @@ component RiceCard inherits Rectangle {
 export component RicesPage inherits ScrollView {
     VerticalLayout {
         padding: 28px;
-        spacing: 14px;
+        spacing: 16px;
         alignment: start;
 
         PageHeader {
@@ -138,16 +163,9 @@ export component RicesPage inherits ScrollView {
 
             Button {
                 text: @tr("New rice");
+                primary: true;
                 clicked => {
                     Api.new-rice();
-                }
-            }
-
-            Button {
-                text: @tr("Save my current look as a rice");
-                enabled: !Api.busy;
-                clicked => {
-                    Api.export-current();
                 }
             }
 
@@ -156,6 +174,14 @@ export component RicesPage inherits ScrollView {
                 enabled: !Api.busy;
                 clicked => {
                     Api.import-rice();
+                }
+            }
+
+            Button {
+                text: @tr("Save my current look as a rice");
+                enabled: !Api.busy;
+                clicked => {
+                    Api.export-current();
                 }
             }
 
@@ -171,8 +197,21 @@ export component RicesPage inherits ScrollView {
             text: @tr("No rices yet. Save your current look, import a .rice, or add a folder with a rice.toml.");
         }
 
-        for rice in Api.rices: RiceCard {
-            rice: rice;
+        // A gallery: as many columns as fit (cards at least 260 px wide), rows as needed.
+        gallery := Rectangle {
+            property <length> gap: 14px;
+            property <int> columns: max(1, floor((self.width + self.gap) / (260px + self.gap)));
+            property <length> card-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+            property <length> card-height: self.card-width * 9 / 16 + 136px;
+            height: ceil(Api.rices.length / self.columns) * (self.card-height + self.gap);
+
+            for rice[index] in Api.rices: RiceCard {
+                rice: rice;
+                x: mod(index, gallery.columns) * (gallery.card-width + gallery.gap);
+                y: floor(index / gallery.columns) * (gallery.card-height + gallery.gap);
+                width: gallery.card-width;
+                height: gallery.card-height;
+            }
         }
     }
 }

@@ -247,6 +247,7 @@ export global Api {
 
     // ---- the rice being edited -----------------------------------------------------------------
     in property <bool> editing;
+    in property <bool> preparing-edit;  // the current look is being saved as "My look" to edit it
     in property <string> edit-name;
     in property <string> edit-folder;
     in property <bool> edit-active;     // it is the applied rice: the bar follows each save

@@ -41,8 +41,13 @@ public:
     void run();
     // Another rmw-settings was started: this window comes to the front.
     void bringToFront();
+    // The whole window is drawn again (it came back from off the screen, from minimized, from
+    // another monitor): the renderer redraws only what it knows changed.
+    void repaintAll();
 
 private:
+    // Watches the window's messages for when it must be drawn whole again.
+    void watchWindow();
     using Reply = Result<ipc::Json>;
     using Done = std::function<void(Reply)>;
 
@@ -66,6 +71,9 @@ private:
     void applyLanguage();
 
     // ---- the rice being edited -------------------------------------------------------------------
+    // On an editor page with nothing being edited: the applied rice, or the current look saved as
+    // "My look".
+    void ensureEditing(Page page);
     void startEditing(const std::filesystem::path& folder, Page page);
     void showEdited();
     void showWallpapers();
@@ -100,6 +108,7 @@ private:
     Thumbnails m_thumbnails;
     ProcessWatch m_processes;
     std::optional<Edit> m_edit;
+    bool m_preparingEdit = false;
     std::optional<domain::Settings> m_settings;
     ipc::Json m_status;
     ipc::Json m_plugins = ipc::Json::array();
@@ -117,6 +126,7 @@ private:
     std::mutex m_mutex;
     std::condition_variable_any m_wake;
     std::deque<std::function<void(client::CoreClient&)>> m_tasks;
+    bool m_repaintQueued = false;
     std::jthread m_worker; // last: stops first
 };
 

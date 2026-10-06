@@ -17,6 +17,8 @@ rmw_add_library(providers
         dwmapi
         iphlpapi
         ole32
+        shell32
+        gdi32
         runtimeobject
         shcore
         user32

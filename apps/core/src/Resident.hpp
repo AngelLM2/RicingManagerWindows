@@ -85,6 +85,9 @@ private:
     void queueAction(domain::ActionCall action, Origin origin);
     void queueScheduleSync();
     void showTray();
+    [[nodiscard]] static bool startsWithWindows();
+    void openSettings();
+    void promoteTrayIconOnce();
     void notify(std::wstring_view title, const std::wstring& text);
     void publishStatus();
 
