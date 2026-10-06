@@ -33,11 +33,16 @@ void Surface::resize(std::uint32_t width, std::uint32_t height, std::uint32_t fa
     m_width = width;
     m_height = height;
     m_factor = std::max<std::uint32_t>(1, factor);
-    const std::size_t drawn = std::size_t{width} * m_factor * height * m_factor;
-    m_black.assign(drawn, {});
-    m_white.assign(drawn, {});
-    m_drawn.assign(m_factor > 1 ? drawn : 0, 0);
+    // Only what a frame needs: the pass over white comes with the first translucent frame (an opaque bar
+    // never draws it), and the supersampled pixels are premultiplied as they are averaged down.
+    m_black.assign(drawnSize(), {});
+    m_white.clear();
     m_bgra.assign(std::size_t{width} * height, 0);
+}
+
+std::size_t Surface::drawnSize() const noexcept
+{
+    return std::size_t{m_width} * m_factor * m_height * m_factor;
 }
 
 void Surface::paint(const Render& render, bool translucent, const Matte& matte)
@@ -54,16 +59,19 @@ void Surface::paint(const Render& render, bool translucent, const Matte& matte)
     render(m_black, stride);
     if (translucent)
     {
+        if (m_white.size() != m_black.size())
+        {
+            m_white.assign(m_black.size(), {});
+        }
         matte(true);
         render(m_white, stride);
     }
-    std::vector<std::uint32_t>& drawn = m_factor > 1 ? m_drawn : m_bgra;
-    for (std::size_t i = 0; i < drawn.size(); ++i)
-    {
-        drawn[i] = premultiplied(m_black[i], translucent ? &m_white[i] : nullptr);
-    }
     if (m_factor == 1)
     {
+        for (std::size_t i = 0; i < m_bgra.size(); ++i)
+        {
+            m_bgra[i] = premultiplied(m_black[i], translucent ? &m_white[i] : nullptr);
+        }
         return;
     }
     // Each block of factor x factor drawn pixels, averaged (premultiplied: a plain mean is right).
@@ -81,7 +89,8 @@ void Surface::paint(const Render& render, bool translucent, const Matte& matte)
                 const std::size_t row = ((std::size_t{y} * m_factor) + dy) * stride;
                 for (std::uint32_t dx = 0; dx < m_factor; ++dx)
                 {
-                    const std::uint32_t p = m_drawn[row + (std::size_t{x} * m_factor) + dx];
+                    const std::size_t at = row + (std::size_t{x} * m_factor) + dx;
+                    const std::uint32_t p = premultiplied(m_black[at], translucent ? &m_white[at] : nullptr);
                     a += p >> 24;
                     r += (p >> 16) & 0xFFU;
                     g += (p >> 8) & 0xFFU;

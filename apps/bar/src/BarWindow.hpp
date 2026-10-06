@@ -69,6 +69,13 @@ private:
     [[nodiscard]] bar::Rect currentRect() const noexcept;
     void slideTo(double reveal);
     void slideStep();
+    // A bar as long as what it shows follows it smoothly (v1.8: it grew in one jump when the tray opened or
+    // an app came): from the length it has now to `content`, frame by frame.
+    void growTo(double content);
+    void growStep();
+    // The window at the length it has now (m_shownContent) in the area place() found: no new request to the
+    // shell (the strip a bar reserves does not depend on its length).
+    void reshape();
     [[nodiscard]] slint::LogicalPosition logical(std::int32_t x, std::int32_t y) const;
 
     domain::BarConfig m_config;
@@ -97,7 +104,13 @@ private:
     bool m_autohide = false;
     bool m_tucked = false;
     std::function<double()> m_contentLength;
-    double m_placedContent = 0.0; // the content length the window was placed for
+    double m_placedContent = 0.0; // the content length the window goes to
+    double m_shownContent = 0.0;  // ... and the one it has now, on the way there
+    double m_growFrom = 0.0;
+    std::chrono::steady_clock::time_point m_growStart;
+    bar::Rect m_area; // what place() put the bar in (the work area, or the strip the shell granted)
+    std::int32_t m_targetWidth = 0; // the DIB's size: a bar that grows and shrinks reuses it
+    std::int32_t m_targetHeight = 0;
     double m_reveal = 1.0;        // 0 tucked .. 1 shown
     double m_revealTarget = 1.0;
     std::chrono::steady_clock::time_point m_slideLast;

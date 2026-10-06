@@ -54,6 +54,8 @@ private:
     void render();
     void resizeTarget(std::int32_t width, std::int32_t height);
     void releaseTarget() noexcept;
+    void freeTarget() noexcept; // its pixels go while it is closed
+
     void key(std::uintptr_t virtualKey, bool down);
     [[nodiscard]] slint::LogicalPosition logical(std::int32_t x, std::int32_t y) const;
 
