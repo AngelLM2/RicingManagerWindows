@@ -2,10 +2,10 @@
 # Slint with its software renderer, a client of rmw-core, gone when its window closes.
 
 # What it does with files and the rice model, without UI: always built (the unit tests use it).
-add_library(rmw_settings_model STATIC model/src/Model.cpp)
+add_library(rmw_settings_model STATIC model/src/Model.cpp model/src/WallpaperEngine.cpp)
 add_library(rmw::settings_model ALIAS rmw_settings_model)
 target_include_directories(rmw_settings_model PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/model/include")
-target_link_libraries(rmw_settings_model PUBLIC rmw::base rmw::domain PRIVATE rmw::platform)
+target_link_libraries(rmw_settings_model PUBLIC rmw::base rmw::domain PRIVATE rmw::json rmw::platform)
 rmw_configure_target(rmw_settings_model)
 
 include(RmwSlint)
@@ -41,6 +41,7 @@ target_link_libraries(rmw_settings PRIVATE
     rmw::platform
     rmw::plugins
     rmw::settings_model
+    rmw::video
     Slint::Slint
     WIL::WIL
     dwmapi

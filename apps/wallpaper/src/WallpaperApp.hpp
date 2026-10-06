@@ -62,6 +62,7 @@ private:
         std::size_t entry = 0;
         std::string video; // what plays: size, rate, decoding
         std::string error; // why it does not play (until the next rebuild)
+        bool noDesktop = false; // it could not go behind the icons: Explorer was not (yet) there
     };
 
     [[nodiscard]] bool loadPlan();
@@ -97,6 +98,10 @@ private:
     unsigned m_taskbarCreated = 0;
     void* m_displayNotification = nullptr;
     bool m_rebuildPending = false;
+    // A monitor found no desktop to go behind (Explorer restarting, or not started yet): tried
+    // again a little later, even if Explorer's "taskbar created" never reaches us.
+    std::optional<video::Clock::time_point> m_desktopRetryAt;
+    bool m_waitingForDesktop = false;
     bool m_quit = false;
     int m_exitCode = 0;
     std::atomic<const char*> m_busyWith{nullptr}; // what the window thread does now

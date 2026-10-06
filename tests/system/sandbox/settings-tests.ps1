@@ -322,6 +322,85 @@ if ($picked -match '->\s+(\S.*)$') {
 $r = Invoke-Rmw @('action', 'launch.app', '--app', 'C:\Windows\System32\cmd.exe')
 Check 'settings:launch-app-only-installed' ($r.code -ne 0) $r.output
 
+# ---- M12: effects, particles and Wallpaper Engine, in the editor ------------------------------------------
+# A Wallpaper Engine wallpaper where Steam would say it is (this Sandbox has no Steam): a scene, so its
+# GIF preview stands in for it.
+$steam = Join-Path $Work 'steam'
+$item = Join-Path $steam 'steamapps\workshop\content\431960\111'
+New-Item -ItemType Directory -Force $item | Out-Null
+$gif = New-Object System.Drawing.Bitmap 160, 90
+$g = [System.Drawing.Graphics]::FromImage($gif); $g.Clear([System.Drawing.Color]::FromArgb(200, 120, 220)); $g.Dispose()
+$gif.Save((Join-Path $item 'preview.gif'), [System.Drawing.Imaging.ImageFormat]::Gif); $gif.Dispose()
+'{"title":"Witch Academy","type":"scene","file":"scene.json","preview":"preview.gif","workshopid":"111"}' | Out-File (Join-Path $item 'project.json') -Encoding ascii
+'{}' | Out-File (Join-Path $item 'scene.json') -Encoding ascii
+New-Item -Path 'HKCU:\Software\Valve\Steam' -Force | Out-Null
+Set-ItemProperty 'HKCU:\Software\Valve\Steam' -Name SteamPath -Value ($steam -replace '\\', '/')
+$nightToml = Join-Path $night 'rice.toml'
+function Night-Text { Get-Content $nightToml -Raw -ErrorAction SilentlyContinue }
+
+[void](Press $window 'Rices')
+[void](Press $window 'Edit Night')
+[void](Press $window 'Wallpapers')
+Start-Sleep -Seconds 1
+# Tall enough for the whole page: what a person scrolls to, UI Automation sees.
+$tall = New-Object Rmw.Win+RECT
+[void][Rmw.Win]::GetWindowRect($app.MainWindowHandle, [ref] $tall)
+[void][Rmw.Win]::SetWindowPos($app.MainWindowHandle, [IntPtr]::Zero, $tall.Left, 0, $tall.Right - $tall.Left, 2400, 0x14)
+Start-Sleep -Seconds 1
+$selected = Press $window 'Every monitor' # its rule
+Start-Sleep -Milliseconds 800
+$saturation = Find-Named $window 'Saturation'
+$names = @($window.FindAll($Scope::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+    ForEach-Object { $_.Current.Name } | Where-Object { $_ -ne '' } | Select-Object -Unique)
+Note 'wallpapers-page' ("rule pressed: $selected; " + (($names | Select-Object -First 80) -join ' | '))
+Check 'settings:effects-shown' ($null -ne $saturation -and $null -ne (Find-Named $window 'Vignette') -and $null -ne (Find-Named $window 'Add particles')) ''
+# The slider itself (its row's label has the same name): set as Narrator would, else by keyboard.
+$isSlider = New-Object System.Windows.Automation.PropertyCondition($UIA::ControlTypeProperty, [System.Windows.Automation.ControlType]::Slider)
+$named = New-Object System.Windows.Automation.PropertyCondition($UIA::NameProperty, 'Saturation')
+$slider = $window.FindFirst($Scope::Descendants, (New-Object System.Windows.Automation.AndCondition($isSlider, $named)))
+$set = $false
+try {
+    $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
+    $range.SetValue(0.0)
+    $set = 'range value'
+}
+catch {
+    try {
+        $slider.SetFocus()
+        Start-Sleep -Milliseconds 200
+        [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+        Start-Sleep -Milliseconds 200
+        if ((Get-Content $nightToml -Raw) -notmatch 'saturation') { [System.Windows.Forms.SendKeys]::SendWait('{LEFT}') }
+        $set = "keyboard ($_)"
+    }
+    catch { $set = "$_" }
+}
+Note 'saturation-set' "$set"
+Check 'settings:effect-saved' (Wait-Until { (Night-Text) -match 'effects = \{ saturation = 0\.0 \}' } 5) ((Night-Text) -replace "`r?`n", ' | ')
+Check 'settings:particles-added' ((Press $window 'Add particles') -and (Wait-Until { (Night-Text) -match 'kind = "sparkles"' } 5)) ((Night-Text) -replace "`r?`n", ' | ')
+Shot $app 'wallpapers-live'
+
+Check 'settings:engine-opens' (Press $window 'Use a wallpaper from Wallpaper Engine') ''
+$listed = Wait-Until { $null -ne (Find-Named $window 'Use Witch Academy') } 10
+Check 'settings:engine-lists-steams' $listed ''
+Shot $app 'wallpaper-engine'
+[void](Press $window 'Use Witch Academy')
+$used = Wait-Until { (Night-Text) -match 'source = "assets/wallpapers/Witch Academy\.png"' -and (Night-Text) -match 'shareable = false' } 10
+Check 'settings:engine-used' $used ((Night-Text) -replace "`r?`n", ' | ')
+Check 'settings:engine-picture-converted' (Test-Path (Join-Path $night 'assets\wallpapers\Witch Academy.png')) ''
+Check 'settings:engine-scene-gets-a-zoom' ((Night-Text) -match 'zoom = 0\.3') ''
+[void](Press $window 'Rices')
+Start-Sleep -Milliseconds 800
+Check 'settings:engine-rice-not-shareable' ($null -ne (Find-Named $window 'Apply Night') -and $null -eq (Find-Named $window 'Share Night as a .rice file')) ''
+$r = Invoke-Rmw @('pack', $night)
+Check 'settings:engine-rice-not-packed' ($r.code -ne 0 -and $r.output -match 'Wallpaper Engine') $r.output
+[void](Press $window 'Edit Night')
+Check 'settings:apply-live' (Press $window 'Apply') ''
+[void][Rmw.Win]::SetWindowPos($app.MainWindowHandle, [IntPtr]::Zero, $tall.Left, $tall.Top, $tall.Right - $tall.Left, $tall.Bottom - $tall.Top, 0x14)
+Check 'settings:live-wallpaper-runs' (Wait-Until { $null -ne (Get-Process rmw-wallpaper -ErrorAction SilentlyContinue) } 20) ((Invoke-Rmw @('status')).output)
+Start-Sleep -Seconds 2
+Screen-Shot 'live-witch'
+
 # ---- the budget -----------------------------------------------------------------------------------------
 $privateMb = if ($app.HasExited) { -1 } else { $app.Refresh(); $app.PrivateMemorySize64 / 1MB }
 Check 'settings:memory-under-120mb' ($privateMb -gt 0 -and $privateMb -le 120) ('{0:N1} MB private after every page' -f $privateMb)

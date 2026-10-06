@@ -43,6 +43,7 @@ constexpr UINT kPlanDelayMs = 200;    // the core writes the plan in one go, but
 constexpr DWORD kLoopMs = 250;        // the heartbeat beats at least this often
 constexpr auto kGraphicsRetry = 30s;
 constexpr auto kBusyReport = 1s; // the core ends the worker after 1.5 s without a heartbeat
+constexpr auto kDesktopRetry = 3s; // how often a monitor without a desktop looks for one again
 constexpr std::uint64_t kPlanMaxBytes = 1u << 20;
 
 WallpaperApp* g_app = nullptr; // the window procedure's
@@ -240,9 +241,9 @@ bool WallpaperApp::loadPlan()
         log::error("wallpaper: {}", plan.error().toString());
         return !m_plan.entries.empty(); // keep playing what we had
     }
-    if (!plan->hasVideo())
+    if (!plan->hasLive())
     {
-        log::info("wallpaper: the plan has no video anymore");
+        log::info("wallpaper: the plan has nothing live anymore");
         return false;
     }
     if (*plan != m_plan)
@@ -486,7 +487,7 @@ void WallpaperApp::rebuild()
         facts.push_back(
             {monitor.identityKey, monitor.primary, monitor.left, monitor.top, monitor.right, monitor.bottom});
     }
-    const auto chosen = video::videoFor(m_plan, facts);
+    const auto chosen = video::liveFor(m_plan, facts);
     for (std::size_t i = 0; i < monitors->size(); ++i)
     {
         if (chosen[i] < 0)
@@ -509,7 +510,19 @@ void WallpaperApp::rebuild()
         }
         m_screens.push_back(std::move(screen));
     }
-    log::info("wallpaper: a video for {} monitor(s)", m_screens.size());
+    log::info("wallpaper: a live wallpaper on {} monitor(s)", m_screens.size());
+    const bool noDesktop = std::ranges::any_of(m_screens, &Screen::noDesktop);
+    if (noDesktop && !m_waitingForDesktop)
+    {
+        log::warn("wallpaper: the desktop is not there yet; looking for it every {} s",
+                  std::chrono::duration_cast<std::chrono::seconds>(kDesktopRetry).count());
+    }
+    else if (!noDesktop && m_waitingForDesktop)
+    {
+        log::info("wallpaper: the desktop is back; behind the icons again");
+    }
+    m_waitingForDesktop = noDesktop;
+    m_desktopRetryAt = noDesktop ? std::optional(video::Clock::now() + kDesktopRetry) : std::nullopt;
     updatePauses();
     writeStatus();
 }
@@ -534,15 +547,31 @@ bool WallpaperApp::buildScreen(Screen& screen)
         if (!attached)
         {
             screen.error = attached.error().toString();
-            log::error("wallpaper: {}", screen.error);
+            screen.noDesktop = attached.error().code() == ErrorCode::NotFound;
+            if (!screen.noDesktop || !m_waitingForDesktop)
+            {
+                log::error("wallpaper: {}", screen.error);
+            }
             return false;
         }
         screen.attachment = *attached;
+        screen.noDesktop = false;
     }
     const auto& entry = m_plan.entries[screen.entry];
-    screen.renderer = std::make_unique<Renderer>(
-        m_graphics, screen.window,
-        RendererOptions{entry.file, entry.fit, m_plan.policy.fpsLimit, screen.width, screen.height});
+    RendererOptions options;
+    options.source = entry.source;
+    options.file = entry.file;
+    options.color = entry.color;
+    options.background = m_plan.background;
+    options.fit = entry.fit;
+    options.effects = entry.effects;
+    options.particles = entry.particles;
+    options.fpsLimit = m_plan.policy.fpsLimit;
+    options.left = screen.left;
+    options.top = screen.top;
+    options.width = screen.width;
+    options.height = screen.height;
+    screen.renderer = std::make_unique<Renderer>(m_graphics, screen.window, std::move(options));
     screen.renderer->start();
     screen.error.clear();
     screen.video.clear();
@@ -554,9 +583,9 @@ bool WallpaperApp::buildScreen(Screen& screen)
 
 void WallpaperApp::release(Screen& screen)
 {
-    // The decoder and the swap chain go; Windows' own wallpaper (the rice's fallback image) shows
-    // where the window was.
-    const Busy busy(m_busyWith, m_busySince, "releasing a monitor's video");
+    // The decoder and the swap chain go; Windows' own wallpaper (the rice's fallback image, or the
+    // picture without its effects) shows where the window was.
+    const Busy busy(m_busyWith, m_busySince, "releasing a monitor's live wallpaper");
     screen.renderer.reset();
     if (screen.window != nullptr)
     {
@@ -575,7 +604,10 @@ bool WallpaperApp::watchRenderers()
         {
             continue;
         }
-        const std::string file = utf16To8Lossy(m_plan.entries[screen.entry].file.filename().native());
+        const auto& entry = m_plan.entries[screen.entry];
+        const std::string file = entry.source == video::Source::Color
+                                     ? entry.color.toHex()
+                                     : utf16To8Lossy(entry.file.filename().native());
         if (screen.renderer->failed())
         {
             if (screen.renderer->deviceLost())
@@ -587,7 +619,7 @@ bool WallpaperApp::watchRenderers()
             }
             if (screen.renderer->ready())
             {
-                screen.error = std::format("the video stopped: {}", screen.renderer->failure());
+                screen.error = std::format("the live wallpaper stopped: {}", screen.renderer->failure());
                 log::warn("wallpaper: {}: {}; Windows' wallpaper shows", screen.monitor, screen.error);
             }
             else
@@ -707,7 +739,8 @@ void WallpaperApp::updatePauses()
                 screen.renderer->setPaused(reason != video::PauseReason::None);
             }
         }
-        if (screen.renderer && screen.pausedSince && now - *screen.pausedSince >= video::kReleaseAfter)
+        if (screen.renderer && !screen.renderer->still() && screen.pausedSince &&
+            now - *screen.pausedSince >= video::kReleaseAfter)
         {
             release(screen);
             log::info("wallpaper: {}: paused for {} s, memory released", screen.monitor,
@@ -741,6 +774,11 @@ void WallpaperApp::tick()
     if (!m_graphics)
     {
         return; // the GPU went away: rebuilding
+    }
+    if (m_desktopRetryAt && video::Clock::now() >= *m_desktopRetryAt)
+    {
+        rebuild(); // the desktop may be there now
+        return;
     }
     for (auto& screen : m_screens)
     {

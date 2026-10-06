@@ -42,6 +42,8 @@ public static extern System.IntPtr GetDC(System.IntPtr window);
 public static extern int ReleaseDC(System.IntPtr window, System.IntPtr dc);
 [System.Runtime.InteropServices.DllImport("gdi32.dll")]
 public static extern uint GetPixel(System.IntPtr dc, int x, int y);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool SetCursorPos(int x, int y);
 [System.Runtime.InteropServices.DllImport("gdi32.dll")]
 public static extern bool BitBlt(System.IntPtr target, int x, int y, int width, int height, System.IntPtr source, int sourceX, int sourceY, uint operation);
 '@
@@ -137,7 +139,7 @@ $visible = Wait-Until { Is-Magenta } 10
 Check 'video:visible-behind-the-icons' $visible "before $before, now $(Probe-Text)"
 Shot 'video-1-playing'
 $s = Invoke-Rmw @('status')
-Check 'video:status' ($s.output -match 'Video wallpaper: running' -and $s.output -match ': playing: 1920x1080') $s.output
+Check 'video:status' ($s.output -match 'Live wallpaper: running' -and $s.output -match ': playing: 1920x1080') $s.output
 
 # ---- the budget (docs/01: ~100 MB and <= 3% CPU at 1080p; ADR-0006: stop at 150 MB / 5%) ------------
 $process = Video-Process
@@ -209,11 +211,11 @@ Check 'video:hang-detected' ($found -and $quick) $detail
 Check 'video:back-after-hang' (Wait-Until { $p = Video-Process; $p -and $p.Id -ne $old.Id } 8) ''
 
 # ---- Explorer restarts: behind the icons again ------------------------------------------------------------
-$reattached = Log-Count $videoLog 'Explorer restarted'
+$reattached = Log-Count $videoLog 'Explorer restarted|the desktop is back'
 Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe | Out-Null }
-Check 'video:explorer-restart-seen' (Wait-Until { (Log-Count $videoLog 'Explorer restarted') -gt $reattached } 20) ''
+Check 'video:explorer-restart-seen' (Wait-Until { (Log-Count $videoLog 'Explorer restarted|the desktop is back') -gt $reattached } 20) ''
 Check 'video:visible-after-explorer' (Wait-Until { Is-Magenta } 20) (Probe-Text)
 Start-Sleep -Seconds 2
 Shot 'video-2-after-explorer'
@@ -224,6 +226,143 @@ Check 'video:restore' ($r.code -eq 0) $r.output
 Check 'video:worker-gone' (Wait-Until { $null -eq (Video-Process) } 10) ''
 Check 'video:not-visible-after-restore' (Wait-Until { -not (Is-Magenta) } 10) (Probe-Text)
 Shot 'video-3-restored'
+
+# ---- M12: pictures and colors drawn by rmw-wallpaper, with effects and particles ---------------------------
+function Is-Gray($c) { [Math]::Abs($c.r - $c.g) -lt 12 -and [Math]::Abs($c.g - $c.b) -lt 12 }
+# A hash of the whole screen: two of them differ when anything moved.
+function Screen-Hash {
+    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $target = $graphics.GetHdc()
+    $screenDc = [Rmw.Win]::GetDC([IntPtr]::Zero)
+    [void][Rmw.Win]::BitBlt($target, 0, 0, $bounds.Width, $bounds.Height, $screenDc, $bounds.X, $bounds.Y, 0x40CC0020)
+    [void][Rmw.Win]::ReleaseDC([IntPtr]::Zero, $screenDc)
+    $graphics.ReleaseHdc($target)
+    $stream = New-Object System.IO.MemoryStream
+    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Bmp)
+    $graphics.Dispose(); $bitmap.Dispose()
+    $sha = [System.Security.Cryptography.SHA1]::Create()
+    $hash = [BitConverter]::ToString($sha.ComputeHash($stream.ToArray()))
+    $stream.Dispose(); $sha.Dispose()
+    $hash
+}
+# 48 pixels along a row, a third of the way in: where the stripes are.
+function Row-Signature([int] $Y) {
+    $dc = [Rmw.Win]::GetDC([IntPtr]::Zero)
+    $values = for ($i = 0; $i -lt 48; $i++) { [Rmw.Win]::GetPixel($dc, $screen.Left + [int]($screen.Width / 3) + $i * 5, $Y) }
+    [void][Rmw.Win]::ReleaseDC([IntPtr]::Zero, $dc)
+    $values -join ','
+}
+function Write-LiveRice([string] $Monitor) {
+    @"
+schema = 1
+
+[meta]
+name = "Live test"
+
+[wallpaper]
+mode = "per-monitor"
+
+[wallpaper.policy]
+pause_on_fullscreen = false
+pause_when_covered  = false
+fps_limit           = 30
+
+$Monitor
+"@ | Out-File (Join-Path $live 'rice.toml') -Encoding ascii
+}
+
+$live = Join-Path $Work 'rice-live'
+$liveAssets = Join-Path $live 'assets'
+New-Item -ItemType Directory -Force $liveAssets | Out-Null
+# Red: Windows alone shows it red; drawn with saturation 0 it is gray.
+$red = New-Object System.Drawing.Bitmap 320, 180
+$g = [System.Drawing.Graphics]::FromImage($red); $g.Clear([System.Drawing.Color]::FromArgb(200, 40, 40)); $g.Dispose()
+$red.Save((Join-Path $liveAssets 'red.png'), [System.Drawing.Imaging.ImageFormat]::Png); $red.Dispose()
+# Stripes, for the parallax: 6 pixels black, 6 white.
+$stripes = New-Object System.Drawing.Bitmap 1920, 1080
+$g = [System.Drawing.Graphics]::FromImage($stripes); $g.Clear([System.Drawing.Color]::White)
+for ($x = 0; $x -lt 1920; $x += 12) { $g.FillRectangle([System.Drawing.Brushes]::Black, $x, 0, 6, 1080) }
+$g.Dispose()
+$stripes.Save((Join-Path $liveAssets 'stripes.png'), [System.Drawing.Imaging.ImageFormat]::Png); $stripes.Dispose()
+
+# A picture with its colors changed: drawn once, then nothing spent.
+Write-LiveRice @'
+[[wallpaper.monitor]]
+match   = "all"
+kind    = "image"
+source  = "assets/red.png"
+fit     = "fill"
+effects = { saturation = 0 }
+'@
+$r = Invoke-Rmw @('apply', $live, '--wait')
+Check 'live:apply-picture' ($r.code -eq 0) $r.output
+Check 'live:worker-for-a-picture' (Wait-Until { $null -ne (Video-Process) } 15) ''
+$grayShown = Wait-Until { $c = Probe; (Is-Gray $c) -and $c.r -gt 40 } 15
+Check 'live:effects-visible' $grayShown "probe $(Probe-Text) (Windows alone shows #C82828)"
+Shot 'video-live-1-gray-picture'
+$s = Invoke-Rmw @('status')
+Check 'live:status-picture' ($s.output -match ': playing: picture 320x180, effects') $s.output
+Start-Sleep -Seconds 2
+$p = Video-Process
+$stillCpu = if ($p) { Cpu-Percent $p 4 } else { 100 }
+Check 'live:still-picture-costs-nothing' ($grayShown -and $stillCpu -lt 0.5) ('{0:N2}%' -f $stillCpu)
+
+# A color with a vignette and two particle layers: frames keep coming, within the budget.
+Write-LiveRice @'
+[[wallpaper.monitor]]
+match     = "all"
+kind      = "color"
+color     = "#204060"
+effects   = { vignette = 0.6 }
+particles = [{ kind = "snow", count = 300 }, { kind = "sparkles", count = 60 }]
+'@
+$r = Invoke-Rmw @('apply', $live, '--wait')
+Check 'live:apply-particles' ($r.code -eq 0) $r.output
+$drawing = Wait-Until { (Invoke-Rmw @('status')).output -match ': playing: color #204060, effects, 2 particle layers' } 15
+Check 'live:status-particles' $drawing (Invoke-Rmw @('status')).output
+Start-Sleep -Seconds 2
+$first = Screen-Hash
+Start-Sleep -Milliseconds 500
+$second = Screen-Hash
+Check 'live:particles-move' ($drawing -and $first -ne $second) ''
+Shot 'video-live-2-particles'
+$p = Video-Process
+$particlesCpu = if ($p) { Cpu-Percent $p 5 } else { 100 }
+$p = Video-Process
+$particlesMemory = if ($p) { $p.Refresh(); $p.PrivateMemorySize64 / 1MB } else { 0 }
+Check 'live:particles-budget-cpu' ($drawing -and $particlesCpu -le 5.0) ('{0:N2}% (360 particles at 30 fps)' -f $particlesCpu)
+Note 'particles-memory' ('{0:N1} MB' -f $particlesMemory)
+
+# The parallax: the picture leans away from the mouse, then rests.
+Write-LiveRice @'
+[[wallpaper.monitor]]
+match   = "all"
+kind    = "image"
+source  = "assets/stripes.png"
+fit     = "fill"
+effects = { parallax = 1 }
+'@
+$r = Invoke-Rmw @('apply', $live, '--wait')
+Check 'live:apply-parallax' ($r.code -eq 0) $r.output
+$row = $screen.Top + [int]($screen.Height * 0.4)
+Wait-Until { (Invoke-Rmw @('status')).output -match ': playing: picture 1920x1080, effects' } 15 | Out-Null
+[void][Rmw.Win]::SetCursorPos($screen.Left + 5, $row)
+Start-Sleep -Seconds 3
+$atLeft = Row-Signature $row
+[void][Rmw.Win]::SetCursorPos($screen.Right - 5, $row)
+Start-Sleep -Seconds 3
+$atRight = Row-Signature $row
+Check 'live:parallax-follows-the-mouse' ($atLeft -ne $atRight) ''
+Shot 'video-live-3-parallax'
+$p = Video-Process
+$restingCpu = if ($p) { Cpu-Percent $p 4 } else { 100 }
+Check 'live:parallax-rests' ($restingCpu -lt 0.5) ('{0:N2}% with the mouse still' -f $restingCpu)
+
+$r = Invoke-Rmw @('restore', '--original', '--wait')
+Check 'live:restore' ($r.code -eq 0) $r.output
+Check 'live:worker-gone' (Wait-Until { $null -eq (Video-Process) } 10) ''
 
 Invoke-Rmw @('shutdown') | Out-Null
 Start-Sleep -Seconds 2

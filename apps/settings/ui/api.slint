@@ -63,6 +63,7 @@ export struct RiceRow {
     active: bool,
     preview: image,
     has-preview: bool,
+    shareable: bool, // false: it holds Wallpaper Engine files; it stays on this computer
 }
 
 export struct MonitorBox {
@@ -79,6 +80,16 @@ export struct MonitorBox {
     has-preview: bool,
 }
 
+// A layer of particles over a wallpaper (M12).
+export struct ParticleRow {
+    kind: int,     // 0 sparkles, 1 stars, 2 snow, 3 rain, 4 petals, 5 fireflies, 6 magic, 7 notes, 8 hearts, 9 bubbles
+    color: string, // "#RRGGBB" or "palette.<name>"; "" is the kind's own
+    count: int,
+    size: float,   // 0.25..4
+    speed: float,  // 0..4
+    glow: bool,
+}
+
 export struct WallRule {
     match: string,
     match-index: int, // in match-choices
@@ -90,6 +101,28 @@ export struct WallRule {
     color: string,  // "#RRGGBB"
     interval: int,  // minutes (slideshow)
     shuffle: bool,
+    preview: image,
+    has-preview: bool,
+    // Effects (M12), neutral when the rice leaves them out.
+    brightness: float, // -1..1
+    contrast: float,   // 0..2
+    saturation: float, // 0..2
+    hue: float,        // -180..180
+    speed: float,      // 0.25..4 (videos)
+    blur: float,       // 0..40
+    parallax: float,   // 0..1
+    zoom: float,       // 0..1
+    vignette: float,   // 0..1
+    particles: [ParticleRow],
+    live: bool,        // drawn by Ricing Manager: effects or particles
+}
+
+// A Wallpaper Engine wallpaper found on this computer (M12).
+export struct EngineItem {
+    title: string,
+    kind: string,   // as people read it: "Video", "Scene"...
+    usable: bool,
+    note: string,   // what using it does
     preview: image,
     has-preview: bool,
 }
@@ -277,6 +310,19 @@ export global Api {
     callback rule-pick(int /* rule */, int /* 0 source, 1 fallback */);
     callback rule-add(string /* match */);
     callback rule-remove(int);
+    callback rule-effect(int /* rule */, string /* brightness, contrast, saturation, hue, speed, blur, parallax, zoom, vignette */, float /* value */);
+    callback rule-effects-reset(int /* rule */);
+    callback particle-add(int /* rule */, int /* kind */);
+    callback particle-field(int /* rule */, int /* layer */, string /* field: kind, color, count, size, speed, glow */, string /* value */);
+    callback particle-remove(int /* rule */, int /* layer */);
+    // Wallpaper Engine (M12): what this computer has, for one rule.
+    in property <bool> engine-open;
+    in property <string> engine-status;
+    in property <[EngineItem]> engine-items;
+    callback engine-browse(int /* rule */);
+    callback engine-add-folder();
+    callback engine-use(int /* item */);
+    callback engine-close();
     in-out property <bool> pause-fullscreen: true;
     in-out property <bool> pause-battery: true;
     in-out property <bool> pause-covered: true;

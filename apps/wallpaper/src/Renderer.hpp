@@ -2,7 +2,9 @@
 
 #include "rmw/base/Error.hpp"
 #include "rmw/domain/Rice.hpp"
+#include "rmw/video/Plan.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -10,7 +12,9 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 namespace rmw::wallpaper
 {
@@ -39,16 +43,39 @@ private:
 
 struct RendererOptions
 {
+    video::Source source = video::Source::Video;
     std::filesystem::path file;
+    domain::Color color;      // Source::Color
+    domain::Color background; // around a picture that does not cover the monitor
     domain::WallpaperFit fit = domain::WallpaperFit::Fill;
+    video::Effects effects;
+    std::vector<video::Particles> particles;
     std::uint32_t fpsLimit = 30;
-    int width = 0; // the monitor, in pixels
+    int left = 0; // the monitor, in pixels (the parallax follows the mouse on it)
+    int top = 0;
+    int width = 0;
     int height = 0;
+
+    // Drawn by the Composer (else a video goes straight from the video processor to the screen).
+    [[nodiscard]] bool composed() const noexcept
+    {
+        video::Effects rest = effects;
+        rest.speed = 1.0; // the decoder's pace, not a drawing
+        return source != video::Source::Video || !rest.none() || !particles.empty();
+    }
+    // Drawn once and left alone: a picture or a color with nothing that moves.
+    [[nodiscard]] bool still() const noexcept
+    {
+        return source != video::Source::Video && !effects.moves() &&
+               std::ranges::all_of(particles, [](const video::Particles& p) { return p.speed <= 0.0; });
+    }
 };
 
-// One monitor's video: decodes with Media Foundation (DXVA when the GPU can; the decoder keeps few
-// frames), scales with the D3D11 video processor straight into a flip swap chain that
-// DirectComposition shows in the window. Its own thread; it presents only when a frame is due.
+// One monitor's live wallpaper on its own thread, in a flip swap chain that DirectComposition shows
+// in the window. A video decodes with Media Foundation (DXVA when the GPU can; the decoder keeps few
+// frames) and scales with the D3D11 video processor, straight into the swap chain, or through the
+// Composer when it has effects or particles; a picture or a color is drawn by the Composer. It
+// presents only when a frame is due, and not at all while nothing changes.
 class Renderer
 {
 public:
@@ -67,6 +94,8 @@ public:
     void setPaused(bool paused);
 
     [[nodiscard]] bool ready() const noexcept { return m_ready.load(); }
+    // Costs nothing once drawn (no frames come): kept while paused, however long.
+    [[nodiscard]] bool still() const noexcept { return m_options.still(); }
     // Set by the render thread when it cannot go on (the GPU went away, the file broke).
     [[nodiscard]] bool failed() const noexcept { return m_failed.load(); }
     [[nodiscard]] bool deviceLost() const noexcept { return m_deviceLost.load(); }
@@ -79,7 +108,11 @@ public:
 
 private:
     [[nodiscard]] Result<void> build();
+    [[nodiscard]] Result<void> buildVideo();
     void run(const std::stop_token& stop);
+    void runVideo(const std::stop_token& stop);
+    void runDrawing(const std::stop_token& stop); // a picture or a color
+    void lose(long hr, std::string_view what);
 
     std::shared_ptr<Graphics> m_graphics;
     void* m_window; // HWND

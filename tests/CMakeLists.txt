@@ -38,6 +38,7 @@ add_executable(rmw_unit_tests
     unit/TweaksModuleTests.cpp
     unit/UtfTests.cpp
     unit/VideoTests.cpp
+    unit/WallpaperEngineTests.cpp
     unit/WallpaperModuleTests.cpp
     unit/WidgetSourceTests.cpp
     unit/Win32PortsTests.cpp

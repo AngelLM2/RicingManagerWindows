@@ -8,6 +8,7 @@
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <shobjidl.h>
+#include <wincodec.h>
 #include <wil/com.h>
 #include <wil/resource.h>
 
@@ -150,6 +151,42 @@ std::optional<fs::path> pickSaveFile(void* owner, const FileFilter& filter, cons
         return std::nullopt;
     }
     return fs::path(path.get());
+}
+
+Result<void> savePng(const fs::path& picture, const fs::path& png)
+{
+    wil::com_ptr_nothrow<IWICImagingFactory> wic;
+    wil::com_ptr_nothrow<IWICBitmapDecoder> decoder;
+    wil::com_ptr_nothrow<IWICBitmapFrameDecode> frame;
+    wil::com_ptr_nothrow<IWICFormatConverter> converter;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.put()))) ||
+        FAILED(wic->CreateDecoderFromFilename(picture.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand,
+                                              decoder.put())) ||
+        FAILED(decoder->GetFrame(0, frame.put())) || FAILED(wic->CreateFormatConverter(converter.put())) ||
+        FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr,
+                                     0.0, WICBitmapPaletteTypeMedianCut)))
+    {
+        return fail(ErrorCode::InvalidData, std::format("{} is not a picture Windows can read", utf16To8Lossy(picture.native())));
+    }
+    UINT width = 0;
+    UINT height = 0;
+    converter->GetSize(&width, &height);
+    wil::com_ptr_nothrow<IWICStream> stream;
+    wil::com_ptr_nothrow<IWICBitmapEncoder> encoder;
+    wil::com_ptr_nothrow<IWICBitmapFrameEncode> target;
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+    if (FAILED(wic->CreateStream(stream.put())) ||
+        FAILED(stream->InitializeFromFilename(png.c_str(), GENERIC_WRITE)) ||
+        FAILED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.put())) ||
+        FAILED(encoder->Initialize(stream.get(), WICBitmapEncoderNoCache)) ||
+        FAILED(encoder->CreateNewFrame(target.put(), nullptr)) || FAILED(target->Initialize(nullptr)) ||
+        FAILED(target->SetSize(width, height)) || FAILED(target->SetPixelFormat(&format)) ||
+        FAILED(target->WriteSource(converter.get(), nullptr)) || FAILED(target->Commit()) ||
+        FAILED(encoder->Commit()))
+    {
+        return fail(ErrorCode::System, std::format("cannot write {}", utf16To8Lossy(png.native())));
+    }
+    return {};
 }
 
 void openFolder(const fs::path& folder)

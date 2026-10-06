@@ -57,6 +57,12 @@ std::optional<CursorRole> cursorRoleFromRiceName(std::string_view name) noexcept
     return std::nullopt;
 }
 
+bool WallpaperEffects::empty() const noexcept
+{
+    return !brightness && !contrast && !saturation && !hue && !speed && !blur && !parallax && !zoom &&
+           !vignette;
+}
+
 bool BarItem::isPlugin() const noexcept
 {
     // Built-in widgets never contain a dot; plugin ids are reverse-DNS.
@@ -163,6 +169,11 @@ std::string_view toString(WallpaperKind value) noexcept
 std::string_view toString(WallpaperFit value) noexcept
 {
     return enumToName<WallpaperFit>(kWallpaperFitNames, value);
+}
+
+std::string_view toString(ParticleKind value) noexcept
+{
+    return enumToName<ParticleKind>(kParticleKindNames, value);
 }
 
 std::string_view toString(TaskbarAlignment value) noexcept

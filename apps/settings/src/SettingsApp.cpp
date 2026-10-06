@@ -13,6 +13,8 @@
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/plugins/HostPlan.hpp"
 #include "rmw/plugins/PluginFiles.hpp"
+#include "rmw/settings/WallpaperEngine.hpp"
+#include "rmw/video/Effects.hpp"
 
 #include <windows.h>
 
@@ -22,6 +24,7 @@
 #include <climits>
 #include <cmath>
 #include <ctime>
+#include <cwctype>
 #include <format>
 #include <map>
 
@@ -646,7 +649,8 @@ void SettingsApp::refreshRices()
                         shared(entry.problem),
                         sameFolder(entry.folder, fs::path(utf8To16Lossy(current))),
                         {},
-                        false});
+                        false,
+                        entry.shareable});
     }
     auto model = modelOf(std::move(rows));
     m_ui->global<Api>().set_rices(model);
@@ -1214,6 +1218,31 @@ void SettingsApp::showWallpapers()
             row.color = rule.color ? shared(rule.color->toHex()) : slint::SharedString();
             row.interval = static_cast<int>(rule.intervalSeconds.value_or(900) / 60);
             row.shuffle = rule.shuffle.value_or(false);
+            const auto& e = rule.effects;
+            row.brightness = static_cast<float>(e.brightness.value_or(0.0));
+            row.contrast = static_cast<float>(e.contrast.value_or(1.0));
+            row.saturation = static_cast<float>(e.saturation.value_or(1.0));
+            row.hue = static_cast<float>(e.hue.value_or(0.0));
+            row.speed = static_cast<float>(e.speed.value_or(1.0));
+            row.blur = static_cast<float>(e.blur.value_or(0.0));
+            row.parallax = static_cast<float>(e.parallax.value_or(0.0));
+            row.zoom = static_cast<float>(e.zoom.value_or(0.0));
+            row.vignette = static_cast<float>(e.vignette.value_or(0.0));
+            std::vector<ParticleRow> layers;
+            for (const auto& layer : rule.particles)
+            {
+                const auto defaults = video::defaultsFor(layer.kind);
+                ParticleRow particles{};
+                particles.kind = static_cast<int>(layer.kind);
+                particles.color = layer.color ? shared(layer.color->toString()) : slint::SharedString();
+                particles.count = static_cast<int>(layer.count.value_or(defaults.count));
+                particles.size = static_cast<float>(layer.size.value_or(1.0));
+                particles.speed = static_cast<float>(layer.speed.value_or(1.0));
+                particles.glow = layer.glow.value_or(defaults.glow);
+                layers.push_back(std::move(particles));
+            }
+            row.particles = modelOf(std::move(layers));
+            row.live = !e.empty() || !rule.particles.empty();
             rules.push_back(std::move(row));
             previewFiles.push_back(previewOf(m_edit->folder, rule));
         }
@@ -1460,6 +1489,64 @@ void SettingsApp::pluginConfig()
         }
     }
     api.set_plugin_config(modelOf(std::move(fields)));
+}
+
+void SettingsApp::engineScan()
+{
+    auto& api = m_ui->global<Api>();
+    api.set_engine_status(slint::SharedString(m_ui->global<Words>().invoke_engine_looking()));
+    api.set_engine_items(modelOf(std::vector<EngineItem>{}));
+    auto found = std::make_shared<std::vector<settings::EngineWallpaper>>();
+    background(
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+        [found, folders = m_engineFolders]() -> Reply {
+            *found = settings::findEngineWallpapers(folders);
+            return Json::object();
+        },
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+        [this, found](Reply reply) {
+            if (!reply)
+            {
+                failed(reply.error());
+                return;
+            }
+            m_engine = std::move(*found);
+            const auto& words = m_ui->global<Words>();
+            std::vector<EngineItem> items;
+            items.reserve(m_engine.size());
+            for (const auto& wallpaper : m_engine)
+            {
+                EngineItem item{};
+                item.title = shared(wallpaper.title);
+                item.kind = words.invoke_engine_kind(shared(std::string(settings::toString(wallpaper.kind))));
+                item.usable = wallpaper.usable();
+                item.note = words.invoke_engine_note(shared(std::string(settings::toString(wallpaper.kind))),
+                                                     wallpaper.usable(), !wallpaper.video.empty());
+                items.push_back(std::move(item));
+            }
+            auto model = modelOf(std::move(items));
+            auto& api = m_ui->global<Api>();
+            api.set_engine_items(model);
+            api.set_engine_status(words.invoke_engine_found(static_cast<int>(m_engine.size())));
+            for (std::size_t i = 0; i < m_engine.size(); ++i)
+            {
+                if (m_engine[i].preview.empty())
+                {
+                    continue;
+                }
+                const std::weak_ptr<slint::VectorModel<EngineItem>> weak = model;
+                m_thumbnails.request(m_engine[i].preview, kPreviewWidth, kPreviewHeight,
+                                     [weak, i](const slint::Image& image) {
+                                         if (auto rows = weak.lock(); rows && i < rows->row_count())
+                                         {
+                                             auto row = *rows->row_data(i);
+                                             row.preview = image;
+                                             row.has_preview = true;
+                                             rows->set_row_data(i, row);
+                                         }
+                                     });
+            }
+        });
 }
 
 void SettingsApp::saveEdited(bool show)
@@ -1908,7 +1995,7 @@ void SettingsApp::bind()
         }
         else if (kind == K::Video)
         {
-            picked = pickFile(window(), {{L"Videos (MP4)", L"*.mp4;*.m4v"}});
+            picked = pickFile(window(), {{L"Videos (MP4, WebM)", L"*.mp4;*.m4v;*.webm"}});
             asset = settings::AssetKind::Video;
         }
         else if (kind == K::Slideshow)
@@ -1960,6 +2047,11 @@ void SettingsApp::bind()
                 rule.source.clear();
                 rule.fallbackImage.clear();
                 rule.color = rule.color.value_or(domain::Color{30, 30, 46, 255});
+                // Nothing to blur, lean or zoom in a color.
+                rule.effects.blur.reset();
+                rule.effects.parallax.reset();
+                rule.effects.zoom.reset();
+                rule.effects.speed.reset();
             }
             else
             {
@@ -1983,6 +2075,16 @@ void SettingsApp::bind()
                 if (kind == domain::WallpaperKind::Slideshow && !rule.intervalSeconds)
                 {
                     rule.intervalSeconds = 900;
+                }
+                if (kind == domain::WallpaperKind::Slideshow)
+                {
+                    // A slideshow is Windows' own: no effects, no particles.
+                    rule.effects = {};
+                    rule.particles.clear();
+                }
+                if (kind != domain::WallpaperKind::Video)
+                {
+                    rule.effects.speed.reset();
                 }
             }
         }
@@ -2074,6 +2176,306 @@ void SettingsApp::bind()
         }
         m_ui->global<Api>().set_selected_rule(-1);
         saveEdited();
+    });
+    // ---- live wallpapers (M12): effects and particles ----------------------------------------------------
+    const auto ruleAt = [this](int index) -> domain::MonitorWallpaper* {
+        domain::Rice* rice = edited();
+        if (rice == nullptr || !rice->wallpaper || index < 0 ||
+            static_cast<std::size_t>(index) >= rice->wallpaper->monitors.size())
+        {
+            return nullptr;
+        }
+        return &rice->wallpaper->monitors[static_cast<std::size_t>(index)];
+    };
+    api.on_rule_effect([this, ruleAt](int index, const slint::SharedString& field, float value) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr)
+        {
+            return;
+        }
+        auto& e = rule->effects;
+        // Two decimals are plenty; the neutral value is "leave it" (not written).
+        const double rounded = std::round(static_cast<double>(value) * 100.0) / 100.0;
+        const auto set = [rounded](std::optional<double>& slot, double neutral, double low, double high) {
+            const double v = std::clamp(rounded, low, high);
+            if (std::abs(v - neutral) < 0.005)
+            {
+                slot.reset();
+            }
+            else
+            {
+                slot = v;
+            }
+        };
+        const std::string name = text(field);
+        if (name == "brightness")
+        {
+            set(e.brightness, 0.0, -1.0, 1.0);
+        }
+        else if (name == "contrast")
+        {
+            set(e.contrast, 1.0, 0.0, 2.0);
+        }
+        else if (name == "saturation")
+        {
+            set(e.saturation, 1.0, 0.0, 2.0);
+        }
+        else if (name == "hue")
+        {
+            set(e.hue, 0.0, -180.0, 180.0);
+        }
+        else if (name == "speed" && rule->kind == domain::WallpaperKind::Video)
+        {
+            set(e.speed, 1.0, 0.25, 4.0);
+        }
+        else if (name == "blur" && rule->kind != domain::WallpaperKind::Color)
+        {
+            set(e.blur, 0.0, 0.0, 40.0);
+        }
+        else if (name == "parallax" && rule->kind != domain::WallpaperKind::Color)
+        {
+            set(e.parallax, 0.0, 0.0, 1.0);
+        }
+        else if (name == "zoom" && rule->kind != domain::WallpaperKind::Color)
+        {
+            set(e.zoom, 0.0, 0.0, 1.0);
+        }
+        else if (name == "vignette")
+        {
+            set(e.vignette, 0.0, 0.0, 1.0);
+        }
+        else
+        {
+            return;
+        }
+        // Saved a moment after the last change (a slider moves many times).
+        m_barSave.start(slint::TimerMode::SingleShot, kBarSaveDelay, [this] { saveEdited(); });
+    });
+    api.on_rule_effects_reset([this, ruleAt](int index) {
+        if (auto* rule = ruleAt(index); rule != nullptr && !rule->effects.empty())
+        {
+            rule->effects = {};
+            saveEdited();
+        }
+    });
+    api.on_particle_add([this, ruleAt](int index, int kind) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr || rule->kind == domain::WallpaperKind::Slideshow ||
+            rule->particles.size() >= limits::kWallpaperMaxParticleLayers)
+        {
+            return;
+        }
+        domain::ParticleLayer layer;
+        layer.kind = static_cast<domain::ParticleKind>(std::clamp(kind, 0, 9));
+        rule->particles.push_back(layer);
+        saveEdited();
+    });
+    api.on_particle_field([this, ruleAt](int index, int which, const slint::SharedString& field,
+                                         const slint::SharedString& value) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr || which < 0 || static_cast<std::size_t>(which) >= rule->particles.size())
+        {
+            return;
+        }
+        auto& layer = rule->particles[static_cast<std::size_t>(which)];
+        const std::string name = text(field);
+        const std::string v = text(value);
+        double number = 0.0;
+        std::from_chars(v.data(), v.data() + v.size(), number);
+        if (name == "kind")
+        {
+            layer.kind = static_cast<domain::ParticleKind>(std::clamp(std::atoi(v.c_str()), 0, 9));
+        }
+        else if (name == "color")
+        {
+            const auto first = v.find_first_not_of(" 	");
+            const std::string trimmed =
+                first == std::string::npos ? std::string() : v.substr(first, v.find_last_not_of(" 	") - first + 1);
+            if (trimmed.empty())
+            {
+                layer.color.reset();
+            }
+            else if (trimmed.starts_with("palette."))
+            {
+                const std::string entry = trimmed.substr(8);
+                const domain::Rice* rice = edited();
+                if (entry != "accent" && (rice == nullptr || rice->findPalette(entry) == nullptr))
+                {
+                    failed(Error(ErrorCode::InvalidArgument, std::format("'{}' is not in the rice's palette", trimmed)));
+                    return;
+                }
+                layer.color = domain::ColorRef{entry};
+            }
+            else
+            {
+                auto color = domain::Color::parse(trimmed);
+                if (!color)
+                {
+                    failed(color.error());
+                    return;
+                }
+                layer.color = domain::ColorRef{*color};
+            }
+        }
+        else if (name == "count")
+        {
+            layer.count = static_cast<std::uint32_t>(
+                std::clamp(std::atoi(v.c_str()), 1, static_cast<int>(limits::kParticleMaxCount)));
+        }
+        else if (name == "size")
+        {
+            const double size = std::clamp(std::round(number * 100.0) / 100.0, 0.25, 4.0);
+            layer.size = std::abs(size - 1.0) < 0.005 ? std::nullopt : std::optional(size);
+        }
+        else if (name == "speed")
+        {
+            const double speed = std::clamp(std::round(number * 100.0) / 100.0, 0.0, 4.0);
+            layer.speed = std::abs(speed - 1.0) < 0.005 ? std::nullopt : std::optional(speed);
+        }
+        else if (name == "glow")
+        {
+            layer.glow = v == "true";
+        }
+        else
+        {
+            return;
+        }
+        if (name == "size" || name == "speed")
+        {
+            m_barSave.start(slint::TimerMode::SingleShot, kBarSaveDelay, [this] { saveEdited(); });
+            return;
+        }
+        saveEdited();
+    });
+    api.on_particle_remove([this, ruleAt](int index, int which) {
+        auto* rule = ruleAt(index);
+        if (rule == nullptr || which < 0 || static_cast<std::size_t>(which) >= rule->particles.size())
+        {
+            return;
+        }
+        rule->particles.erase(rule->particles.begin() + which);
+        saveEdited();
+    });
+    // ---- Wallpaper Engine (M12): its wallpapers, read where Steam keeps them ------------------------------
+    api.on_engine_browse([this](int index) {
+        m_engineRule = index;
+        auto& api = m_ui->global<Api>();
+        api.set_engine_open(true);
+        engineScan();
+    });
+    api.on_engine_add_folder([this] {
+        if (auto folder = pickFolder(window()))
+        {
+            m_engineFolders.push_back(*folder);
+            engineScan();
+        }
+    });
+    api.on_engine_close([this] {
+        m_ui->global<Api>().set_engine_open(false);
+        m_engine.clear();
+    });
+    api.on_engine_use([this](int item) {
+        if (!m_edit || item < 0 || static_cast<std::size_t>(item) >= m_engine.size())
+        {
+            return;
+        }
+        const settings::EngineWallpaper chosen = m_engine[static_cast<std::size_t>(item)];
+        const fs::path folder = m_edit->folder;
+        const int ruleIndex = m_engineRule;
+        // Copied into the rice (a video can be large): on the worker thread.
+        auto stored = std::make_shared<std::pair<std::string, std::string>>(); // source, picture
+        background(
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+            [chosen, folder, stored]() -> Reply {
+                const auto picture = [&]() -> Result<std::string> {
+                    if (chosen.preview.empty())
+                    {
+                        return std::string();
+                    }
+                    fs::path file = chosen.preview;
+                    std::error_code ec;
+                    std::wstring extension = file.extension().native();
+                    std::ranges::transform(extension, extension.begin(),
+                                           [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+                    if (extension == L".gif")
+                    {
+                        // The first frame, as a PNG named after the wallpaper.
+                        const fs::path png = fs::temp_directory_path(ec) /
+                                             fs::path(utf8To16Lossy(domain::safeFileName(chosen.title, "wallpaper") + ".png"));
+                        if (auto saved = savePng(file, png); !saved)
+                        {
+                            return std::unexpected(std::move(saved.error()));
+                        }
+                        file = png;
+                    }
+                    auto imported = settings::importAsset(folder, file, settings::AssetKind::Image);
+                    if (file != chosen.preview)
+                    {
+                        fs::remove(file, ec);
+                    }
+                    return imported;
+                }();
+                if (!picture)
+                {
+                    return std::unexpected(picture.error());
+                }
+                stored->second = *picture;
+                if (!chosen.video.empty())
+                {
+                    auto video = settings::importAsset(folder, chosen.video, settings::AssetKind::Video);
+                    if (!video)
+                    {
+                        return std::unexpected(std::move(video.error()));
+                    }
+                    stored->first = *video;
+                }
+                return Json::object();
+            },
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+            [this, chosen, ruleIndex, stored](Reply reply) {
+                if (!reply)
+                {
+                    failed(reply.error());
+                    return;
+                }
+                domain::Rice* rice = edited();
+                if (rice == nullptr || !rice->wallpaper || ruleIndex < 0 ||
+                    static_cast<std::size_t>(ruleIndex) >= rice->wallpaper->monitors.size())
+                {
+                    return;
+                }
+                auto& rule = rice->wallpaper->monitors[static_cast<std::size_t>(ruleIndex)];
+                if (!stored->first.empty())
+                {
+                    rule.kind = domain::WallpaperKind::Video;
+                    rule.source = stored->first;
+                    rule.fallbackImage = stored->second;
+                    if (rule.fit == domain::WallpaperFit::Tile)
+                    {
+                        rule.fit = domain::WallpaperFit::Fill;
+                    }
+                }
+                else
+                {
+                    // A scene or a web page plays only inside Wallpaper Engine: its picture, alive.
+                    rule.kind = domain::WallpaperKind::Image;
+                    rule.source = stored->second;
+                    rule.fallbackImage.clear();
+                    rule.effects.speed.reset();
+                    if (!rule.effects.zoom)
+                    {
+                        rule.effects.zoom = 0.3;
+                    }
+                }
+                rule.intervalSeconds.reset();
+                rule.shuffle.reset();
+                // Its files are Wallpaper Engine's and their author's: this rice stays here.
+                rice->meta.shareable = false;
+                m_ui->global<Api>().set_engine_open(false);
+                m_engine.clear();
+                notice(NoticeKind::Imported, chosen.title);
+                saveEdited();
+            });
     });
     api.on_policy_edited([this] {
         domain::Rice* rice = edited();

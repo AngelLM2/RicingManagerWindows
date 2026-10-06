@@ -24,3 +24,7 @@ rmw_add_fuzzer(tray DEPS rmw::bar)
 rmw_add_fuzzer(plans DEPS rmw::bar rmw::plugins rmw::video)
 rmw_add_fuzzer(url DEPS rmw::plugins)
 rmw_add_fuzzer(package DEPS rmw::package)
+# The settings app is not part of the fuzz build: its Wallpaper Engine reader is built in directly.
+rmw_add_fuzzer(steam_vdf DEPS rmw::base rmw::json rmw::platform)
+target_sources(fuzz_steam_vdf PRIVATE ${PROJECT_SOURCE_DIR}/apps/settings/model/src/WallpaperEngine.cpp)
+target_include_directories(fuzz_steam_vdf PRIVATE ${PROJECT_SOURCE_DIR}/apps/settings/model/include)

@@ -88,6 +88,19 @@ inline constexpr auto kWallpaperFitNames = std::to_array<EnumName<WallpaperFit>>
     {WallpaperFit::Tile, "tile"},
 });
 
+inline constexpr auto kParticleKindNames = std::to_array<EnumName<ParticleKind>>({
+    {ParticleKind::Sparkles, "sparkles"},
+    {ParticleKind::Stars, "stars"},
+    {ParticleKind::Snow, "snow"},
+    {ParticleKind::Rain, "rain"},
+    {ParticleKind::Petals, "petals"},
+    {ParticleKind::Fireflies, "fireflies"},
+    {ParticleKind::Magic, "magic"},
+    {ParticleKind::Notes, "notes"},
+    {ParticleKind::Hearts, "hearts"},
+    {ParticleKind::Bubbles, "bubbles"},
+});
+
 inline constexpr auto kTaskbarAlignmentNames = std::to_array<EnumName<TaskbarAlignment>>({
     {TaskbarAlignment::Left, "left"},
     {TaskbarAlignment::Center, "center"},
