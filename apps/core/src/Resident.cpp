@@ -44,6 +44,7 @@ enum TimerId : std::uint32_t
     kTrayPromoteTimer,
     kPagesTimer,
     kBarSourceTimer,
+    kTilerStopTimer,
 };
 
 enum TrayId : std::uint32_t
@@ -76,6 +77,8 @@ constexpr auto kScheduleMargin = 1500ms; // fire just after the minute starts, n
 constexpr auto kScheduleMaxWait = 1h;    // re-check the clock at least hourly
 constexpr std::int32_t kDueWindowSeconds = 120;
 constexpr auto kFiredGuard = 150s;
+// rmw-tiler puts every window back and leaves when asked; past this it is ended and the core does it.
+constexpr auto kTilerStopWait = 3s;
 
 std::int32_t localSecondsOfDay() noexcept
 {
@@ -179,6 +182,10 @@ void Resident::start()
         log::warn("settings.toml changes will need `rmw settings reload`: {}", watched.error().toString());
     }
     [[maybe_unused]] const Json first = reloadSettings();
+    if (safe() || !m_core->tilerPlan())
+    {
+        m_core->putBackTiledWindows(); // after a crash of everything, no window stays hidden
+    }
     refresh(); // also when settings.toml is broken: tray and idle exit still follow
     m_window->setTimer(kHealthyTimer, kHealthyAfter);
 
@@ -236,6 +243,7 @@ void Resident::onEvent(const platform::SystemEvent& event)
     {
     case SystemEventKind::ThemeChanged:
         onChanged("appearance");
+        m_core->refreshTilerPlan(); // the border follows the accent
         break;
     case SystemEventKind::CursorsChanged:
         onChanged("cursors");
@@ -314,6 +322,13 @@ void Resident::onTimer(std::uint32_t id)
         return;
     case kTrayPromoteTimer:
         promoteTrayIconOnce();
+        return;
+    case kTilerStopTimer:
+        if (!m_tilerStartedFor && m_core->tilerRunning())
+        {
+            log::warn("tiler: it did not leave when asked; ended");
+            m_core->stopTiler(true);
+        }
         return;
     case kSettingsTimer:
         if (stampOf(settingsFile(m_core->dataDirectory())) != m_settingsStamp)
@@ -746,6 +761,7 @@ void Resident::applySettings(LoadedSettings loaded)
                             (language.empty() && PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_PORTUGUESE);
     m_core->setStartOptions(m_loaded.settings.startWinKey,
                             std::string(portuguese ? domain::kLanguagePortuguese : domain::kLanguageEnglish));
+    m_core->setTiling(m_loaded.settings.tiling);
     m_lastFired.clear(); // rule numbers may have changed
     m_hotkeyErrors.assign(m_loaded.settings.hotkeys.size(), std::string());
     std::vector<std::string> taken;
@@ -797,6 +813,7 @@ void Resident::refresh()
     syncPages();
     syncBar();
     syncVideo();
+    syncTiler();
     publishStatus();
 }
 
@@ -888,6 +905,35 @@ void Resident::syncVideo()
         log::error("the video wallpaper did not start: {}", started.error().toString());
     }
     m_videoStartedFor = plan;
+}
+
+void Resident::syncTiler()
+{
+    const auto plan = m_core->tilerPlan();
+    const bool wanted = !safe() && plan.has_value();
+    if (!wanted)
+    {
+        if (m_tilerStartedFor)
+        {
+            // It puts every window back and leaves by itself; if not, it is ended and the core does it.
+            m_tilerStartedFor.reset();
+            m_core->stopTiler(false);
+            m_window->setTimer(kTilerStopTimer, kTilerStopWait);
+        }
+        return;
+    }
+    m_window->killTimer(kTilerStopTimer);
+    // A running rmw-tiler follows the plan file by itself; a new plan restarts one that gave up.
+    if (m_tilerStartedFor && (*m_tilerStartedFor == *plan || m_core->tilerRunning()))
+    {
+        m_tilerStartedFor = plan;
+        return;
+    }
+    if (auto started = m_core->startTiler(); !started)
+    {
+        log::error("the tiler did not start: {}", started.error().toString());
+    }
+    m_tilerStartedFor = plan;
 }
 
 void Resident::emergency()

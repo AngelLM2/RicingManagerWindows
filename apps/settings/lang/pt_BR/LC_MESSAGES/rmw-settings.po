@@ -86,6 +86,9 @@ msgstr "Barra de tarefas"
 msgid "Plugins"
 msgstr "Plugins"
 
+msgid "Tiling"
+msgstr "Tiling"
+
 msgid "MORE"
 msgstr "MAIS"
 
@@ -181,6 +184,57 @@ msgstr "Modo seguro"
 
 msgid "Other customizers"
 msgstr "Outros personalizadores"
+
+msgid "Focus the window on the left"
+msgstr "Foco na janela da esquerda"
+
+msgid "Focus the window on the right"
+msgstr "Foco na janela da direita"
+
+msgid "Focus the window above"
+msgstr "Foco na janela de cima"
+
+msgid "Focus the window below"
+msgstr "Foco na janela de baixo"
+
+msgid "Move the window left"
+msgstr "Mover a janela para a esquerda"
+
+msgid "Move the window right"
+msgstr "Mover a janela para a direita"
+
+msgid "Move the window up"
+msgstr "Mover a janela para cima"
+
+msgid "Move the window down"
+msgstr "Mover a janela para baixo"
+
+msgid "Previous workspace"
+msgstr "Área anterior"
+
+msgid "Next workspace"
+msgstr "Próxima área"
+
+msgid "Go to workspace #"
+msgstr "Ir para a área #"
+
+msgid "Send the window to workspace #"
+msgstr "Mandar a janela para a área #"
+
+msgid "Float the window (or tile it again)"
+msgstr "Deixar a janela solta (ou organizar de novo)"
+
+msgid "The window takes the whole screen (and back)"
+msgstr "A janela ocupa a tela toda (e volta)"
+
+msgid "Next layout"
+msgstr "Próximo layout"
+
+msgid "Make the window the main one"
+msgstr "Tornar a janela a principal"
+
+msgid "Tiling off and on"
+msgstr "Desligar e ligar o tiling"
 
 msgid "Looking for Wallpaper Engine's wallpapers…"
 msgstr "Procurando os wallpapers do Wallpaper Engine…"
@@ -292,6 +346,9 @@ msgstr "Iniciar"
 
 msgid "Desktops"
 msgstr "Áreas de trabalho"
+
+msgid "Workspaces (tiling)"
+msgstr "Áreas do tiling"
 
 msgid "Windows"
 msgstr "Janelas"
@@ -1231,6 +1288,123 @@ msgstr "Remover esta regra"
 
 msgid "Add a rule"
 msgstr "Adicionar uma regra"
+
+msgid "Windows side by side, workspaces and the keys for them, as on Linux."
+msgstr "Janelas lado a lado, áreas de trabalho e os atalhos delas, como no Linux."
+
+msgid "Not saved: {}"
+msgstr "Não foi salvo: {}"
+
+msgid "Organize the windows"
+msgstr "Organizar as janelas"
+
+msgid "Each new window takes a place beside the others. Turning it off puts every window back where it was."
+msgstr "Cada janela nova ganha um lugar ao lado das outras. Desligar devolve cada janela para onde estava."
+
+msgid "Workspaces"
+msgstr "Áreas de trabalho"
+
+msgid "Like Linux: workspaces 1 to 9 on each monitor. Like a Mac: Windows' own virtual desktops, which slide."
+msgstr "Como no Linux: áreas 1 a 9 em cada monitor. Como no Mac: as áreas de trabalho do próprio Windows, que deslizam."
+
+msgid "Like Linux (each monitor)"
+msgstr "Como no Linux (cada monitor)"
+
+msgid "Like a Mac (Windows' desktops)"
+msgstr "Como no Mac (as do Windows)"
+
+msgid "How many workspaces"
+msgstr "Quantas áreas"
+
+msgid "Ctrl+Win+1 to 9 go to them; the bar's \"Workspaces (tiling)\" widget shows the ones in use."
+msgstr "Ctrl+Win+1 a 9 levam até elas; o widget \"Áreas do tiling\" da barra mostra as que estão em uso."
+
+msgid "Layout"
+msgstr "Layout"
+
+msgid "How the windows of a workspace share it. Ctrl+Alt+Space changes it for a while."
+msgstr "Como as janelas de uma área dividem o espaço. Ctrl+Alt+Espaço troca por um tempo."
+
+msgid "Halves that turn (dwindle)"
+msgstr "Metades que giram (dwindle)"
+
+msgid "A main window and a stack"
+msgstr "Uma principal e uma pilha"
+
+msgid "Columns"
+msgstr "Colunas"
+
+msgid "One at a time (monocle)"
+msgstr "Uma de cada vez (monocle)"
+
+msgid "Free (floating)"
+msgstr "Livres (flutuante)"
+
+msgid "Size of the main window (%)"
+msgstr "Tamanho da janela principal (%)"
+
+msgid "Space between the windows"
+msgstr "Espaço entre as janelas"
+
+msgid "In pixels at 100% scale."
+msgstr "Em pixels, na escala de 100%."
+
+msgid "Space at the edges of the screen"
+msgstr "Espaço nas bordas da tela"
+
+msgid "A colored border on the window in focus"
+msgstr "Borda colorida na janela em foco"
+
+msgid "Windows 11. An empty color is the rice's accent."
+msgstr "Windows 11. Sem cor, usa o destaque do rice."
+
+msgid "Color of the border"
+msgstr "Cor da borda"
+
+msgid "Advanced mode"
+msgstr "Modo avançado"
+
+msgid "Also the windows of apps running as administrator"
+msgstr "Também as janelas de apps rodando como administrador"
+
+msgid "Windows asks for your permission each time tiling starts. Without it, those windows are left where they are, and the keys do nothing while one of them is in front."
+msgstr "O Windows pede a sua permissão cada vez que o tiling começa. Sem isto, essas janelas ficam onde estão, e os atalhos não fazem nada enquanto uma delas está na frente."
+
+msgid "Like Ctrl+Alt+Left. # is the workspace's number (1 to 9). Empty: no key. Press Enter in the box to save it."
+msgstr "Como Ctrl+Alt+Left. # é o número da área (1 a 9). Vazio: sem atalho. Aperte Enter na caixa para salvar."
+
+msgid "Back to the keys it came with"
+msgstr "Voltar aos atalhos de fábrica"
+
+msgid "On some keyboards (ABNT2's included) Ctrl+Alt is AltGr: AltGr never counts as Ctrl+Alt, and the keys it came with leave out Ctrl+Alt with numbers. Win+L and Ctrl+Alt+Del stay Windows'."
+msgstr "Em alguns teclados (inclusive o ABNT2) Ctrl+Alt é o AltGr: o AltGr nunca conta como Ctrl+Alt, e os atalhos de fábrica não usam Ctrl+Alt com números. Win+L e Ctrl+Alt+Del continuam do Windows."
+
+msgid "Apps"
+msgstr "Apps"
+
+msgid "Windows of these apps float, are left alone, or open on a workspace of their own. The app is its program (Calculator.exe)."
+msgstr "As janelas destes apps ficam soltas, ficam como estão ou abrem numa área própria. O app é o programa dele (Calculator.exe)."
+
+msgid "App"
+msgstr "App"
+
+msgid "Floats"
+msgstr "Fica solta"
+
+msgid "Left alone"
+msgstr "Fica como está"
+
+msgid "Opens on workspace"
+msgstr "Abre na área"
+
+msgid "What its windows do"
+msgstr "O que as janelas fazem"
+
+msgid "Workspace"
+msgstr "Área"
+
+msgid "Add an app"
+msgstr "Adicionar um app"
 
 msgid "{} (main)"
 msgstr "{} (principal)"

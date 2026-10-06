@@ -78,6 +78,18 @@ when = "time"
 at = "19:00"
 action = "rice.apply"
 rice = 'C:\Rices\night'
+
+[tiling]
+enabled = true
+mode = "mac"
+
+[tiling.keys]
+workspace = "Alt+Win+#"
+
+[[tiling.rule]]
+app = "Spotify.exe"
+do = "workspace"
+workspace = 3
 '@
 $cursors = Join-Path $env:WINDIR 'Cursors'
 $i = 0
@@ -109,6 +121,9 @@ Seed-Text 'bridge' 'set.json' '{"type":"set","instance":3,"property":"title","va
 Seed-Text 'plans' 'video.json' '{"version":1,"entries":[{"monitor":"primary","file":"C:\\v\\a.mp4","fit":"fill"},{"monitor":"all","file":"","fit":"fill"}],"policy":{"pauseOnFullscreen":true,"pauseOnBattery":true,"pauseWhenCovered":true,"fpsLimit":30,"mute":true}}' 2
 Seed-Text 'plans' 'live.json' '{"version":2,"background":"#101020","entries":[{"monitor":"all","source":"image","file":"C:\\s\\a.png","fit":"tile","effects":{"brightness":0.1,"contrast":1.2,"saturation":0.5,"hue":30,"speed":1,"blur":4,"parallax":0.5,"zoom":0.3,"vignette":0.4},"particles":[{"kind":"snow","color":"#ffffff","count":50,"size":1,"speed":1,"direction":90,"glow":false},{"kind":"fireflies","count":20}]}],"policy":{"fps_limit":30}}' 2
 Seed-Text 'steam_vdf' 'libraryfolders.vdf' "`"libraryfolders`"`n{`n`t`"0`"`n`t{`n`t`t`"path`"`t`t`"C:\\Program Files (x86)\\Steam`"`n`t}`n`t`"1`"`n`t{`n`t`t`"path`"`t`t`"D:\\SteamLibrary`"`n`t}`n}"
+Seed-Text 'tiling' 'plan.json' '{"version":1,"mode":"linux","layout":"master-stack","workspaces":9,"gap":8,"outerGap":8,"masterSize":55,"border":true,"borderColor":"#89B4FA","runAsAdmin":false,"keys":[{"command":"focus_left","modifiers":3,"key":37,"anyDigit":false},{"command":"workspace","modifiers":10,"key":0,"anyDigit":true}],"rules":[{"app":"Calculator.exe","class":"","title":"","do":"float","workspace":1}]}' 0
+Seed-Text 'tiling' 'windows.json' '{"version":1,"windows":[{"window":1311234,"process":4242,"rect":[-1900,10,-100,900],"maximized":false,"hidden":true,"placed":true}]}' 1
+Seed-Text 'tiling' 'model.bin' 'add add go send move monitors count swap' 2
 Seed-Text 'plans' 'host.json' '{"version":1,"plugins":[]}' 1
 Seed-Text 'plans' 'bar.json' '{"version":1,"bars":[]}' 0
 Add-Type -AssemblyName System.IO.Compression

@@ -61,6 +61,9 @@ private:
 
     // ---- what the pages show ---------------------------------------------------------------------
     void bind();
+    void bindTiling(); // the tiling page (M13)
+    // A change on the tiling page: saved when it would read back (else the page says why).
+    bool saveTiling(domain::Settings next);
     void refreshStatus();
     void refreshRices();
     void refreshPlugins();

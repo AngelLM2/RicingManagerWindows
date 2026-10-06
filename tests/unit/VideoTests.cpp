@@ -119,7 +119,7 @@ TEST(VideoEffects, TheColorMatrixDoesWhatItSays)
 {
     const domain::Color orange{0xF0, 0x80, 0x20};
     // As it is.
-    video::Effects none;
+    const video::Effects none;
     EXPECT_TRUE(none.none());
     EXPECT_EQ(video::applyMatrix(video::colorMatrix(none), orange), orange);
     // No saturation: gray, with the luminance.
@@ -228,12 +228,12 @@ TEST(VideoParticles, StayOnScreenAndMoveTheirWay)
     frozen.step(0.1);
     EXPECT_TRUE(frozen.still());
     EXPECT_EQ(frozen.sprites()[0].y, still[0].y);
-    video::ParticleField again(snow, 1920, 1080, 3);
+    const video::ParticleField again(snow, 1920, 1080, 3);
     EXPECT_EQ(again.sprites()[5].x, still[5].x);
     // Bigger monitors, bigger particles.
     snow.speed = 1.0;
-    video::ParticleField small(snow, 1920, 1080, 1);
-    video::ParticleField large(snow, 3840, 2160, 1);
+    const video::ParticleField small(snow, 1920, 1080, 1);
+    const video::ParticleField large(snow, 3840, 2160, 1);
     EXPECT_FLOAT_EQ(large.largest(), 2.0F * small.largest());
 }
 

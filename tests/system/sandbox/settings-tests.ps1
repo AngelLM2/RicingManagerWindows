@@ -143,6 +143,23 @@ function Pick($Window, [string] $Combo, [string] $Item) {
         Select-Object -Last 1
     return (Click-Element $choice)
 }
+# A switch, as Narrator finds it: of the elements with that name (its row's label has it too), the one
+# that toggles; a click on the one that is not text when none says it toggles.
+function Flip($Window, [string] $Name) {
+    if ($null -eq $Window) { return $false }
+    $condition = New-Object System.Windows.Automation.PropertyCondition($UIA::NameProperty, $Name)
+    $elements = @($Window.FindAll($Scope::Descendants, $condition))
+    foreach ($element in $elements) {
+        $pattern = $null
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+            $pattern.Toggle()
+            Start-Sleep -Milliseconds 400
+            return $true
+        }
+    }
+    $other = $elements | Where-Object { $_.Current.ControlType -ne [System.Windows.Automation.ControlType]::Text } | Select-Object -First 1
+    return (Click-Element $other)
+}
 function Named-Count($Window) {
     if ($null -eq $Window) { return 0 }
     $all = $Window.FindAll($Scope::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
@@ -242,7 +259,7 @@ $front = [Rmw.Win]::GetForegroundWindow() -eq $app.MainWindowHandle
 Check 'settings:one-instance' ($secondGone -and (Settings-Processes).Count -eq 1) "second exited=$secondGone, processes=$((Settings-Processes).Count), first in front=$front"
 
 # ---- every page, by what Narrator reads ----------------------------------------------------------------
-$pages = 'Home', 'Rices', 'Appearance', 'Wallpapers', 'Cursors', 'Taskbar', 'Plugins', 'Hotkeys and rules', 'Diagnostics', 'Settings'
+$pages = 'Home', 'Rices', 'Appearance', 'Wallpapers', 'Cursors', 'Taskbar', 'Plugins', 'Tiling', 'Hotkeys and rules', 'Diagnostics', 'Settings'
 $reached = 0
 foreach ($page in $pages) {
     if (Press $window $page) {
@@ -266,6 +283,20 @@ Check 'settings:install-from-file' ((Find-Named $window 'Install from a file…'
 [void](Press $window 'Settings')
 Start-Sleep -Milliseconds 500
 Check 'settings:win-key-switch' ((Find-Named $window "The Win key opens Ricing Manager's Start") -ne $null) ''
+# M13: tiling on from its page (rmw-tiler starts; this window gets tiled too), then off (it leaves and
+# every window, this one included, goes back).
+[void](Press $window 'Tiling')
+Start-Sleep -Milliseconds 500
+Check 'settings:tiling-page' ($null -ne (Find-Named $window 'Organize the windows') -and (Find-Named $window 'Focus the window on the left') -ne $null) ''
+$settingsToml = Join-Path $data 'config\settings.toml'
+[void](Flip $window 'Organize the windows')
+$tilingOn = Wait-Until { (Test-Path $settingsToml) -and ((Get-Content $settingsToml -Raw) -match '(?m)^enabled = true') -and $null -ne (Get-Process rmw-tiler -ErrorAction SilentlyContinue) } 15
+Check 'settings:tiling-on' $tilingOn ((Get-Content $settingsToml -Raw -ErrorAction SilentlyContinue) -replace "`n", ' ')
+Start-Sleep -Seconds 1
+Shot $app 'tiling-on'
+[void](Flip $window 'Organize the windows')
+$tilingOff = Wait-Until { $null -eq (Get-Process rmw-tiler -ErrorAction SilentlyContinue) } 15
+Check 'settings:tiling-off' $tilingOff ((Get-Content $settingsToml -Raw -ErrorAction SilentlyContinue) -replace "`n", ' ')
 [void](Press $window 'Rices')
 Start-Sleep -Milliseconds 500
 

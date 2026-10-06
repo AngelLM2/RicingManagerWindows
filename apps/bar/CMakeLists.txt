@@ -26,6 +26,7 @@ add_library(rmw_bar_ui STATIC
     src/Widgets.cpp
     src/WindowList.cpp
     src/WinKeyHook.cpp
+    src/WorkspacesWidget.cpp
 )
 target_include_directories(rmw_bar_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(rmw_bar_ui PUBLIC
@@ -35,6 +36,7 @@ target_link_libraries(rmw_bar_ui PUBLIC
     rmw::platform
     rmw::plugins
     rmw::providers
+    rmw::tiling
     Slint::Slint
     comctl32
     dwmapi

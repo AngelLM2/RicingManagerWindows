@@ -14,10 +14,33 @@ export global Words {
         return key == "bar" ? @tr("Bar")
             : key == "video" ? @tr("Live wallpaper")
             : key == "plugins" ? @tr("Plugins")
+            : key == "tiler" ? @tr("Tiling")
             : key == "schedule" ? @tr("Light/dark schedule")
             : key == "safe-mode" ? @tr("Safe mode")
             : key == "tools" ? @tr("Other customizers")
             : key;
+    }
+
+    // What a tiling key does (its name in settings.toml [tiling.keys]; M13).
+    public pure function tiling-command(name: string) -> string {
+        return name == "focus_left" ? @tr("Focus the window on the left")
+            : name == "focus_right" ? @tr("Focus the window on the right")
+            : name == "focus_up" ? @tr("Focus the window above")
+            : name == "focus_down" ? @tr("Focus the window below")
+            : name == "move_left" ? @tr("Move the window left")
+            : name == "move_right" ? @tr("Move the window right")
+            : name == "move_up" ? @tr("Move the window up")
+            : name == "move_down" ? @tr("Move the window down")
+            : name == "workspace_previous" ? @tr("Previous workspace")
+            : name == "workspace_next" ? @tr("Next workspace")
+            : name == "workspace" ? @tr("Go to workspace #")
+            : name == "send_to_workspace" ? @tr("Send the window to workspace #")
+            : name == "float" ? @tr("Float the window (or tile it again)")
+            : name == "fullscreen" ? @tr("The window takes the whole screen (and back)")
+            : name == "next_layout" ? @tr("Next layout")
+            : name == "promote" ? @tr("Make the window the main one")
+            : name == "toggle" ? @tr("Tiling off and on")
+            : name;
     }
 
     // Wallpaper Engine (M12).
@@ -79,6 +102,7 @@ export global Words {
     public pure function widget(id: string) -> string {
         return id == "start" ? @tr("Start")
             : id == "desktops" ? @tr("Desktops")
+            : id == "workspaces" ? @tr("Workspaces (tiling)")
             : id == "windows" ? @tr("Windows")
             : id == "tray" ? @tr("System tray")
             : id == "clock" ? @tr("Clock")
