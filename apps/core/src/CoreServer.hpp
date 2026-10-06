@@ -120,6 +120,9 @@ public:
     // The custom taskbar: the plan rmw-bar shows (JSON, also in <data>\bar\bars.json) and whether
     // the user turned it off (the emergency hotkey, bar.off).
     [[nodiscard]] std::optional<std::string> barPlan() const;
+    // The user's choices (settings.toml [start] win_key; the language its words are in): into the
+    // bar plan, now and from now on.
+    void setStartOptions(bool winKey, std::string language);
     [[nodiscard]] bool barOff() const;
     // The folder of the rice the bars come from: saving its rice.toml updates them live.
     [[nodiscard]] std::optional<std::filesystem::path> barSource() const;
@@ -213,6 +216,8 @@ private:
     ipc::Json m_rotation = ipc::Json::object();           // mirrors meta "wallpaper_rotation"
     std::mt19937 m_random{std::random_device{}()};        // shuffled slideshows (operation lock)
     std::optional<std::string> m_barPlan;                 // mirrors meta "bar_plan"
+    bool m_startWinKey = false;                           // settings.toml [start] win_key
+    std::string m_startLanguage = "en";                   // the words of our Start menu
     bool m_barOff = false;                                // mirrors meta "bar_off"
     std::optional<std::filesystem::path> m_barSource;     // mirrors meta "bar_source"
     std::optional<std::string> m_videoPlan;               // mirrors meta "video_plan"

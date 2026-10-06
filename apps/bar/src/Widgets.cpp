@@ -903,12 +903,18 @@ std::string localized(const SYSTEMTIME& time, const wchar_t* picture)
     return utf16To8Lossy(text.data());
 }
 
+std::function<bool()> g_startOpener; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables): UI thread
+
 class StartProvider final : public Provider
 {
 public:
     StartProvider(const bar::Slot& slot, const Instance& instance)
     {
         instance->set_callback(slot.prefix + "-clicked", [](std::span<const Value>) {
+            if (g_startOpener && g_startOpener())
+            {
+                return Value(); // ours (M11)
+            }
             // Opens Start; works with the native taskbar hidden (ADR-0003).
             if (auto* const tray = static_cast<HWND>(platform::nativeTrayWindow()))
             {
@@ -965,6 +971,11 @@ private:
 };
 
 } // namespace
+
+void setStartOpener(std::function<bool()> opener)
+{
+    g_startOpener = std::move(opener);
+}
 
 std::span<const bar::WidgetKind> builtinKinds() noexcept
 {

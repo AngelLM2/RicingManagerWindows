@@ -5,6 +5,7 @@
 
 #include <slint-interpreter.h>
 
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -31,6 +32,10 @@ public:
     Provider(Provider&&) = delete;
     Provider& operator=(Provider&&) = delete;
 };
+
+// What the Start button does first (M11): opens Ricing Manager's Start when the rice uses it (true),
+// else Windows' opens. Set by BarApp; empty: Windows'.
+void setStartOpener(std::function<bool()> opener);
 
 // nullptr for a widget that needs nothing.
 [[nodiscard]] std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& instance);

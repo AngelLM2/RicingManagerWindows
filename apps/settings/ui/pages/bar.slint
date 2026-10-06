@@ -335,6 +335,83 @@ export component BarPage inherits ScrollView {
         EditingBanner { }
 
         if Api.editing: Card {
+            title: @tr("Start");
+            subtitle: @tr("Ricing Manager's Start opens from the Start button of this rice's bar: all apps, a search, your pinned apps, your folders and the power buttons, in the rice's colors.");
+
+            SettingRow {
+                label: @tr("Start menu");
+                ComboBox {
+                    width: 260px;
+                    model: [@tr("Windows'"), @tr("Ricing Manager's")];
+                    current-index: Api.start-ours ? 1 : 0;
+                    accessible-label: @tr("Start menu");
+                    selected => {
+                        Api.start-ours = self.current-index == 1;
+                        Api.start-edited();
+                    }
+                }
+            }
+
+            if Api.start-ours: VerticalLayout {
+                spacing: 6px;
+                for app[i] in Api.start-pinned: HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: app.name;
+                        color: Palette.foreground;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    Button {
+                        text: @tr("Unpin");
+                        accessible-label: @tr("Unpin {}", app.name);
+                        clicked => {
+                            Api.start-unpin(i);
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Pin an app to Start…");
+                        clicked => {
+                            Api.pick-app-for(3, 0);
+                        }
+                    }
+                }
+            }
+
+            if !Api.start-ours: SettingRow {
+                label: @tr("Windows' Start layout");
+                ComboBox {
+                    width: 260px;
+                    model: [@tr("Leave as it is"), @tr("Default"), @tr("More pins"), @tr("More recommendations")];
+                    current-index <=> Api.start-layout;
+                    accessible-label: @tr("Windows' Start layout");
+                    selected => {
+                        Api.start-edited();
+                    }
+                }
+            }
+
+            if !Api.start-ours: SettingRow {
+                label: @tr("Recent files and tips in Recommended");
+                ComboBox {
+                    width: 200px;
+                    model: [@tr("Leave as it is"), @tr("Show"), @tr("Hide")];
+                    current-index <=> Api.start-recommended;
+                    accessible-label: @tr("Recent files and tips in Recommended");
+                    selected => {
+                        Api.start-edited();
+                    }
+                }
+            }
+        }
+
+        if Api.editing: Card {
             title: @tr("Windows' taskbar");
             subtitle: @tr("Used when no bar of this rice hides it.");
 

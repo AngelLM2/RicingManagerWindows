@@ -186,6 +186,12 @@ public:
             }
             u.reportUnknownKeys();
         }
+        if (const auto* start = t.table("start"))
+        {
+            TableReader s(*start, "start", m_diagnostics);
+            settings.startWinKey = s.boolean("win_key").value_or(false);
+            s.reportUnknownKeys();
+        }
         readList(t, "hotkey", kMaxHotkeys, [&](TableReader& entry) { readHotkey(entry, settings); });
         readList(t, "rule", kMaxRules, [&](TableReader& entry) { readRule(entry, settings); });
         t.reportUnknownKeys();
@@ -463,6 +469,10 @@ std::string writeSettings(const Settings& settings)
     if (!settings.language.empty())
     {
         text += "\n[ui]\nlanguage = " + tomlQuote(settings.language) + "\n";
+    }
+    if (settings.startWinKey)
+    {
+        text += "\n[start]\nwin_key = true\n";
     }
     for (const auto& hotkey : settings.hotkeys)
     {

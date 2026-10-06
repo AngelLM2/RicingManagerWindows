@@ -346,6 +346,13 @@ export global Api {
     in-out property <int> taskbar-task-view;    // 0 leave, 1 on, 2 off
     in-out property <int> taskbar-search;       // 0 leave, 1 hidden, 2 icon, 3 box, 4 button
     callback taskbar-edited();
+    // Start (M11): ours or Windows', our pinned apps, Windows' own Start options.
+    in-out property <bool> start-ours;
+    in property <[AppChoice]> start-pinned;
+    in-out property <int> start-layout;        // 0 leave, 1 default, 2 more pins, 3 more recommendations
+    in-out property <int> start-recommended;   // 0 leave, 1 show, 2 hide
+    callback start-edited();
+    callback start-unpin(int);
     in property <[string]> bar-names;
     in-out property <int> selected-bar: -1;
     in-out property <BarModel> bar;
@@ -395,7 +402,7 @@ export global Api {
     callback rule-list-remove(int);
     callback pick-rice-for(int /* 0 hotkey, 1 rule */, int /* index */);
     // launch.app: the window lists the installed apps; picking one sets the hotkey's or rule's app.
-    callback pick-app-for(int /* 0 hotkey, 1 rule, 2 the selected bar's dock */, int /* index */);
+    callback pick-app-for(int /* 0 hotkey, 1 rule, 2 the selected bar's dock, 3 Start's pinned */, int /* index */);
     in-out property <bool> picking-app;
     in property <[AppChoice]> apps-shown;
     callback app-filter-edited(string);
@@ -412,6 +419,7 @@ export global Api {
     // ---- settings --------------------------------------------------------------------------
     in-out property <bool> autostart;
     in-out property <bool> keep-in-tray;
+    in-out property <bool> start-win-key;      // settings.toml [start] win_key (M11)
     in-out property <int> language;             // 0 Windows' own, 1 English, 2 Português (Brasil)
     callback settings-edited();
     callback autostart-edited();
