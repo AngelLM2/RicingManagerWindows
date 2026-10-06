@@ -73,6 +73,7 @@ Source: "{#BinDir}\rmw-bar.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\rmw-plugin-host.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\rmw-wallpaper.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\rmw-tiler.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BinDir}\rmw-elevated.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\slint_cpp.dll"; DestDir: "{app}"; Flags: ignoreversion
 ; The Visual C++ runtime next to the programs (app-local: no admin, no system-wide install).
 Source: "{#BinDir}\msvcp140.dll"; DestDir: "{app}"; Flags: ignoreversion

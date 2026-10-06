@@ -287,6 +287,10 @@ void printReport(const Json& report, std::string_view done)
         {
             ours += (ours.empty() ? "" : ", ") + std::string("the look of other apps' windows");
         }
+        if (json::boolOr(report, "machineIcons", false))
+        {
+            ours += (ours.empty() ? "" : ", ") + std::string("the folder and drive icons of the whole PC");
+        }
         out(!ours.empty() ? std::format("{}: {}; nothing of Windows changed", done, ours)
                           : std::string("Nothing to change."));
     }
@@ -497,6 +501,39 @@ int installPackage(CoreClient& client, const std::string& file, const Options& o
 }
 
 // The .rice of a rice folder, made here (no core): what an import would refuse is refused now.
+// rmw validate: the same check the core makes (the parser), here: no core needs to run, nothing of
+// Windows is touched.
+int validateRice(const std::string& where)
+{
+    auto folder = absoluteFolder(where);
+    if (!folder)
+    {
+        err("rmw: " + folder.error().message());
+        return Usage;
+    }
+    const std::filesystem::path root(utf8To16Lossy(*folder));
+    auto bytes = platform::readFileLimited(root / L"rice.toml", limits::kManifestMaxBytes);
+    if (!bytes)
+    {
+        return failure(std::move(bytes.error()).withContext("read rice.toml"));
+    }
+    domain::Diagnostics diagnostics;
+    const auto rice = domain::parseRice(
+        std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), diagnostics);
+    for (const auto& d : diagnostics.all())
+    {
+        const std::string place = d.line > 0 ? std::format("rice.toml:{}:{}", d.line, d.column) : "rice.toml";
+        err(std::format("{}: {}{}: {}", place, d.severity == domain::Severity::Error ? "error" : "warning",
+                        d.key.empty() ? "" : std::format(" [{}]", d.key), d.message));
+    }
+    if (!rice)
+    {
+        return InvalidRice;
+    }
+    out(std::format("\"{}\" is valid.", rice->meta.name));
+    return Ok;
+}
+
 int packRice(const std::string& where, const std::string& target)
 {
     auto folder = absoluteFolder(where);
@@ -857,6 +894,10 @@ int run(std::span<const std::string> args)
     {
         return packRice(options->positional[0], options->out);
     }
+    if (command == "validate")
+    {
+        return validateRice(options->positional[0]);
+    }
 
     CoreClient client(options->dataDirectory);
     if (auto connected = client.connect(); !connected)
@@ -864,7 +905,7 @@ int run(std::span<const std::string> args)
         return failure(connected.error());
     }
 
-    if (command == "validate" || command == "apply")
+    if (command == "apply")
     {
         auto folder = absoluteFolder(options->positional[0]);
         if (!folder)
@@ -881,11 +922,6 @@ int run(std::span<const std::string> args)
         if (!json::boolOr(*checked, "ok", false))
         {
             return InvalidRice;
-        }
-        if (command == "validate")
-        {
-            out(std::format("\"{}\" is valid.", json::stringOr(*checked, "name", "")));
-            return Ok;
         }
         auto applied = operation(client, "rice.apply", Json{{"path", *folder}}, options->wait);
         if (!applied)

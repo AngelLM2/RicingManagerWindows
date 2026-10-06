@@ -774,6 +774,7 @@ void Resident::applySettings(LoadedSettings loaded)
     m_core->setStartOptions(m_loaded.settings.startWinKey,
                             std::string(portuguese ? domain::kLanguagePortuguese : domain::kLanguageEnglish));
     m_core->setTiling(m_loaded.settings.tiling);
+    m_core->setMachineIcons(m_loaded.settings.machineIcons);
     m_lastFired.clear(); // rule numbers may have changed
     m_hotkeyErrors.assign(m_loaded.settings.hotkeys.size(), std::string());
     std::vector<std::string> taken;

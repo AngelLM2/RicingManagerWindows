@@ -18,6 +18,7 @@ target_link_libraries(rmw_core PRIVATE
     rmw::engine
     rmw::ipc
     rmw::json
+    rmw::machine
     rmw::modules
     rmw::package
     rmw::platform

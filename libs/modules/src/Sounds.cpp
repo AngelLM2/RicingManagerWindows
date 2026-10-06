@@ -36,8 +36,8 @@ Json stringField(const std::optional<ports::RegistryValue>& value)
                 {"data", value->text}};
 }
 
-Result<void> writeStringField(ports::IRegistry& registry, const std::string& key, std::string_view field,
-                              const Json& value)
+Result<void> writeStringField(ports::IRegistry& registry, ports::IShell& shell, const std::string& key,
+                              std::string_view field, const Json& value)
 {
     if (value.is_null())
     {
@@ -50,7 +50,10 @@ Result<void> writeStringField(ports::IRegistry& registry, const std::string& key
     {
         return fail(ErrorCode::InvalidArgument, std::format("sound field '{}' is malformed", field));
     }
-    const auto& text = data->get_ref<const std::string&>();
+    // The file the user had while it is there, else its copy in the store.
+    const std::string copy = json::stringOr(value, "copy", "");
+    const std::string& text =
+        copy.empty() || shell.fileExists(data->get_ref<const std::string&>()) ? data->get_ref<const std::string&>() : copy;
     return registry.write(key, "",
                           *type == "string" ? ports::RegistryValue::fromString(text)
                                             : ports::RegistryValue::fromExpandString(text));
@@ -169,9 +172,21 @@ Result<void> SoundsLogic::internalize(Json& state, engine::IAssetSink& assets) c
             continue;
         }
         const std::u8string storedPath = stored->u8string();
-        (*field)["data"] = std::string(storedPath.begin(), storedPath.end());
+        (*field)["copy"] = std::string(storedPath.begin(), storedPath.end());
     }
     return {};
+}
+
+bool SoundsLogic::fieldEquivalent(std::string_view /*field*/, const Json& a, const Json& b) const
+{
+    const auto plain = [](Json value) {
+        if (value.is_object())
+        {
+            value.erase("copy");
+        }
+        return value;
+    };
+    return plain(a) == plain(b);
 }
 
 Result<engine::CaptureResult> SoundsSystem::capture()
@@ -209,7 +224,7 @@ Result<void> SoundsSystem::apply(const Json& desired)
         const std::string_view name = domain::riceName(event);
         if (const auto value = desired.find(name); value != desired.end())
         {
-            if (auto written = writeStringField(m_registry, currentKey(event), name, *value); !written)
+            if (auto written = writeStringField(m_registry, m_shell, currentKey(event), name, *value); !written)
             {
                 return written;
             }
@@ -217,7 +232,7 @@ Result<void> SoundsSystem::apply(const Json& desired)
     }
     if (const auto scheme = desired.find("scheme"); scheme != desired.end())
     {
-        if (auto written = writeStringField(m_registry, std::string(kSchemes), "scheme", *scheme); !written)
+        if (auto written = writeStringField(m_registry, m_shell, std::string(kSchemes), "scheme", *scheme); !written)
         {
             return written;
         }

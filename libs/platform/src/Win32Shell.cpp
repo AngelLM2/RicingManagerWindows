@@ -76,6 +76,18 @@ Result<void> Win32Shell::setCursorSize(std::uint32_t pixels)
     return {};
 }
 
+bool Win32Shell::fileExists(std::string_view file)
+{
+    auto wide = utf8To16(file);
+    if (!wide || wide->empty())
+    {
+        return false;
+    }
+    std::array<wchar_t, 32'768> expanded{};
+    const DWORD length = ExpandEnvironmentStringsW(wide->c_str(), expanded.data(), static_cast<DWORD>(expanded.size()));
+    return length > 0 && length <= expanded.size() && GetFileAttributesW(expanded.data()) != INVALID_FILE_ATTRIBUTES;
+}
+
 bool Win32Shell::isWindowsFile(std::string_view file)
 {
     auto wide = utf8To16(file);

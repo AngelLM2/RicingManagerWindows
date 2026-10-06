@@ -39,6 +39,8 @@ public:
                                        const engine::Json& b) const override;
 
 private:
+    [[nodiscard]] Result<engine::Json> desiredFields(const domain::Rice& rice, engine::IAssetSink& assets) const;
+
     ports::IDisplayTopology& m_topology;
 };
 

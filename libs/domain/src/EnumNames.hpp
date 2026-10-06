@@ -230,6 +230,11 @@ inline constexpr auto kSoundSchemeNames = std::to_array<EnumName<SoundScheme>>({
     {SoundScheme::None, "none"},
 });
 
+inline constexpr auto kMachineIconNames = std::to_array<EnumName<MachineIcon>>({
+    {MachineIcon::Folder, "folder"},
+    {MachineIcon::Drive, "drive"},
+});
+
 inline constexpr auto kWindowCornersNames = std::to_array<EnumName<WindowCorners>>({
     {WindowCorners::Round, "round"},
     {WindowCorners::Small, "small"},

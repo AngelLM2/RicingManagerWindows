@@ -34,6 +34,8 @@ public:
 
 private:
     [[nodiscard]] Result<engine::Json> call(std::string_view method, const engine::Json& params);
+    [[nodiscard]] Result<engine::Json> call(std::string_view method, const engine::Json& params,
+                                            std::chrono::milliseconds timeout);
     [[nodiscard]] Result<void> start();
 
     std::filesystem::path m_executable;

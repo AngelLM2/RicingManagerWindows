@@ -248,6 +248,12 @@ public:
             settings.startWinKey = s.boolean("win_key").value_or(false);
             s.reportUnknownKeys();
         }
+        if (const auto* icons = t.table("icons"))
+        {
+            TableReader s(*icons, "icons", m_diagnostics);
+            settings.machineIcons = s.boolean("machine").value_or(false);
+            s.reportUnknownKeys();
+        }
         readList(t, "hotkey", kMaxHotkeys, [&](TableReader& entry) { readHotkey(entry, settings); });
         readList(t, "rule", kMaxRules, [&](TableReader& entry) { readRule(entry, settings); });
         if (const auto* tiling = t.table("tiling"))
@@ -816,6 +822,10 @@ std::string writeSettings(const Settings& settings)
     if (settings.startWinKey)
     {
         text += "\n[start]\nwin_key = true\n";
+    }
+    if (settings.machineIcons)
+    {
+        text += "\n[icons]\nmachine = true\n";
     }
     for (const auto& hotkey : settings.hotkeys)
     {

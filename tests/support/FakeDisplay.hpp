@@ -32,6 +32,17 @@ public:
 class FakeWallpaperApi final : public ports::IWallpaperApi
 {
 public:
+    Result<void> setDesktopWallpaper(std::string_view file) override
+    {
+        desktopWallpaper = std::string(file);
+        for (auto& [path, shown] : files)
+        {
+            shown = std::string(file);
+        }
+        return {};
+    }
+    std::string desktopWallpaper;
+
     Result<std::vector<ports::WallpaperMonitor>> monitors() override
     {
         std::vector<ports::WallpaperMonitor> named;

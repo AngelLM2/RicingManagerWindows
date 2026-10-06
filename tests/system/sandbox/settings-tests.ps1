@@ -106,7 +106,8 @@ function Find-Named($Window, [string] $Name) {
 }
 function Press($Window, [string] $Name) {
     $element = $null
-    [void](Wait-Until { $script:found = Find-Named $Window $Name; $null -ne $script:found } 5)
+    # Found, and enabled: buttons wait while an operation is still running (as a person would).
+    [void](Wait-Until { $script:found = Find-Named $Window $Name; $null -ne $script:found -and $script:found.Current.IsEnabled } 10)
     $element = $script:found
     if (-not $element) { return $false }
     try {

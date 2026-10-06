@@ -41,6 +41,18 @@ export component SettingsPage inherits ScrollView {
             }
 
             SettingRow {
+                label: @tr("Folder and drive icons for the whole PC");
+                description: @tr("Advanced: a rice may change every folder's and drive's icon, for every user of this PC. Windows asks for administrator each time.");
+                Switch {
+                    checked <=> Api.machine-icons;
+                    accessible-label: @tr("Folder and drive icons for the whole PC");
+                    toggled => {
+                        Api.settings-edited();
+                    }
+                }
+            }
+
+            SettingRow {
                 label: @tr("Keep the icon in the tray");
                 description: @tr("Ricing Manager stays running even when nothing needs it.");
                 Switch {

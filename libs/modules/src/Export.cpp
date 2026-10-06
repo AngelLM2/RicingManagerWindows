@@ -84,7 +84,8 @@ void exportCursors(const Json& state, std::string& toml, ExportResult& result,
     {
         const auto role = static_cast<domain::CursorRole>(i);
         const Json field = json::memberOr(state, domain::registryValueName(role), nullptr);
-        const std::string source = json::stringOr(field, "data", "");
+        const std::string copy = json::stringOr(field, "copy", "");
+        const std::string source = copy.empty() ? json::stringOr(field, "data", "") : copy;
         if (source.empty())
         {
             continue;
@@ -131,7 +132,8 @@ void exportSounds(const Json& state, std::string& toml, ExportResult& result,
             continue;
         }
         anyField = true;
-        const std::string source = json::stringOr(field, "data", "");
+        const std::string copy = json::stringOr(field, "copy", "");
+        const std::string source = copy.empty() ? json::stringOr(field, "data", "") : copy;
         if (source.empty())
         {
             continue;

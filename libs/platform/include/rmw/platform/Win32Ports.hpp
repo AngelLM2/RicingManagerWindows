@@ -52,6 +52,7 @@ public:
     [[nodiscard]] Result<void> reloadCursors() override;
     [[nodiscard]] Result<void> setCursorSize(std::uint32_t pixels) override;
     [[nodiscard]] bool isWindowsFile(std::string_view file) override;
+    [[nodiscard]] bool fileExists(std::string_view file) override;
     [[nodiscard]] Result<bool> taskbarAutoHide() override;
     [[nodiscard]] Result<void> setTaskbarAutoHide(bool enabled) override;
 
@@ -93,6 +94,8 @@ public:
     }
 
     [[nodiscard]] Result<void> applyLook(const ports::ThemeLook& look) override;
+    [[nodiscard]] Result<void> applyThemeFile(const std::string& file) override;
+    [[nodiscard]] Result<void> nameCurrentTheme(const std::string& file) override;
 
 private:
     std::chrono::milliseconds m_wait;
@@ -112,6 +115,7 @@ public:
     [[nodiscard]] Result<std::vector<ports::WallpaperMonitor>> monitors() override;
     [[nodiscard]] Result<std::string> wallpaper(std::string_view devicePath) override;
     [[nodiscard]] Result<void> setWallpaper(std::string_view devicePath, std::string_view file) override;
+    [[nodiscard]] Result<void> setDesktopWallpaper(std::string_view file) override;
     [[nodiscard]] Result<ports::WallpaperPosition> position() override;
     [[nodiscard]] Result<void> setPosition(ports::WallpaperPosition position) override;
     [[nodiscard]] Result<std::uint32_t> backgroundColor() override;
