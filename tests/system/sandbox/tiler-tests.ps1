@@ -255,7 +255,14 @@ Shot 'tiler-4-workspace-1'
 
 # Smooth switches (v1.7): the windows that come show in their slots, above the ones that go. Sampled
 # every 10 ms: a coming window seen in two places (it moved after showing), or covered by a going one.
+# The other app windows on the screen (not the ones the switch shows or hides): a switch during which one
+# came or went is not counted (the layout changed for a good reason: the windows made room).
+function Apps-Shown([IntPtr[]] $Except) {
+    @(Get-Process | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero -and $Except -notcontains $_.MainWindowHandle -and [Rmw.Win]::IsWindowVisible($_.MainWindowHandle) } |
+        ForEach-Object { "$($_.ProcessName):$($_.MainWindowHandle)" } | Sort-Object) -join ' '
+}
 function Sample-Switch([byte] $Key, [IntPtr[]] $Coming, [IntPtr[]] $Going) {
+    $appsBefore = Apps-Shown ($Coming + $Going)
     Chord @($Ctrl, $Win, $Key)
     $seen = @{}
     $covered = 0
@@ -275,6 +282,12 @@ function Sample-Switch([byte] $Key, [IntPtr[]] $Coming, [IntPtr[]] $Going) {
     }
     $moved = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 }).Count
     $where = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 } | ForEach-Object { "$(Title ([IntPtr][long]$_)) at $(@($seen[$_]) -join ' then ')" }) -join ', '
+    $appsAfter = Apps-Shown ($Coming + $Going)
+    if ($moved -gt 0 -and $appsAfter -ne $appsBefore) {
+        # Another window came or went meanwhile: the move was the tiler making room, not a jolt.
+        $where += " (not counted: the windows changed from [$appsBefore] to [$appsAfter])"
+        $moved = 0
+    }
     [pscustomobject]@{ moved = $moved; covered = $covered; seen = $seen.Count; where = $where }
 }
 # The layout of workspace 2 changes while it is hidden (a window sent there): its windows get new slots.
@@ -286,11 +299,11 @@ Start-Sleep -Milliseconds 500
 $stay = [IntPtr[]]@($windows | Where-Object { $_ -ne $travel })
 $jolts = @()
 $s = Sample-Switch 0x32 @($t5, $travel) $stay
-$jolts += "to 2 (new slots): moved=$($s.moved) covered=$($s.covered) of $($s.seen)"
+$jolts += "to 2 (new slots): moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"
 $moved = $s.moved; $covered = $s.covered
 foreach ($round in 1..2) {
     $s = Sample-Switch 0x31 $stay @($t5, $travel)
-    $jolts += "to 1: moved=$($s.moved) covered=$($s.covered) of $($s.seen)"; $moved += $s.moved; $covered += $s.covered
+    $jolts += "to 1: moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered
     $s = Sample-Switch 0x32 @($t5, $travel) $stay
     $jolts += "to 2: moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered
 }
@@ -556,11 +569,15 @@ Start-Process $app 'D2' | Out-Null
 $d2 = Find 'D2'
 Check 'tiler:mac-desktop-2-alone' (Wait-Until { (Tiled @($d2)) -and -not (Cloaked $d2) } 10) "D2=$(Frame $d2) cloaked=$(Cloaked $d2)"
 Shot 'tiler-9-mac-desktop-2'
+# Windows' slide between desktops takes its time: a switch sent while one still slides gets mixed up with
+# it (seen: desktop 2 shown, then 1 again 12 ms later). A person never switches twice within 20 ms.
+Start-Sleep -Milliseconds 800
 $watch.Restart()
 Chord @($Ctrl, $Win, 0x31) # ours: to desktop 1, with Windows' slide
 $slid = Wait-Until { (Cloaked $d2) -and -not (Cloaked $macOne[0]) } 8
 Check 'tiler:mac-go-to-1' $slid "$($watch.ElapsedMilliseconds) ms (with Windows' animation)"
 Check 'tiler:mac-desktop-1-still-tiled' (Wait-Until { Tiled $macOne } 5) (Describe $macOne)
+Start-Sleep -Milliseconds 800 # the slide ends
 Chord @($Ctrl, $Win, 0x32) # to desktop 2
 Check 'tiler:mac-go-to-2' (Wait-Until { -not (Cloaked $d2) -and (Cloaked $macOne[0]) } 8) ''
 $desktops = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops' -ErrorAction SilentlyContinue

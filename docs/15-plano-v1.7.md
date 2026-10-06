@@ -95,7 +95,7 @@ Feito, com testes de unidade e as suítes da Sandbox (ADR-0023, ADR-0024):
 | R6 | 5 trocas, uma com arranjo novo: nenhuma janela muda de lugar depois de aparecer |
 | R7 | o menu da nossa bandeja restaura o Windows original |
 
-Fica em aberto: no modo Mac (áreas do próprio Windows), a primeira volta para a área 1 às vezes leva 5–8 s na Sandbox (a animação do Windows); o modo Linux, o do dono, não tem isso.
+Fica em aberto: no modo Mac (áreas do próprio Windows), em uma de cada duas ou três rodadas da Sandbox a primeira volta para a área 1 não acontece (o Windows ignora o atalho que o *tiler* manda logo depois de uma área nova ser criada). O modo Linux, o do dono, não tem isso. Também resolvido no caminho: uma janela que aparecia por 18 ms fazia as outras se mexerem nas trocas; agora uma janela só entra no *tiling* se continuar lá 120 ms.
 
 ## O que o dono faz no PC dele depois da v1.7
 

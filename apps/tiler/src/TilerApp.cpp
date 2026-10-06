@@ -26,6 +26,10 @@ constexpr UINT_PTR kSaveTimer = 3;
 constexpr UINT_PTR kPlanTimer = 4;
 constexpr UINT_PTR kMonitorTimer = 5;
 constexpr UINT_PTR kFocusTimer = 6;
+constexpr UINT_PTR kAdoptTimer = 7;
+// A window that shows is tiled when it is still there a moment later: one shown for an instant (a splash,
+// a system popup) moved every window twice (v1.7, seen in the Sandbox as a jolt in workspace switches).
+constexpr UINT kAdoptDelayMs = 120;
 constexpr UINT kSettleDelayMs = 200;
 constexpr int kSettleRounds = 2;
 constexpr UINT kFocusDelayMs = 30; // after the shows: a window still hidden takes no focus
@@ -301,6 +305,19 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
             KillTimer(self, kMonitorTimer);
             syncMonitors();
             break;
+        case kAdoptTimer: {
+            KillTimer(self, kAdoptTimer);
+            const std::set<tiling::WindowId> appearing = std::move(m_appearing);
+            m_appearing.clear();
+            for (const tiling::WindowId id : appearing)
+            {
+                if (IsWindow(static_cast<HWND>(windowOf(id))) != FALSE)
+                {
+                    adopt(windowOf(id)); // checks again that it is an app window, shown
+                }
+            }
+            break;
+        }
         case kFocusTimer:
             KillTimer(self, kFocusTimer);
             // Like a Mac: never a window of another desktop (Windows would go back to that desktop to
@@ -630,6 +647,11 @@ void TilerApp::adopt(Window window)
     }
     tiling::Change change =
         m_desktop->add(id, monitorIndex(m_monitors, window), workspace, floating);
+    if (const auto added = m_desktop->find(id))
+    {
+        log::info("tiler: window {:#x} ({}, {}) joins workspace {}{}", id, facts.app, facts.windowClass, added->workspace + 1,
+                  floating ? " (floating)" : "");
+    }
     change.focus.reset(); // a window that opens has the focus it has
     apply(std::move(change));
     scheduleLayout();
@@ -648,6 +670,7 @@ void TilerApp::forget(Window window, bool gone)
     {
         return;
     }
+    log::info("tiler: window {:#x} leaves{}", id, gone ? " (closed)" : "");
     m_hidden.erase(id);
     m_targets.erase(id);
     if (m_bordered == id)
@@ -880,7 +903,11 @@ void TilerApp::onEvent(std::uint32_t event, Window window)
     case EVENT_OBJECT_SHOW:
     case EVENT_OBJECT_UNCLOAKED:
     case EVENT_SYSTEM_MINIMIZEEND:
-        adopt(window);
+        if (!m_desktop->find(id))
+        {
+            m_appearing.insert(id);
+            SetTimer(static_cast<HWND>(m_window), kAdoptTimer, kAdoptDelayMs, nullptr);
+        }
         break;
     case EVENT_OBJECT_HIDE:
         // Ours (another workspace), or shown again since: not the app hiding it.
@@ -925,6 +952,7 @@ void TilerApp::onForeground(Window window)
         // An app brought a window of a workspace not shown to the front: that workspace comes.
         if (!mac() && !m_desktop->shown(id))
         {
+            log::info("tiler: window {:#x} of workspace {} came to the front; going there", id, place->workspace + 1);
             goTo(place->monitor, place->workspace);
         }
     }
