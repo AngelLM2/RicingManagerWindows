@@ -133,6 +133,7 @@ Particularidade desta máquina: o perfil `C:\Users\user'\` tem apóstrofo, o que
 ## Pendências conhecidas
 
 - **S0 (CI)** só pode rodar com push — aguardando autorização ("OK com push").
+- **Faixa da barra na Sandbox:** logo depois de a barra do Windows entrar ou sair do auto-ocultar, o Explorer às vezes deixa por um tempo a faixa reservada da nossa barra na área útil (as janelas maximizadas ficam por baixo dela até a próxima recontagem; na suíte `bar`, o `start:apply` falha de vez em quando). Pedir a faixa de novo, registrar a barra de novo, reaplicar o estado da barra do Windows e até separar a faixa da área útil por conta própria (o Explorer põe a dele de volta na hora) não mudaram nada. O `bar.log` avisa quando acontece ("still counts the strip"): conferir no teste no PC real.
 - **Combinado em 2026-10-05:** eu termino M5–M8 sem parar para pedir permissão (sem push, sem compras, sem mexer no seu Windows: tudo testado na Sandbox) e você faz o teste real no final, com o monitor secundário conectado por último. O que conferir lá: bandeja com os seus apps (Discord, Steam, OneDrive, GPU), vídeo, interface, instalador, dois monitores e DPI misto, slideshow por monitor.
 - Vídeo no seu PC (teste real): memória com a sua GPU (meta de 90 MB; o S1 mediu 106 MB no host com o pipeline antigo, 54 MB na Sandbox, e o novo fez 46 MB na Sandbox), 4K/60, os seus vídeos, um jogo em tela cheia de verdade.
 - Wallpaper: ajuste diferente por monitor precisa de pré-renderização (WIC no `--apply-helper`); por enquanto vale o ajuste da primeira regra (o parser avisa).
