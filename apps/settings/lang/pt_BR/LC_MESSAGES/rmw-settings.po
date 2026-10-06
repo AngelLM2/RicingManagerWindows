@@ -323,6 +323,18 @@ msgstr "Bateria"
 msgid "Notifications"
 msgstr "Notificações"
 
+msgid "Space"
+msgstr "Espaço"
+
+msgid "Separator line"
+msgstr "Linha separadora"
+
+msgid "Text or icon"
+msgstr "Texto ou ícone"
+
+msgid "Dock (pinned and open apps)"
+msgstr "Dock (apps fixados e abertos)"
+
 msgid "read the local time"
 msgstr "ler a hora local"
 
@@ -623,11 +635,29 @@ msgstr "Se algo der errado, Ctrl+Alt+Win+T desliga a barra e traz de volta a bar
 msgid "Add a bar"
 msgstr "Adicionar uma barra"
 
+msgid "Duplicate this bar"
+msgstr "Duplicar esta barra"
+
 msgid "Remove this bar"
 msgstr "Remover esta barra"
 
 msgid "No bar: Windows' taskbar stays. Add one to have your own."
 msgstr "Nenhuma barra: fica a barra de tarefas do Windows. Adicione uma para ter a sua."
+
+msgid "Dock"
+msgstr "Dock"
+
+msgid "Pinned apps stay in the dock; every app with a window open shows up after them."
+msgstr "Os apps fixados ficam no dock; todo app com uma janela aberta aparece depois deles."
+
+msgid "Unpin"
+msgstr "Desafixar"
+
+msgid "Unpin {}"
+msgstr "Desafixar {}"
+
+msgid "Pin an app…"
+msgstr "Fixar um app…"
 
 msgid "Widgets"
 msgstr "Widgets"
@@ -637,6 +667,33 @@ msgstr "Arraste um widget para outra zona, ou selecione-o e use os botões."
 
 msgid "Place and size"
 msgstr "Posição e tamanho"
+
+msgid "Style"
+msgstr "Estilo"
+
+msgid "A ready-made bar. What you change below stays yours; the style fills the rest."
+msgstr "Uma barra pronta. O que você mudar abaixo fica seu; o estilo preenche o resto."
+
+msgid "My own"
+msgstr "Do meu jeito"
+
+msgid "Windows (apps in the middle)"
+msgstr "Windows (apps no meio)"
+
+msgid "Dock (floating, icons that grow)"
+msgstr "Dock (flutuante, ícones que crescem)"
+
+msgid "Island (a pill at the top)"
+msgstr "Ilha (uma pílula no topo)"
+
+msgid "Status line (thin, at the top)"
+msgstr "Linha de status (fina, no topo)"
+
+msgid "Side (on the left)"
+msgstr "Lateral (à esquerda)"
+
+msgid "Style of the bar"
+msgstr "Estilo da barra"
 
 msgid "Monitor"
 msgstr "Monitor"
@@ -656,9 +713,6 @@ msgstr "Embaixo"
 msgid "Right"
 msgstr "Direita"
 
-msgid "Space"
-msgstr "Espaço"
-
 msgid "Reserve: maximized windows stop at the bar. Float: over the desktop."
 msgstr "Reservar: janelas maximizadas param na barra. Flutuar: por cima da área de trabalho."
 
@@ -676,6 +730,15 @@ msgstr "De 16 a 512 pixels, em escala de 100%."
 
 msgid "Length"
 msgstr "Comprimento"
+
+msgid "As long as what it shows, in the middle of its edge."
+msgstr "Do tamanho do que mostra, no meio da borda."
+
+msgid "auto"
+msgstr "auto"
+
+msgid "As long as what it shows"
+msgstr "Do tamanho do que mostra"
 
 msgid "in %"
 msgstr "em %"

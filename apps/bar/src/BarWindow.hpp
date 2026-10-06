@@ -7,7 +7,9 @@
 
 #include <slint-platform.h>
 
+#include <chrono>
 #include <cstdint>
+#include <functional>
 
 namespace rmw::barapp
 {
@@ -40,6 +42,8 @@ public:
     [[nodiscard]] const domain::BarConfig& config() const noexcept { return m_config; }
     // How to switch the window's background between black and white (Surface::Matte).
     void setMatte(Surface::Matte matte) { m_matte = std::move(matte); }
+    // How long the bar wants to be, in logical pixels (length = "auto", M10).
+    void setContentLength(std::function<double()> length) { m_contentLength = std::move(length); }
 
 private:
     struct Access;
@@ -55,6 +59,10 @@ private:
     void tuck();
     void untuck();
     [[nodiscard]] bar::Rect tuckedRect() const noexcept;
+    // Where the window is now: between tucked (0) and shown (1), as the slide goes (M10).
+    [[nodiscard]] bar::Rect currentRect() const noexcept;
+    void slideTo(double reveal);
+    void slideStep();
     [[nodiscard]] slint::LogicalPosition logical(std::int32_t x, std::int32_t y) const;
 
     domain::BarConfig m_config;
@@ -77,6 +85,12 @@ private:
     bool m_besideFullscreen = false;
     bool m_autohide = false;
     bool m_tucked = false;
+    std::function<double()> m_contentLength;
+    double m_placedContent = 0.0; // the content length the window was placed for
+    double m_reveal = 1.0;        // 0 tucked .. 1 shown
+    double m_revealTarget = 1.0;
+    std::chrono::steady_clock::time_point m_slideLast;
+    bool m_introduced = false; // the first show slides in
 
     // Present target: a 32-bit top-down DIB selected into a memory DC.
     void* m_dc = nullptr;     // HDC

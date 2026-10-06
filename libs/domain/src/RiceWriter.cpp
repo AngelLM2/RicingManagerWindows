@@ -317,6 +317,29 @@ void writeTaskbar(Writer& w, const TaskbarConfig& taskbar)
     }
 }
 
+void writeStart(Writer& w, const StartConfig& start)
+{
+    w.header("start");
+    if (start.menu)
+    {
+        w.string("menu", enumToName<StartMenuKind>(kStartMenuNames, *start.menu));
+    }
+    if (!start.pinned.empty())
+    {
+        std::string list;
+        for (const auto& id : start.pinned)
+        {
+            list += (list.empty() ? "" : ", ") + tomlQuote(id);
+        }
+        w.key("pinned", "[" + list + "]");
+    }
+    if (start.layout)
+    {
+        w.string("layout", enumToName<StartLayout>(kStartLayoutNames, *start.layout));
+    }
+    w.optional("recommendations", start.recommendations);
+}
+
 void writePlugins(Writer& w, const Rice& rice)
 {
     if (rice.pluginRequirements.empty() && rice.pluginSettings.empty())
@@ -385,8 +408,12 @@ void writeBar(Writer& w, const BarConfig& bar)
     {
         w.string("skin", bar.skin);
     }
+    if (bar.style)
+    {
+        w.string("style", enumToName<BarStyle>(kBarStyleNames, *bar.style));
+    }
     // What the bar itself sets: the keys it was read with; a new bar without a skin sets them all.
-    const bool all = bar.keys.empty() && bar.skin.empty();
+    const bool all = bar.keys.empty() && bar.skin.empty() && !bar.style;
     const auto has = [&](std::string_view key) { return all || std::ranges::contains(bar.keys, key); };
     if (has("position"))
     {
@@ -402,7 +429,11 @@ void writeBar(Writer& w, const BarConfig& bar)
     }
     if (has("length"))
     {
-        if (bar.length.percent)
+        if (bar.length.fit)
+        {
+            w.string("length", "auto");
+        }
+        else if (bar.length.percent)
         {
             w.string("length", std::format("{}%", bar.length.value));
         }
@@ -577,6 +608,10 @@ std::string writeRice(const Rice& rice)
     if (rice.taskbar)
     {
         writeTaskbar(w, *rice.taskbar);
+    }
+    if (rice.start)
+    {
+        writeStart(w, *rice.start);
     }
     writePlugins(w, rice);
     for (const auto& bar : rice.bars)

@@ -32,6 +32,7 @@ inline constexpr std::size_t kWallpaperMaxParticleLayers = 8; // per monitor rul
 inline constexpr std::uint32_t kParticleMaxCount = 1'000;     // per layer
 inline constexpr std::size_t kRiceMaxBars = 16;
 inline constexpr std::size_t kBarMaxItemsPerZone = 32;
+inline constexpr std::size_t kStartMaxPinned = 24; // our Start menu's pinned apps (M11)
 inline constexpr std::size_t kPaletteMaxColors = 64;
 inline constexpr std::size_t kRiceMaxPluginRequirements = 64;
 inline constexpr std::size_t kConfigValueMaxElements = 1'000; // per plugin/widget config tree

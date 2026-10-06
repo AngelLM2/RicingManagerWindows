@@ -95,6 +95,12 @@ autohide  = false
 task_view = true
 search    = "hidden"
 
+[start]
+menu            = "ours"
+pinned          = ["Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\notepad.exe"]
+layout          = "more-pins"
+recommendations = false
+
 [plugins]
 requires = ["io.github.someone.now-playing@^1.2", "io.github.someone.weather"]
 
@@ -148,6 +154,12 @@ TEST(RiceWriter, WritesWhatReadsBackTheSame)
 
     EXPECT_EQ(again.meta.name, "Tokyo \"Night\"");
     EXPECT_FALSE(again.meta.canShare());
+    ASSERT_TRUE(again.start);
+    EXPECT_EQ(again.start->menu, StartMenuKind::Ours);
+    ASSERT_EQ(again.start->pinned.size(), 2u);
+    EXPECT_EQ(again.start->pinned[1], "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\notepad.exe");
+    EXPECT_EQ(again.start->layout, StartLayout::MorePins);
+    EXPECT_EQ(again.start->recommendations, false);
     EXPECT_EQ(again.meta.description, "Line one\nLine two\tand a tab, a \\ and \xC3\xBC");
     ASSERT_TRUE(again.appearance && again.appearance->schedule);
     EXPECT_EQ(again.appearance->schedule->lightAt.hour, 6);

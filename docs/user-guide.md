@@ -91,7 +91,11 @@ it cannot be shared or packed.
 ## Bars of your own
 
 A rice can hide Windows' taskbar and show its own bars, with Start, your windows, the system tray,
-the clock, media, volume, network, battery and more (plugins add widgets). **If anything goes
+the clock, media, volume, network, battery and more (plugins add widgets). In **Taskbar**, a
+**Style** gives a whole bar at once: **Windows** (apps in the middle), **Dock** (floating, icons
+that grow under the mouse), **Island** (a pill at the top), **Status line** or **Side**. Whatever
+you change below the style stays yours. A dock shows the apps you pin (**Pin an app…**) and every
+app with a window open; a bar can be **auto** long, as long as what it shows. **If anything goes
 wrong, Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back. If the bar hangs or
 stops, Windows' taskbar comes back in under a second.
 

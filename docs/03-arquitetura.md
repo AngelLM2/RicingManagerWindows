@@ -267,11 +267,13 @@ task_view   = false
 search      = "icon"                # hidden | icon | box | button
 
 [[bar]]                             # barra PRÓPRIA (pode haver várias)
+# style    = "dock"                 # M10: windows | dock | island | status | side: uma barra pronta; as
+                                    # chaves escritas aqui (e as de um skin) valem, o estilo preenche o resto
 monitor    = "all"                  # mesmos seletores do wallpaper
 position   = "top"                  # top | bottom | left | right
 mode       = "reserve"              # reserve (empurra as janelas) | float (flutuante)
 thickness  = 36                     # px lógicos (escala com o DPI)
-length     = "100%"                 # % ou px; centralizada quando < 100%
+length     = "100%"                 # % ou px; centralizada quando < 100%; "auto": do tamanho do que mostra (M10)
 margin     = [8, 8, 0, 8]           # cima, direita, baixo, esquerda
 radius     = 12
 background = { kind = "acrylic", tint = "palette.base", opacity = 0.75 }  # solid | transparent | acrylic | mica

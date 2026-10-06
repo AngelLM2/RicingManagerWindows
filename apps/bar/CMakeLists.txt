@@ -11,6 +11,7 @@ endif()
 add_library(rmw_bar_ui STATIC
     src/BarApp.cpp
     src/BarWindow.cpp
+    src/DockWidget.cpp
     src/MediaWidget.cpp
     src/PluginBridge.cpp
     src/PluginWidgets.cpp

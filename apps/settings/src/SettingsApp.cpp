@@ -70,6 +70,79 @@ slint::SharedString shared(std::string_view value)
     return {value};
 }
 
+// The bar's dock item, made the bar's own: a dock that comes with the bar's style is first copied
+// into the bar (that zone becomes its own). nullptr: no dock (or `make` is false and it is the style's).
+domain::BarItem* dockOf(domain::BarConfig& bar, bool make)
+{
+    for (auto* zone : {&bar.left, &bar.center, &bar.right})
+    {
+        for (auto& item : *zone)
+        {
+            if (item.id == "dock")
+            {
+                return &item;
+            }
+        }
+    }
+    if (!make)
+    {
+        return nullptr;
+    }
+    const domain::BarConfig shown = domain::withStyle(bar);
+    const std::array<std::pair<const std::vector<domain::BarItem>*, std::vector<domain::BarItem>*>, 3> zones = {
+        {{&shown.left, &bar.left}, {&shown.center, &bar.center}, {&shown.right, &bar.right}}};
+    constexpr std::array<std::string_view, 3> kKeys = {"left", "center", "right"};
+    for (std::size_t i = 0; i < zones.size(); ++i)
+    {
+        if (std::ranges::any_of(*zones[i].first, [](const auto& item) { return item.id == "dock"; }))
+        {
+            *zones[i].second = *zones[i].first;
+            settings::markKey(bar, kKeys[i]);
+            return dockOf(bar, false);
+        }
+    }
+    return nullptr;
+}
+
+std::vector<std::string> pinnedOf(const domain::BarItem& item)
+{
+    std::vector<std::string> ids;
+    if (const auto* pinned = item.config.find("pinned"))
+    {
+        if (const auto* list = std::get_if<domain::Value::Array>(&pinned->data))
+        {
+            for (const auto& entry : *list)
+            {
+                if (const auto* id = std::get_if<std::string>(&entry.data))
+                {
+                    ids.push_back(*id);
+                }
+            }
+        }
+    }
+    return ids;
+}
+
+void setPinned(domain::BarItem& item, const std::vector<std::string>& ids)
+{
+    if (!std::holds_alternative<domain::Value::Table>(item.config.data))
+    {
+        item.config.data = domain::Value::Table{};
+    }
+    auto& table = std::get<domain::Value::Table>(item.config.data);
+    std::erase_if(table, [](const domain::ValueMember& member) { return member.key == "pinned"; });
+    if (ids.empty())
+    {
+        return;
+    }
+    domain::Value::Array list;
+    for (const auto& id : ids)
+    {
+        list.push_back(domain::Value{id});
+    }
+    table.push_back({"pinned", domain::Value{std::move(list)}});
+}
+
 template <class T>
 std::shared_ptr<slint::VectorModel<T>> modelOf(std::vector<T> rows)
 {
@@ -1387,7 +1460,8 @@ void SettingsApp::showBars()
     {
         return;
     }
-    const domain::BarConfig& bar = rice.bars[static_cast<std::size_t>(selected)];
+    // What it looks like: its style fills what it leaves out (M10).
+    const domain::BarConfig bar = domain::withStyle(rice.bars[static_cast<std::size_t>(selected)]);
     const auto chips = [&](const std::vector<domain::BarItem>& items) {
         std::vector<WidgetChip> out;
         out.reserve(items.size());
@@ -1422,10 +1496,27 @@ void SettingsApp::showBars()
     model.autohide = bar.autohide;
     model.hide_native = bar.hideNativeTaskbar;
     model.skin = shared(bar.skin);
+    model.style = bar.style ? static_cast<int>(*bar.style) + 1 : 0;
+    model.length_auto = bar.length.fit;
     model.left = chips(bar.left);
     model.center = chips(bar.center);
     model.right = chips(bar.right);
     api.set_bar(model);
+    // Its dock's pinned apps, by the names the app list has (or their ids, before it came).
+    domain::BarConfig shownBar = bar;
+    const domain::BarItem* dock = dockOf(shownBar, false);
+    api.set_bar_has_dock(dock != nullptr);
+    std::vector<AppChoice> pinned;
+    if (dock != nullptr)
+    {
+        for (const auto& id : pinnedOf(*dock))
+        {
+            const auto app = std::ranges::find_if(
+                m_apps, [&](const Json& entry) { return json::stringOr(entry, "id", "") == id; });
+            pinned.push_back({shared(id), shared(app != m_apps.end() ? json::stringOr(*app, "name", id) : id)});
+        }
+    }
+    api.set_dock_pinned(modelOf(std::move(pinned)));
 }
 
 void SettingsApp::pluginConfig()
@@ -2585,6 +2676,64 @@ void SettingsApp::bind()
         m_ui->global<Api>().set_selected_bar(static_cast<int>(rice->bars.size()) - 1);
         saveEdited();
     });
+    api.on_bar_duplicate([this] {
+        domain::Rice* rice = edited();
+        const int index = m_ui->global<Api>().get_selected_bar();
+        if (rice == nullptr || index < 0 || static_cast<std::size_t>(index) >= rice->bars.size() ||
+            rice->bars.size() >= limits::kRiceMaxBars)
+        {
+            return;
+        }
+        rice->bars.push_back(rice->bars[static_cast<std::size_t>(index)]);
+        m_ui->global<Api>().set_selected_bar(static_cast<int>(rice->bars.size()) - 1);
+        saveEdited();
+    });
+    api.on_bar_style([this](int style) {
+        domain::Rice* rice = edited();
+        const int index = m_ui->global<Api>().get_selected_bar();
+        if (rice == nullptr || index < 0 || static_cast<std::size_t>(index) >= rice->bars.size())
+        {
+            return;
+        }
+        domain::BarConfig& bar = rice->bars[static_cast<std::size_t>(index)];
+        const std::optional<domain::BarStyle> wanted =
+            style <= 0 ? std::nullopt : std::optional(static_cast<domain::BarStyle>(std::clamp(style, 1, 5) - 1));
+        if (wanted == bar.style)
+        {
+            return;
+        }
+        if (wanted)
+        {
+            // The style, whole: what the bar set before gives way (its monitor and skin stay).
+            bar.style = wanted;
+            bar.keys.clear();
+        }
+        else
+        {
+            // Its own again: it keeps the look it had, now as its own settings.
+            bar = domain::withStyle(bar);
+            bar.style.reset();
+        }
+        saveEdited();
+    });
+    api.on_dock_unpin([this](int which) {
+        domain::Rice* rice = edited();
+        const int selected = m_ui->global<Api>().get_selected_bar();
+        if (rice == nullptr || selected < 0 || static_cast<std::size_t>(selected) >= rice->bars.size())
+        {
+            return;
+        }
+        if (auto* dock = dockOf(rice->bars[static_cast<std::size_t>(selected)], true))
+        {
+            auto ids = pinnedOf(*dock);
+            if (which >= 0 && static_cast<std::size_t>(which) < ids.size())
+            {
+                ids.erase(ids.begin() + which);
+                setPinned(*dock, ids);
+                saveEdited();
+            }
+        }
+    });
     api.on_bar_remove([this] {
         const int index = m_ui->global<Api>().get_selected_bar();
         m_ui->global<Api>().set_confirm_what("remove-bar");
@@ -2598,6 +2747,8 @@ void SettingsApp::bind()
             return;
         }
         domain::BarConfig& bar = rice->bars[static_cast<std::size_t>(index)];
+        // Compared with what it shows (its style filled in): only what the user changed is its own.
+        const domain::BarConfig shown = domain::withStyle(bar);
         const BarModel model = m_ui->global<Api>().get_bar();
         const auto changed = [&bar](std::string_view key, bool differs) {
             if (differs)
@@ -2611,22 +2762,25 @@ void SettingsApp::bind()
         {
             bar.monitor = *monitor;
         }
-        if (changed("position", static_cast<int>(bar.position) != model.position))
+        if (changed("position", static_cast<int>(shown.position) != model.position))
         {
             bar.position = static_cast<domain::BarPosition>(std::clamp(model.position, 0, 3));
         }
-        if (changed("mode", static_cast<int>(bar.mode) != model.mode))
+        if (changed("mode", static_cast<int>(shown.mode) != model.mode))
         {
             bar.mode = static_cast<domain::BarMode>(std::clamp(model.mode, 0, 1));
         }
-        if (changed("thickness", std::cmp_not_equal(bar.thickness, model.thickness)))
+        if (changed("thickness", std::cmp_not_equal(shown.thickness, model.thickness)))
         {
             bar.thickness = static_cast<std::uint32_t>(std::clamp(model.thickness, 16, 512));
         }
-        const domain::BarLength length{model.length_percent, model.length_percent
-                                                                 ? std::clamp(model.length, 1, 100) * 1.0
-                                                                 : std::clamp(model.length, 16, 16384) * 1.0};
-        if (changed("length", length.percent != bar.length.percent || length.value != bar.length.value))
+        const domain::BarLength length{model.length_percent,
+                                       model.length_percent ? std::clamp(model.length, 1, 100) * 1.0
+                                                            : std::clamp(model.length, 16, 16384) * 1.0,
+                                       model.length_auto};
+        if (changed("length", length.fit != shown.length.fit ||
+                                  (!length.fit && (length.percent != shown.length.percent ||
+                                                   length.value != shown.length.value))))
         {
             bar.length = length;
         }
@@ -2635,11 +2789,11 @@ void SettingsApp::bind()
             static_cast<std::uint32_t>(std::clamp(model.margin_right, 0, 1024)),
             static_cast<std::uint32_t>(std::clamp(model.margin_bottom, 0, 1024)),
             static_cast<std::uint32_t>(std::clamp(model.margin_left, 0, 1024))};
-        if (changed("margin", margin != bar.margin))
+        if (changed("margin", margin != shown.margin))
         {
             bar.margin = margin;
         }
-        if (changed("radius", std::cmp_not_equal(bar.radius, model.radius)))
+        if (changed("radius", std::cmp_not_equal(shown.radius, model.radius)))
         {
             bar.radius = static_cast<std::uint32_t>(std::clamp(model.radius, 0, 256));
         }
@@ -2657,10 +2811,10 @@ void SettingsApp::bind()
             }
         }
         background.opacity = std::clamp(model.opacity, 0, 100) / 100.0;
-        if (changed("background", background.kind != bar.background.kind ||
-                                      background.tint != bar.background.tint ||
+        if (changed("background", background.kind != shown.background.kind ||
+                                      background.tint != shown.background.tint ||
                                       std::lround(background.opacity.value_or(1.0) * 100) !=
-                                          std::lround(bar.background.opacity.value_or(1.0) * 100)))
+                                          std::lround(shown.background.opacity.value_or(1.0) * 100)))
         {
             bar.background = background;
         }
@@ -2676,15 +2830,15 @@ void SettingsApp::bind()
                 foreground = domain::ColorRef{*color};
             }
         }
-        if (changed("foreground", foreground != bar.foreground))
+        if (changed("foreground", foreground != shown.foreground))
         {
             bar.foreground = foreground;
         }
-        if (changed("autohide", bar.autohide != model.autohide))
+        if (changed("autohide", shown.autohide != model.autohide))
         {
             bar.autohide = model.autohide;
         }
-        if (changed("hide_native_taskbar", bar.hideNativeTaskbar != model.hide_native))
+        if (changed("hide_native_taskbar", shown.hideNativeTaskbar != model.hide_native))
         {
             bar.hideNativeTaskbar = model.hide_native;
         }
@@ -3151,12 +3305,35 @@ void SettingsApp::bind()
     api.on_app_picked([this](const slint::SharedString& id) {
         m_ui->global<Api>().set_picking_app(false);
         const auto target = std::exchange(m_appFor, std::nullopt);
-        if (id.empty() || !target || !m_settings)
+        if (id.empty() || !target || (target->first != 2 && !m_settings))
         {
-            refreshSettings(); // what the window showed goes back to the file's
+            if (!target || target->first != 2)
+            {
+                refreshSettings(); // what the window showed goes back to the file's
+            }
             return;
         }
         const auto [kind, index] = *target;
+        if (kind == 2)
+        {
+            // Pinned to the selected bar's dock.
+            domain::Rice* rice = edited();
+            const int selected = m_ui->global<Api>().get_selected_bar();
+            if (rice != nullptr && selected >= 0 && static_cast<std::size_t>(selected) < rice->bars.size())
+            {
+                if (auto* dock = dockOf(rice->bars[static_cast<std::size_t>(selected)], true))
+                {
+                    auto ids = pinnedOf(*dock);
+                    if (std::ranges::find(ids, text(id)) == ids.end() && ids.size() < 32)
+                    {
+                        ids.push_back(text(id));
+                        setPinned(*dock, ids);
+                        saveEdited();
+                    }
+                }
+            }
+            return;
+        }
         domain::ActionCall* action = nullptr;
         if (kind == 0 && index >= 0 && static_cast<std::size_t>(index) < m_settings->hotkeys.size())
         {

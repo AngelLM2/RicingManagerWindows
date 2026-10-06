@@ -462,3 +462,24 @@ Other	Outro
 Nothing in it we can show (no video, no picture)	Nada nele que dê para mostrar (sem vídeo, sem imagem)
 Plays as a video	Toca como vídeo
 Its picture, with a slow zoom	A imagem dele, com um zoom lento
+Separator line	Linha separadora
+Text or icon	Texto ou ícone
+Dock (pinned and open apps)	Dock (apps fixados e abertos)
+Duplicate this bar	Duplicar esta barra
+Style	Estilo
+A ready-made bar. What you change below stays yours; the style fills the rest.	Uma barra pronta. O que você mudar abaixo fica seu; o estilo preenche o resto.
+My own	Do meu jeito
+Windows (apps in the middle)	Windows (apps no meio)
+Dock (floating, icons that grow)	Dock (flutuante, ícones que crescem)
+Island (a pill at the top)	Ilha (uma pílula no topo)
+Status line (thin, at the top)	Linha de status (fina, no topo)
+Side (on the left)	Lateral (à esquerda)
+Style of the bar	Estilo da barra
+As long as what it shows, in the middle of its edge.	Do tamanho do que mostra, no meio da borda.
+auto	auto
+As long as what it shows	Do tamanho do que mostra
+Dock	Dock
+Pinned apps stay in the dock; every app with a window open shows up after them.	Os apps fixados ficam no dock; todo app com uma janela aberta aparece depois deles.
+Unpin	Desafixar
+Unpin {}	Desafixar {}
+Pin an app…	Fixar um app…

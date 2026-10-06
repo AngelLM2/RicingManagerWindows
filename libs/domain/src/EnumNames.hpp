@@ -120,6 +120,25 @@ inline constexpr auto kBarPositionNames = std::to_array<EnumName<BarPosition>>({
     {BarPosition::Right, "right"},
 });
 
+inline constexpr auto kStartMenuNames = std::to_array<EnumName<StartMenuKind>>({
+    {StartMenuKind::Windows, "windows"},
+    {StartMenuKind::Ours, "ours"},
+});
+
+inline constexpr auto kStartLayoutNames = std::to_array<EnumName<StartLayout>>({
+    {StartLayout::Default, "default"},
+    {StartLayout::MorePins, "more-pins"},
+    {StartLayout::MoreRecommendations, "more-recommendations"},
+});
+
+inline constexpr auto kBarStyleNames = std::to_array<EnumName<BarStyle>>({
+    {BarStyle::Windows, "windows"},
+    {BarStyle::Dock, "dock"},
+    {BarStyle::Island, "island"},
+    {BarStyle::Status, "status"},
+    {BarStyle::Side, "side"},
+});
+
 inline constexpr auto kBarModeNames = std::to_array<EnumName<BarMode>>({
     {BarMode::Reserve, "reserve"},
     {BarMode::Float, "float"},

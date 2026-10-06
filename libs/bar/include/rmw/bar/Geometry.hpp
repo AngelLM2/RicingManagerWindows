@@ -30,7 +30,9 @@ struct Rect
 [[nodiscard]] Rect reservation(const domain::BarConfig& bar, const Rect& monitor, double scale) noexcept;
 
 // The bar window inside `area` — the strip the system granted (Reserve), or the monitor's work
-// area (Float): margins applied, length along the edge (percent or pixels) centered.
-[[nodiscard]] Rect windowRect(const domain::BarConfig& bar, const Rect& area, double scale) noexcept;
+// area (Float): margins applied, length along the edge (percent or pixels) centered. A bar of
+// length "auto" is `content` logical pixels long (what it shows), at most what there is.
+[[nodiscard]] Rect windowRect(const domain::BarConfig& bar, const Rect& area, double scale,
+                              double content = 0.0) noexcept;
 
 } // namespace rmw::bar
