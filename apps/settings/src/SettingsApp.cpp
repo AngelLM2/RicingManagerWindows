@@ -27,6 +27,7 @@
 #include <cwctype>
 #include <format>
 #include <map>
+#include <utility>
 
 namespace rmw::settingsapp
 {
@@ -1044,6 +1045,35 @@ void SettingsApp::refreshSettings()
     api.set_rules_list(modelOf(std::move(rules)));
     api.set_keep_in_tray(m_settings->keepInTray);
     api.set_start_win_key(m_settings->startWinKey);
+    const domain::TilingSettings& tiling = m_settings->tiling;
+    api.set_tiling_enabled(tiling.enabled);
+    api.set_tiling_mode(tiling.mode == domain::TilingMode::Mac ? 1 : 0);
+    api.set_tiling_layout(static_cast<int>(tiling.layout));
+    api.set_tiling_workspaces(tiling.workspaces);
+    api.set_tiling_gap(tiling.gap);
+    api.set_tiling_outer_gap(tiling.outerGap);
+    api.set_tiling_master(tiling.masterPercent);
+    api.set_tiling_border(tiling.border);
+    api.set_tiling_admin(tiling.runAsAdmin);
+    api.set_tiling_border_color(shared(tiling.borderColor ? tiling.borderColor->toHex() : std::string()));
+    std::vector<TilingKeyRow> tilingKeys;
+    tilingKeys.reserve(domain::kTilingCommandCount);
+    for (std::size_t i = 0; i < domain::kTilingCommandCount; ++i)
+    {
+        const auto command = static_cast<domain::TilingCommand>(i);
+        const auto key = std::ranges::find(tiling.keys, command, &domain::TilingKey::command);
+        tilingKeys.push_back({shared(domain::toString(command)),
+                              shared(key == tiling.keys.end() ? std::string() : key->toString()), shared("")});
+    }
+    api.set_tiling_keys(modelOf(std::move(tilingKeys)));
+    std::vector<TilingRuleRow> tilingRules;
+    tilingRules.reserve(tiling.rules.size());
+    for (const auto& rule : tiling.rules)
+    {
+        tilingRules.push_back({shared(rule.app), shared(rule.windowClass), shared(rule.title),
+                               static_cast<int>(rule.action), rule.workspace});
+    }
+    api.set_tiling_rules(modelOf(std::move(tilingRules)));
     api.set_language(m_settings->language == domain::kLanguageEnglish      ? 1
                      : m_settings->language == domain::kLanguagePortuguese ? 2
                                                                            : 0);
@@ -1064,6 +1094,7 @@ void SettingsApp::refreshDiagnostics()
                                  : sample.name == "rmw-wallpaper.exe"   ? "video"
                                  : sample.name == "rmw-plugin-host.exe" ? "plugins"
                                  : sample.name == "rmw-settings.exe"    ? "settings"
+                                 : sample.name == "rmw-tiler.exe"       ? "tiler"
                                                                         : "";
         rows.push_back(
             {shared(sample.name), static_cast<int>(sample.pid), shared(megabytes(sample.privateBytes)),
@@ -1826,6 +1857,7 @@ void SettingsApp::bind()
             refreshDiagnostics();
             break;
         case Page::Shortcuts:
+        case Page::Tiling:
             refreshSettings();
             break;
         case Page::Wallpapers:
@@ -3435,6 +3467,7 @@ void SettingsApp::bind()
             m_ui->global<Api>().set_autostart(json::boolOr(*reply, "enabled", false));
         });
     });
+    bindTiling();
     api.on_settings_edited([this] {
         const auto& api = m_ui->global<Api>();
         applyLanguage();
@@ -3449,6 +3482,133 @@ void SettingsApp::bind()
                                : language == 2 ? std::string(domain::kLanguagePortuguese)
                                                : std::string();
         saveSettings();
+    });
+}
+
+bool SettingsApp::saveTiling(domain::Settings next)
+{
+    const auto& api = m_ui->global<Api>();
+    if (const auto problem = domain::tilingProblem(next))
+    {
+        api.set_tiling_problem(shared(*problem));
+        return false;
+    }
+    api.set_tiling_problem(shared(""));
+    *m_settings = std::move(next);
+    saveSettings();
+    return true;
+}
+
+void SettingsApp::bindTiling()
+{
+    const auto& api = m_ui->global<Api>();
+    api.on_tiling_edited([this] {
+        if (!m_settings)
+        {
+            return;
+        }
+        const auto& api = m_ui->global<Api>();
+        domain::Settings next = *m_settings;
+        domain::TilingSettings& tiling = next.tiling;
+        tiling.enabled = api.get_tiling_enabled();
+        tiling.mode = api.get_tiling_mode() == 1 ? domain::TilingMode::Mac : domain::TilingMode::Linux;
+        tiling.layout = static_cast<domain::TilingLayout>(std::clamp(api.get_tiling_layout(), 0, 4));
+        tiling.workspaces = std::clamp(api.get_tiling_workspaces(), 1, domain::kMaxWorkspaces);
+        tiling.gap = std::clamp(api.get_tiling_gap(), 0, 64);
+        tiling.outerGap = std::clamp(api.get_tiling_outer_gap(), 0, 64);
+        tiling.masterPercent = std::clamp(api.get_tiling_master(), 10, 90);
+        tiling.border = api.get_tiling_border();
+        tiling.runAsAdmin = api.get_tiling_admin();
+        const std::string color = text(api.get_tiling_border_color());
+        if (color.empty())
+        {
+            tiling.borderColor.reset();
+        }
+        else if (auto parsed = domain::Color::parse(color))
+        {
+            tiling.borderColor = *parsed;
+        }
+        else
+        {
+            api.set_tiling_problem(shared(parsed.error().message()));
+            return;
+        }
+        saveTiling(std::move(next));
+    });
+    api.on_tiling_key_edited([this](int index, const slint::SharedString& value) {
+        if (!m_settings || index < 0 || std::cmp_greater_equal(index, domain::kTilingCommandCount))
+        {
+            return;
+        }
+        const auto command = static_cast<domain::TilingCommand>(index);
+        const auto showProblem = [this, index, &value](const std::string& problem) {
+            auto rows = m_ui->global<Api>().get_tiling_keys();
+            auto shown = *rows->row_data(static_cast<std::size_t>(index));
+            shown.keys = value;
+            shown.problem = shared(problem);
+            std::static_pointer_cast<slint::VectorModel<TilingKeyRow>>(rows)->set_row_data(
+                static_cast<std::size_t>(index), shown);
+        };
+        domain::Settings next = *m_settings;
+        std::erase_if(next.tiling.keys, [&](const domain::TilingKey& key) { return key.command == command; });
+        if (const std::string keys = text(value); !keys.empty())
+        {
+            auto parsed = domain::TilingKey::parse(command, keys);
+            if (!parsed)
+            {
+                showProblem(parsed.error().message());
+                return;
+            }
+            next.tiling.keys.push_back(*parsed);
+            std::ranges::sort(next.tiling.keys, {}, &domain::TilingKey::command);
+        }
+        if (const auto problem = domain::tilingProblem(next))
+        {
+            showProblem(*problem);
+            return;
+        }
+        saveTiling(std::move(next));
+    });
+    api.on_tiling_keys_default([this] {
+        if (m_settings)
+        {
+            domain::Settings next = *m_settings;
+            next.tiling.keys = domain::defaultTilingKeys();
+            saveTiling(std::move(next));
+        }
+    });
+    api.on_tiling_rule_add([this] {
+        if (m_settings)
+        {
+            domain::Settings next = *m_settings;
+            next.tiling.rules.push_back({"Calculator.exe", {}, {}, domain::TilingRuleAction::Float, 1});
+            saveTiling(std::move(next));
+        }
+    });
+    api.on_tiling_rule_edited([this](int index, const TilingRuleRow& row) {
+        if (!m_settings || index < 0 || static_cast<std::size_t>(index) >= m_settings->tiling.rules.size())
+        {
+            return;
+        }
+        domain::Settings next = *m_settings;
+        domain::TilingRule& rule = next.tiling.rules[static_cast<std::size_t>(index)];
+        rule.app = text(row.app);
+        rule.windowClass = text(row.window_class);
+        rule.title = text(row.title);
+        rule.action = static_cast<domain::TilingRuleAction>(std::clamp(row.action, 0, 2));
+        rule.workspace = std::clamp(row.workspace, 1, domain::kMaxWorkspaces);
+        if (!saveTiling(std::move(next)))
+        {
+            refreshSettings();
+        }
+    });
+    api.on_tiling_rule_remove([this](int index) {
+        if (m_settings && index >= 0 && static_cast<std::size_t>(index) < m_settings->tiling.rules.size())
+        {
+            domain::Settings next = *m_settings;
+            next.tiling.rules.erase(next.tiling.rules.begin() + index);
+            saveTiling(std::move(next));
+        }
     });
 }
 

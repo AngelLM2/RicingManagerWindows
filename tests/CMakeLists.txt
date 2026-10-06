@@ -34,6 +34,7 @@ add_executable(rmw_unit_tests
     unit/SettingsTests.cpp
     unit/StatementTests.cpp
     unit/SupervisorTests.cpp
+    unit/TilingTests.cpp
     unit/TrayTests.cpp
     unit/TweaksModuleTests.cpp
     unit/UtfTests.cpp
@@ -59,6 +60,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::plugins
     rmw::scripting
     rmw::storage
+    rmw::tiling
     rmw::video
     GTest::gtest
     GTest::gtest_main
@@ -91,6 +93,12 @@ add_executable(rmw_video_test_tool support/VideoTestTool.cpp)
 target_link_libraries(rmw_video_test_tool PRIVATE WIL::WIL mf mfplat mfreadwrite mfuuid ole32 user32 gdi32)
 rmw_configure_target(rmw_video_test_tool)
 add_dependencies(rmw_unit_tests rmw_video_test_tool)
+
+# Plain app windows the M13 Sandbox tests tile (tiler-tests.ps1).
+add_executable(rmw_tiler_test_app WIN32 support/TilerTestApp.cpp)
+target_link_libraries(rmw_tiler_test_app PRIVATE advapi32 gdi32 shell32 user32)
+rmw_configure_target(rmw_tiler_test_app)
+add_dependencies(rmw_unit_tests rmw_tiler_test_app)
 
 # NO_PRETTY_VALUES: parameterized tests keep their generated names instead of raw parameter bytes.
 gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)

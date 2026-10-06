@@ -58,6 +58,8 @@ private:
     // Auto-hide: tucked away but for a thin strip at the edge, back when the mouse comes.
     void tuck();
     void untuck();
+    // A Reserve bar's strip is out of the work area: logged when Explorer left it in.
+    void checkStrip();
     [[nodiscard]] bar::Rect tuckedRect() const noexcept;
     // Where the window is now: between tucked (0) and shown (1), as the slide goes (M10).
     [[nodiscard]] bar::Rect currentRect() const noexcept;

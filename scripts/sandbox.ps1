@@ -13,7 +13,7 @@
 param(
     [ValidateSet('debug', 'release', 'asan')]
     [string] $Preset = 'debug',
-    [ValidateSet('unit', 'system', 'bar', 'plugins', 'tray', 'video', 'settings', 'packages', 'installer', 'spike')]
+    [ValidateSet('unit', 'system', 'bar', 'plugins', 'tray', 'video', 'settings', 'packages', 'installer', 'tiler', 'spike')]
     [string] $Suite = 'unit',
     # For -Suite spike: executable path relative to the build folder, e.g. spikes\s3-taskbar\spike_s3_taskbar.exe
     [string] $Spike,

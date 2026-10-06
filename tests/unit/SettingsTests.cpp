@@ -124,6 +124,121 @@ action = "restore.original"
     EXPECT_EQ(diagnostics.all()[0].key, "hotkey[0].action");
 }
 
+TEST(TilingSettings, ReadsEverythingAndKeepsTheDefaultShortcuts)
+{
+    Diagnostics diagnostics;
+    const auto settings = parse(R"toml(
+[tiling]
+enabled = true
+mode = "mac"
+layout = "master-stack"
+workspaces = 4
+gap = 12
+outer_gap = 0
+master_size = 60
+border = false
+border_color = "#ff79c6"
+run_as_admin = true
+
+[tiling.keys]
+float = "Ctrl+Alt+G"
+promote = ""
+workspace = "Alt+Win+#"
+
+[[tiling.rule]]
+app = "Calculator.exe"
+do = "float"
+
+[[tiling.rule]]
+title = "Picture in picture"
+class = "Chrome_WidgetWin_1"
+do = "ignore"
+
+[[tiling.rule]]
+app = "Spotify.exe"
+do = "workspace"
+workspace = 3
+)toml",
+                                diagnostics);
+    ASSERT_TRUE(settings.has_value()) << diagnostics.errorSummary("settings.toml");
+    const TilingSettings& tiling = settings->tiling;
+    EXPECT_TRUE(tiling.enabled);
+    EXPECT_TRUE(settings->needsResidency());
+    EXPECT_EQ(tiling.mode, TilingMode::Mac);
+    EXPECT_EQ(tiling.layout, TilingLayout::MasterStack);
+    EXPECT_EQ(tiling.workspaces, 4);
+    EXPECT_EQ(tiling.gap, 12);
+    EXPECT_EQ(tiling.outerGap, 0);
+    EXPECT_EQ(tiling.masterPercent, 60);
+    EXPECT_FALSE(tiling.border);
+    EXPECT_EQ(tiling.borderColor->toHex(), "#FF79C6");
+    EXPECT_TRUE(tiling.runAsAdmin);
+
+    const auto key = [&](TilingCommand command) -> std::string {
+        const auto found = std::ranges::find(tiling.keys, command, &TilingKey::command);
+        return found == tiling.keys.end() ? "" : found->toString();
+    };
+    EXPECT_EQ(key(TilingCommand::Float), "Ctrl+Alt+G");
+    EXPECT_EQ(key(TilingCommand::Promote), "");               // taken away
+    EXPECT_EQ(key(TilingCommand::Workspace), "Alt+Win+#");
+    EXPECT_EQ(key(TilingCommand::FocusLeft), "Ctrl+Alt+Left"); // left out: the default
+    EXPECT_EQ(key(TilingCommand::SendToWorkspace), "Ctrl+Shift+Win+#");
+    EXPECT_EQ(key(TilingCommand::Toggle), "");                 // none out of the box
+
+    ASSERT_EQ(tiling.rules.size(), 3u);
+    EXPECT_EQ(tiling.rules[0].app, "Calculator.exe");
+    EXPECT_EQ(tiling.rules[1].action, TilingRuleAction::Ignore);
+    EXPECT_EQ(tiling.rules[1].windowClass, "Chrome_WidgetWin_1");
+    EXPECT_EQ(tiling.rules[2].workspace, 3);
+
+    // What the settings app writes reads back the same.
+    Diagnostics again;
+    const auto written = parse(writeSettings(*settings), again);
+    ASSERT_TRUE(written.has_value()) << again.errorSummary("settings.toml") << "\n" << writeSettings(*settings);
+    EXPECT_EQ(written->tiling, tiling);
+    // Untouched, nothing of it is written.
+    EXPECT_EQ(writeSettings(Settings{}).find("[tiling]"), std::string::npos);
+}
+
+TEST(TilingSettings, ShortcutsWithANumberAndClashes)
+{
+    const auto go = TilingKey::parse(TilingCommand::Workspace, "Ctrl+Win+#");
+    ASSERT_TRUE(go.has_value());
+    EXPECT_TRUE(go->anyDigit);
+    EXPECT_TRUE(go->overlaps(*KeyChord::parse("Win+Ctrl+7")));
+    EXPECT_TRUE(go->overlaps(*KeyChord::parse("Ctrl+Win+Numpad3")));
+    EXPECT_FALSE(go->overlaps(*KeyChord::parse("Ctrl+Win+0")));
+    EXPECT_FALSE(go->overlaps(*KeyChord::parse("Ctrl+Win+Left")));
+    EXPECT_FALSE(TilingKey::parse(TilingCommand::Workspace, "Ctrl+Win+1").has_value());  // needs #
+    EXPECT_FALSE(TilingKey::parse(TilingCommand::FocusLeft, "Ctrl+Alt+#").has_value());  // takes none
+    EXPECT_FALSE(TilingKey::parse(TilingCommand::FocusLeft, "Win+L").has_value());       // Windows'
+    EXPECT_FALSE(TilingKey::parse(TilingCommand::Float, "Ctrl+Alt+Delete").has_value()); // Windows'
+    EXPECT_FALSE(TilingKey::parse(TilingCommand::Workspace, "#").has_value());           // no modifier
+
+    const char* bad[] = {
+        "[tiling]\nlayout = \"spiral\"\n",
+        "[tiling]\nworkspaces = 10\n",
+        "[tiling]\ngap = -1\n",
+        "[tiling.keys]\nfloat = \"Ctrl+Alt+Left\"\n",              // FocusLeft has it
+        "[tiling.keys]\npromote = \"Ctrl+Win+3\"\n",               // inside Ctrl+Win+#
+        "[tiling.keys]\nfloat = \"Ctrl+Alt+Nope\"\n",
+        "[[tiling.rule]]\ndo = \"float\"\n",                       // which windows?
+        "[[tiling.rule]]\napp = \"a.exe\"\ndo = \"workspace\"\n",  // which workspace?
+        "[[tiling.rule]]\napp = \"a.exe\"\ndo = \"minimize\"\n",
+        "[[hotkey]]\nkeys = \"Ctrl+Alt+F\"\naction = \"appearance.toggle\"\n[tiling]\nenabled = true\n",
+    };
+    for (const char* text : bad)
+    {
+        Diagnostics diagnostics;
+        EXPECT_FALSE(parse(text, diagnostics).has_value()) << text;
+    }
+    // A command that does not exist is a warning, like any unknown key (a newer format, maybe).
+    Diagnostics typo;
+    EXPECT_TRUE(parse("[tiling.keys]\nfly = \"Ctrl+Alt+Y\"\n", typo).has_value());
+    ASSERT_FALSE(typo.all().empty());
+    EXPECT_EQ(typo.all()[0].key, "tiling.keys.fly");
+}
+
 TEST(DailyTime, CountsToTheNextAndFromTheLastOccurrence)
 {
     const TimeOfDay seven{19, 0};

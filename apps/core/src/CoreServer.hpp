@@ -138,6 +138,20 @@ public:
     [[nodiscard]] Result<void> startVideo();
     void stopVideo();
     [[nodiscard]] ipc::Json videoStatus() const;
+    // The tiler (M13): the plan rmw-tiler follows (JSON, also in <data>\tiler\plan.json), from
+    // settings.toml [tiling] and the accent; none while tiling is off.
+    void setTiling(const domain::TilingSettings& settings);
+    void refreshTilerPlan(); // the accent may have changed: the border follows
+    [[nodiscard]] std::optional<std::string> tilerPlan() const;
+    [[nodiscard]] Result<void> startTiler();
+    // Asks rmw-tiler to put every window back and leave; `force`: ends it now and puts them back
+    // from the file it keeps.
+    void stopTiler(bool force);
+    [[nodiscard]] bool tilerRunning() const;
+    [[nodiscard]] ipc::Json tilerStatus() const;
+    // A tiler that ended badly left windows hidden or out of place: `rmw-tiler --restore` puts them
+    // back (nothing when it left no file).
+    void putBackTiledWindows() const;
     // Window thread: writes the plugin host's plan and starts or stops rmw-plugin-host to match.
     void syncPluginHost();
     // Some plugin runs: the core stays resident for it.
@@ -221,6 +235,8 @@ private:
     bool m_barOff = false;                                // mirrors meta "bar_off"
     std::optional<std::filesystem::path> m_barSource;     // mirrors meta "bar_source"
     std::optional<std::string> m_videoPlan;               // mirrors meta "video_plan"
+    domain::TilingSettings m_tiling;                      // settings.toml [tiling]
+    std::optional<std::string> m_tilerPlan;               // what <data>\tiler\plan.json holds
     std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
 
     // Plugins (docs/12). The pipes are named once per run: the bar serves the bridge, the host

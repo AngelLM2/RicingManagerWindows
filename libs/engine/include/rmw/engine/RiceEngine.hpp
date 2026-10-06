@@ -62,8 +62,11 @@ public:
     // Captures "my original Windows" once (first run). True when it was captured now.
     [[nodiscard]] Result<bool> ensureBaseSnapshot();
 
-    [[nodiscard]] Result<OperationReport> apply(const domain::Rice& rice,
-                                                const std::filesystem::path& packageRoot);
+    // `changesElsewhere`: the rice also changes what no module holds (Ricing Manager's bars, which the
+    // core runs): a rice that changes nothing of the modules is then no mistake but an empty report
+    // (historyId 0). Without it, such a rice fails: it would do nothing at all.
+    [[nodiscard]] Result<OperationReport> apply(const domain::Rice& rice, const std::filesystem::path& packageRoot,
+                                                bool changesElsewhere = false);
 
     // Puts back the original value of every field we changed, except fields the user changed
     // after us (listed in `skipped`) unless `force`.
@@ -80,7 +83,7 @@ public:
     // alone, so a schedule check after resume does not re-apply the theme.
     [[nodiscard]] Result<OperationReport> applyAutomatic(const domain::Rice& rice,
                                                          const std::filesystem::path& packageRoot,
-                                                         const std::string& label);
+                                                         const std::string& label, bool changesElsewhere = false);
 
     // A few fields of one module chosen by the core itself (a slideshow turning a page): an
     // automatic change like applyAutomatic().
