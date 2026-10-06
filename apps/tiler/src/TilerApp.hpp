@@ -124,6 +124,7 @@ private:
     std::set<tiling::WindowId> m_justShown;      // shown in place this moment: settle() looks at them
     std::optional<tiling::WindowId> m_bordered;
     std::optional<tiling::WindowId> m_pendingFocus;
+    std::set<tiling::WindowId> m_appearing; // shown a moment ago: tiled if still there (kAdoptDelayMs)
     std::unique_ptr<KeyHook> m_keys;
     Looks m_looks; // the rice's [windows] (M14): with tiling or alone
     std::unique_ptr<VirtualDesktops> m_virtual;

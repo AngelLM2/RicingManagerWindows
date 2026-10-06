@@ -30,3 +30,4 @@ O que sobrava:
 
 - Quem já usou uma versão anterior tem o "Windows original" guardado sem o tema e com os ponteiros apontando para o armazém: restaurar volta tudo o que mudamos, mas o tema escolhido antes e os arquivos de ponteiro do Configurações não têm como voltar sozinhos. Basta escolher o tema (Personalização > Temas) e o estilo de ponteiro (Acessibilidade > Ponteiro do mouse) uma vez.
 - As cores recentes que versões anteriores já empurraram ficam até o Windows trocá-las.
+- Aplicar um rice com aparência ficou ~1,6 s mais lento (a espera para devolver o que o Explorer escreve atrasado): 2,1–2,5 s na Sandbox, o mais lento de uma rodada até ~3,4 s. O aceite do instalador passou de 3 s para 4 s na v1.7.
