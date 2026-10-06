@@ -1043,6 +1043,7 @@ void SettingsApp::refreshSettings()
     }
     api.set_rules_list(modelOf(std::move(rules)));
     api.set_keep_in_tray(m_settings->keepInTray);
+    api.set_start_win_key(m_settings->startWinKey);
     api.set_language(m_settings->language == domain::kLanguageEnglish      ? 1
                      : m_settings->language == domain::kLanguagePortuguese ? 2
                                                                            : 0);
@@ -1243,6 +1244,23 @@ void SettingsApp::showEdited()
             });
         }
     }
+
+    // Start (M11).
+    const auto& start = rice.start;
+    api.set_start_ours(start && start->menu == domain::StartMenuKind::Ours);
+    api.set_start_layout(start && start->layout ? static_cast<int>(*start->layout) + 1 : 0);
+    api.set_start_recommended(start && start->recommendations ? (*start->recommendations ? 1 : 2) : 0);
+    std::vector<AppChoice> startPinned;
+    if (start)
+    {
+        for (const auto& id : start->pinned)
+        {
+            const auto app = std::ranges::find_if(
+                m_apps, [&](const Json& entry) { return json::stringOr(entry, "id", "") == id; });
+            startPinned.push_back({shared(id), shared(app != m_apps.end() ? json::stringOr(*app, "name", id) : id)});
+        }
+    }
+    api.set_start_pinned(modelOf(std::move(startPinned)));
 
     // Windows' taskbar.
     const auto& taskbar = rice.taskbar;
@@ -2716,6 +2734,32 @@ void SettingsApp::bind()
         }
         saveEdited();
     });
+    api.on_start_edited([this] {
+        domain::Rice* rice = edited();
+        if (rice == nullptr)
+        {
+            return;
+        }
+        const auto& api = m_ui->global<Api>();
+        auto start = rice->start.value_or(domain::StartConfig{});
+        start.menu = api.get_start_ours() ? std::optional(domain::StartMenuKind::Ours) : std::nullopt;
+        const int layout = api.get_start_layout();
+        start.layout = layout <= 0 ? std::nullopt : std::optional(static_cast<domain::StartLayout>(std::clamp(layout, 1, 3) - 1));
+        const int recommended = api.get_start_recommended();
+        start.recommendations = recommended == 1 ? std::optional(true) : recommended == 2 ? std::optional(false) : std::nullopt;
+        const bool any = start.menu || !start.pinned.empty() || start.layout || start.recommendations;
+        rice->start = any ? std::optional(start) : std::nullopt;
+        saveEdited();
+    });
+    api.on_start_unpin([this](int which) {
+        domain::Rice* rice = edited();
+        if (rice == nullptr || !rice->start || which < 0 || static_cast<std::size_t>(which) >= rice->start->pinned.size())
+        {
+            return;
+        }
+        rice->start->pinned.erase(rice->start->pinned.begin() + which);
+        saveEdited();
+    });
     api.on_dock_unpin([this](int which) {
         domain::Rice* rice = edited();
         const int selected = m_ui->global<Api>().get_selected_bar();
@@ -3305,15 +3349,30 @@ void SettingsApp::bind()
     api.on_app_picked([this](const slint::SharedString& id) {
         m_ui->global<Api>().set_picking_app(false);
         const auto target = std::exchange(m_appFor, std::nullopt);
-        if (id.empty() || !target || (target->first != 2 && !m_settings))
+        if (id.empty() || !target || (target->first < 2 && !m_settings))
         {
-            if (!target || target->first != 2)
+            if (!target || target->first < 2)
             {
                 refreshSettings(); // what the window showed goes back to the file's
             }
             return;
         }
         const auto [kind, index] = *target;
+        if (kind == 3)
+        {
+            // Pinned to Start.
+            if (domain::Rice* rice = edited())
+            {
+                auto& start = rice->start ? *rice->start : rice->start.emplace();
+                if (std::ranges::find(start.pinned, text(id)) == start.pinned.end() &&
+                    start.pinned.size() < limits::kStartMaxPinned)
+                {
+                    start.pinned.push_back(text(id));
+                    saveEdited();
+                }
+            }
+            return;
+        }
         if (kind == 2)
         {
             // Pinned to the selected bar's dock.
@@ -3384,6 +3443,7 @@ void SettingsApp::bind()
             return;
         }
         m_settings->keepInTray = api.get_keep_in_tray();
+        m_settings->startWinKey = api.get_start_win_key();
         const int language = api.get_language();
         m_settings->language = language == 1   ? std::string(domain::kLanguageEnglish)
                                : language == 2 ? std::string(domain::kLanguagePortuguese)

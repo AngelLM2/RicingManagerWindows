@@ -54,6 +54,8 @@ public struct RECT { public int Left; public int Top; public int Right; public i
 public static extern bool SystemParametersInfoW(uint action, uint param, ref RECT value, uint winIni);
 [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
 public static extern bool SystemParameterBool(uint action, uint param, ref bool value, uint winIni);
+[System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+public static extern bool SystemParameterSet(uint action, uint param, System.IntPtr value, uint winIni);
 [System.Runtime.InteropServices.DllImport("gdi32.dll")]
 public static extern bool BitBlt(System.IntPtr target, int x, int y, int width, int height, System.IntPtr source, int sourceX, int sourceY, uint operation);
 '@
@@ -308,7 +310,9 @@ $styleChecks = [ordered]@{
     'island'  = { $b = Bar-Rect; (Work-Area).Top -eq $screen.Top -and $b.Top -eq $screen.Top + 8 -and $b.Width -lt $screen.Width -and (Centered $b) }
     'dock'    = { $b = Bar-Rect; (Work-Area).Bottom -eq $screen.Bottom -and $b.Bottom -eq $screen.Bottom - 10 -and $b.Width -lt $screen.Width / 2 -and (Centered $b) }
 }
-$animations = $true
+# The Sandbox turns Windows' animation effects off; on for this part (the bar slides when they are on).
+[void][Rmw.Win]::SystemParameterSet(0x1043, 0, [IntPtr]1, 2) # SPI_SETCLIENTAREAANIMATION, send the change
+$animations = $false
 [void][Rmw.Win]::SystemParameterBool(0x1042, 0, [ref]$animations, 0) # SPI_GETCLIENTAREAANIMATION
 Note 'animations' "Windows' animation effects: $animations"
 foreach ($style in $styleChecks.Keys) {
@@ -350,6 +354,92 @@ if ($bar) {
     Check 'bar:dock-cpu-idle' ($cpu -lt 1.0) ('{0:N2}% over 10 s' -f $cpu)
 }
 if ($console) { Stop-Process -Id $console.Id -Force -ErrorAction SilentlyContinue }
+
+# ---- 4c. M11: Ricing Manager's Start ---------------------------------------------------------------
+function Start-Visible { [Rmw.Win]::IsWindowVisible([Rmw.Win]::FindWindowW('RicingManagerWindows.Start', [NullString]::Value)) }
+function Press-Start {
+    $b = Bar-Rect
+    [void][Rmw.Win]::SetCursorPos($b.Left + 26, $b.Top + [int]($b.Height / 2))
+    Start-Sleep -Milliseconds 150
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    [Rmw.Win]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+    [Rmw.Win]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+    while (-not (Start-Visible) -and $watch.ElapsedMilliseconds -lt 3000) { Start-Sleep -Milliseconds 2 }
+    return $watch.ElapsedMilliseconds
+}
+$apps = @((Invoke-Rmw @('apps')).output -split "`r?`n" | Where-Object { $_ -match '\s->\s' })
+$pickedApp = $null
+foreach ($name in 'Windows PowerShell', 'Command Prompt', 'Notepad', 'Paint', 'Calculator') {
+    $pickedApp = $apps | Where-Object { $_ -match ('^' + [regex]::Escape($name) + '\s+->') } | Select-Object -First 1
+    if ($pickedApp) { break }
+}
+$appName = ($pickedApp -split '\s+->\s+')[0].Trim()
+$appId = ($pickedApp -split '\s+->\s+')[1].Trim()
+Note 'start-app' "$appName = $appId"
+$startRice = Join-Path $Work 'rice-start'
+Write-Rice $startRice ("[start]`nmenu = `"ours`"`npinned = [`"" + ($appId -replace '\\', '\\') + "`"]`n`n[[bar]]`nstyle = `"status`"`n")
+$r = Invoke-Rmw @('apply', $startRice, '--wait')
+$placed = Wait-Until { (Work-Area).Top -eq $screen.Top + 28 -and (Bar-Rect).Height -eq 28 } 20
+Check 'start:apply' ($r.code -eq 0 -and $placed) "$($r.output) work=$(Work-Area) bar=$(Bar-Rect)"
+Start-Sleep -Seconds 2
+
+$openMs = Press-Start
+$opened = Start-Visible
+Check 'start:opens-from-the-button' $opened ''
+Check 'start:opens-under-150ms' ($opened -and $openMs -lt 150) ('{0} ms' -f $openMs)
+Start-Sleep -Milliseconds 400
+Shot 'bar-4c-start-open'
+$before = @(Get-Process | ForEach-Object Id)
+# The whole name: it is the first match (a few letters could match another app first).
+[System.Windows.Forms.SendKeys]::SendWait(($appName -replace '([+^%~(){}\[\]])', '{$1}'))
+Start-Sleep -Milliseconds 600
+Shot 'bar-4c-start-search'
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+$new = $null
+$launched = Wait-Until {
+    $script:new = @(Get-Process | Where-Object { $before -notcontains $_.Id -and $_.Name -notmatch '^(rmw|conhost|svchost|RuntimeBroker|dllhost|backgroundTaskHost|smartscreen|SearchHost|StartMenuExperienceHost)' })
+    $script:new.Count -gt 0
+} 15
+$opensWhat = @($script:new | Where-Object { $_.Name -match 'powershell|cmd|notepad|mspaint|calc' })
+Check 'start:search-and-enter-opens-the-app' ($launched -and $opensWhat.Count -gt 0) "$appName -> $(($script:new | ForEach-Object Name) -join ', ')"
+Check 'start:closes-after-it-opened-one' (-not (Start-Visible)) ''
+$script:new | Stop-Process -Force -ErrorAction SilentlyContinue
+
+$againMs = Press-Start
+Note 'start-open-again' ('{0} ms' -f $againMs)
+[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+Check 'start:escape-closes' ((Wait-Until { -not (Start-Visible) } 3)) ''
+
+# The Win key, when the user wants it (settings.toml [start] win_key).
+$settingsFile = Join-Path $data 'config\settings.toml'
+New-Item -ItemType Directory -Force (Split-Path $settingsFile) | Out-Null
+"schema = 1`n`n[core]`nkeep_in_tray = true`n`n[start]`nwin_key = true`n" | Out-File $settingsFile -Encoding ascii
+$heard = Wait-Until { (Get-Content (Join-Path $data 'bar\bars.json') -Raw -ErrorAction SilentlyContinue) -match '"winKey":\s*true' } 15
+Start-Sleep -Seconds 3
+[Rmw.Win]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero) # Win down
+[Rmw.Win]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero) # Win up
+$byKey = Wait-Until { Start-Visible } 3
+Check 'start:win-key-opens-ours' ($heard -and $byKey) "plan heard: $heard"
+Shot 'bar-4c-start-win-key'
+[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+[void](Wait-Until { -not (Start-Visible) } 3)
+# Win+E: Windows' own shortcut, untouched.
+[Rmw.Win]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
+[Rmw.Win]::keybd_event(0x45, 0, 0, [UIntPtr]::Zero)
+[Rmw.Win]::keybd_event(0x45, 0, 2, [UIntPtr]::Zero)
+[Rmw.Win]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
+Start-Sleep -Seconds 1
+Check 'start:win-shortcuts-stay-windows' (-not (Start-Visible)) ''
+# Off again: the Win key is Windows' (its own Start opens; Esc closes it).
+"schema = 1`n`n[core]`nkeep_in_tray = true`n" | Out-File $settingsFile -Encoding ascii
+[void](Wait-Until { (Get-Content (Join-Path $data 'bar\bars.json') -Raw -ErrorAction SilentlyContinue) -match '"winKey":\s*false' } 15)
+Start-Sleep -Seconds 3
+[Rmw.Win]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
+[Rmw.Win]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
+Start-Sleep -Seconds 1
+Check 'start:win-key-is-windows-again' (-not (Start-Visible)) ''
+[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+Start-Sleep -Milliseconds 500
 
 # Back to the two reserving bars the next steps expect.
 $r = Invoke-Rmw @('apply', $acrylic, '--wait')

@@ -27,9 +27,21 @@ struct PlanPlugin
     friend bool operator==(const PlanPlugin&, const PlanPlugin&) = default;
 };
 
+// Ricing Manager's Start menu (M11), shown by rmw-bar.
+struct StartPlan
+{
+    bool ours = false;   // the bar's Start button opens ours (else Windows')
+    bool winKey = false; // ...and the Win key alone (the user's choice, in settings.toml)
+    std::vector<std::string> pinned;
+    std::string language = "en"; // its words: "en" or "pt-BR" (the core's choice)
+
+    friend bool operator==(const StartPlan&, const StartPlan&) = default;
+};
+
 struct Plan
 {
     std::string riceName;
+    StartPlan start;
     std::vector<domain::BarConfig> bars; // every ColorRef holds a Color (or nothing)
     std::vector<PlanPlugin> plugins;
 };

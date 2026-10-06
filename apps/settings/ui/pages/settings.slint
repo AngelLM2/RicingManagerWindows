@@ -29,6 +29,18 @@ export component SettingsPage inherits ScrollView {
             }
 
             SettingRow {
+                label: @tr("The Win key opens Ricing Manager's Start");
+                description: @tr("When the applied rice uses it. Win with any other key stays Windows' (Win+E, Win+L...).");
+                Switch {
+                    checked <=> Api.start-win-key;
+                    accessible-label: @tr("The Win key opens Ricing Manager's Start");
+                    toggled => {
+                        Api.settings-edited();
+                    }
+                }
+            }
+
+            SettingRow {
                 label: @tr("Keep the icon in the tray");
                 description: @tr("Ricing Manager stays running even when nothing needs it.");
                 Switch {

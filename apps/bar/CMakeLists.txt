@@ -13,9 +13,11 @@ add_library(rmw_bar_ui STATIC
     src/BarWindow.cpp
     src/DockWidget.cpp
     src/MediaWidget.cpp
+    src/MenuWindow.cpp
     src/PluginBridge.cpp
     src/PluginWidgets.cpp
     src/SlintPlatform.cpp
+    src/StartMenu.cpp
     src/Surface.cpp
     src/SystemWidgets.cpp
     src/TrayForwarder.cpp
@@ -23,6 +25,7 @@ add_library(rmw_bar_ui STATIC
     src/TrayWidget.cpp
     src/Widgets.cpp
     src/WindowList.cpp
+    src/WinKeyHook.cpp
 )
 target_include_directories(rmw_bar_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(rmw_bar_ui PUBLIC
@@ -39,6 +42,8 @@ target_link_libraries(rmw_bar_ui PUBLIC
     iphlpapi
     runtimeobject
     ole32
+    powrprof
+    secur32
     shcore
     shell32
     advapi32

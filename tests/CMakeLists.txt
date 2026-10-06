@@ -97,7 +97,7 @@ gtest_discover_tests(rmw_unit_tests DISCOVERY_MODE PRE_TEST NO_PRETTY_VALUES)
 
 # The bar's drawing, without windows (needs the Slint SDK, like rmw-bar).
 if(TARGET rmw_bar_ui)
-    add_executable(rmw_bar_tests bar/BarUiTests.cpp)
+    add_executable(rmw_bar_tests bar/BarUiTests.cpp bar/StartTests.cpp)
     target_link_libraries(rmw_bar_tests PRIVATE rmw_bar_ui GTest::gtest GTest::gtest_main)
     # The example plugins are compiled into a bar by the tests.
     target_compile_definitions(rmw_bar_tests PRIVATE RMW_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
