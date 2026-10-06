@@ -170,6 +170,8 @@ private:
     [[nodiscard]] Result<ipc::Json> monitors();
     [[nodiscard]] Result<ipc::Json> inspect(const ipc::Json& params);
     [[nodiscard]] Result<ipc::Json> exportRice(const ipc::Json& params);
+    // A .rice from anyone into <data>\rices (docs/06 §4).
+    [[nodiscard]] Result<ipc::Json> importRice(const ipc::Json& params) const;
     [[nodiscard]] Result<ipc::Json> autostart(const ipc::Json& params, bool change);
     [[nodiscard]] Result<ipc::Json> pluginMethod(const ipc::Request& request);
     [[nodiscard]] Result<ipc::Json> runPluginAction(const domain::PluginActionName& action,

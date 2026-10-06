@@ -123,6 +123,35 @@ std::optional<fs::path> pickFolder(void* owner)
     return runDialog(owner, true, {});
 }
 
+std::optional<fs::path> pickSaveFile(void* owner, const FileFilter& filter, const std::wstring& name)
+{
+    auto dialog = wil::CoCreateInstanceNoThrow<IFileSaveDialog>(CLSID_FileSaveDialog);
+    if (!dialog)
+    {
+        return std::nullopt;
+    }
+    FILEOPENDIALOGOPTIONS options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT | FOS_NOCHANGEDIR);
+    const COMDLG_FILTERSPEC spec{filter.name.c_str(), filter.pattern.c_str()};
+    dialog->SetFileTypes(1, &spec);
+    // "*.rice" -> "rice": added when the name has no extension.
+    const std::wstring extension = filter.pattern.substr(filter.pattern.find_last_of(L'.') + 1);
+    dialog->SetDefaultExtension(extension.c_str());
+    dialog->SetFileName(name.c_str());
+    if (FAILED(dialog->Show(static_cast<HWND>(owner))))
+    {
+        return std::nullopt; // cancelled
+    }
+    wil::com_ptr_nothrow<IShellItem> item;
+    wil::unique_cotaskmem_string path;
+    if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, path.put())))
+    {
+        return std::nullopt;
+    }
+    return fs::path(path.get());
+}
+
 void openFolder(const fs::path& folder)
 {
     ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

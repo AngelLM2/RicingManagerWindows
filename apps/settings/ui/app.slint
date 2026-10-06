@@ -40,6 +40,8 @@ component InfoBar inherits Rectangle {
                 : root.notice.kind == NoticeKind.exported ? @tr("Your current look is now the rice “{}”", root.notice.detail)
                 : root.notice.kind == NoticeKind.created ? @tr("Created “{}”", root.notice.detail)
                 : root.notice.kind == NoticeKind.imported ? @tr("Copied into the rice: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.added ? @tr("Added to your rices: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.shared ? @tr("Ready to share: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.installed ? @tr("Installed {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.approved ? @tr("Approved {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.removed ? @tr("Removed {}", root.notice.detail)
@@ -85,6 +87,7 @@ component InfoBar inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: @tr("Ricing Manager");
+    icon: @image-url("../../resources/icon.png");
     preferred-width: 1180px;
     preferred-height: 720px;
     min-width: 820px;

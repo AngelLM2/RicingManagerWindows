@@ -1,6 +1,6 @@
 # libFuzzer targets for our own parsers (docs/06 §4, docs/08): everything that reads text or bytes
-# from outside — rices, plugins, settings, cursor packs, IPC, the plugin host, the tray, the
-# workers' plans. Built only by the fuzz preset (AddressSanitizer + coverage); run them with
+# from outside — rices, plugins, settings, cursor packs, packages, IPC, the plugin host, the tray,
+# the workers' plans. Built only by the fuzz preset (AddressSanitizer + coverage); run them with
 # scripts/fuzz.ps1, which seeds each one from the repository's own files.
 
 function(rmw_add_fuzzer name)
@@ -23,3 +23,4 @@ rmw_add_fuzzer(bridge DEPS rmw::bar)
 rmw_add_fuzzer(tray DEPS rmw::bar)
 rmw_add_fuzzer(plans DEPS rmw::bar rmw::plugins rmw::video)
 rmw_add_fuzzer(url DEPS rmw::plugins)
+rmw_add_fuzzer(package DEPS rmw::package)

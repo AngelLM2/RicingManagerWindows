@@ -4,10 +4,13 @@
 //   rmw-core --startup        at logon: undo an interrupted operation, stay only if needed
 //   rmw-core --safe-mode      nothing automatic (also: Shift held at logon, or 3 crashed starts)
 //   rmw-core --apply-helper --pipe <name>                                  child that talks to Explorer
+//   rmw-core --import-worker --kind rice|plugin --archive <file> --staging <folder> --report <file>
+//                                                                          child that unpacks a package
 //   rmw-core --version
 
 #include "ApplyHelper.hpp"
 #include "CoreServer.hpp"
+#include "Import.hpp"
 
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
@@ -38,6 +41,11 @@ struct Arguments
     bool version = false;
     bool startup = false;
     bool applyHelper = false;
+    bool importWorker = false;
+    std::wstring importKind;
+    std::filesystem::path importArchive;
+    std::filesystem::path importStaging;
+    std::filesystem::path importReport;
     bool inProcess = false;
     bool safeMode = false;
     bool testExitUnclean = false;
@@ -85,6 +93,34 @@ Result<Arguments> parseArguments(std::span<wchar_t*> args)
         else if (arg == L"--apply-helper")
         {
             parsed.applyHelper = true;
+        }
+        else if (arg == L"--import-worker")
+        {
+            parsed.importWorker = true;
+        }
+        else if (arg == L"--kind" || arg == L"--archive" || arg == L"--staging" || arg == L"--report")
+        {
+            auto text = value();
+            if (!text)
+            {
+                return std::unexpected(std::move(text.error()));
+            }
+            if (arg == L"--kind")
+            {
+                parsed.importKind = std::move(*text);
+            }
+            else if (arg == L"--archive")
+            {
+                parsed.importArchive = std::move(*text);
+            }
+            else if (arg == L"--staging")
+            {
+                parsed.importStaging = std::move(*text);
+            }
+            else
+            {
+                parsed.importReport = std::move(*text);
+            }
         }
         else if (arg == L"--in-process")
         {
@@ -210,7 +246,9 @@ int run(std::span<wchar_t*> args)
         }
         dataDirectory = std::move(*defaultDirectory);
     }
-    startFileLog(dataDirectory, parsed->applyHelper ? L"apply-helper" : L"core");
+    startFileLog(dataDirectory, parsed->applyHelper    ? L"apply-helper"
+                                : parsed->importWorker ? L"import-worker"
+                                                       : L"core");
 
     // ADR-0002: no foreign code inside the core or its helper from here on.
     if (auto mitigated = platform::applyStrictMitigations(); !mitigated)
@@ -226,6 +264,16 @@ int run(std::span<wchar_t*> args)
             return 2;
         }
         return core::runApplyHelper(parsed->pipe);
+    }
+    if (parsed->importWorker)
+    {
+        if (parsed->importArchive.empty() || parsed->importStaging.empty() || parsed->importReport.empty())
+        {
+            log::error("--import-worker needs --kind, --archive, --staging and --report");
+            return 2;
+        }
+        return core::runImportWorker(parsed->importKind, parsed->importArchive, parsed->importStaging,
+                                     parsed->importReport);
     }
 
     auto instance = platform::SingleInstance::acquire(L"core");

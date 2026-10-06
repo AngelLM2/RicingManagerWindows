@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rmw::platform
@@ -57,7 +59,7 @@ public:
     [[nodiscard]] bool running() const noexcept;
     // Waits for exit; nullopt on timeout.
     [[nodiscard]] std::optional<std::uint32_t> wait(std::chrono::milliseconds timeout) const noexcept;
-    // Ends the child (and its job) immediately.
+    // Ends the child (and its job) and waits up to 2 s for it to be gone.
     void terminate() noexcept;
     // Lets the child live on its own (closes our handles without killing it).
     void detach() noexcept;
@@ -96,6 +98,11 @@ private:
     void* m_mutex = nullptr;
     bool m_owned = false;
 };
+
+// The running processes started from `folder` whose file name is one of `names` (any case): an
+// installation's core and workers, not another copy's.
+[[nodiscard]] std::vector<std::uint32_t> processesFromFolder(const std::filesystem::path& folder,
+                                                             std::span<const std::wstring_view> names);
 
 // %LOCALAPPDATA%\RicingManagerWindows
 [[nodiscard]] Result<std::filesystem::path> defaultDataDirectory();

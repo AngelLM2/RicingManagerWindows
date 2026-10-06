@@ -1,0 +1,79 @@
+schema = 1
+
+[meta]
+id          = "io.github.angellm2.rices.tokyo-midnight"
+name        = "Tokyo Midnight"
+author      = "Ricing Manager"
+version     = "1.0.0"
+license     = "GPL-3.0-or-later"
+description = "A city at night in the rain, neon signs (東京, 夜) mirrored on the wet street, in the Tokyo Night colors. The rain falls (a 6 s loop); a still on battery."
+
+[palette]
+base    = "#1A1B26"
+surface = "#24283B"
+text    = "#C0CAF5"
+blue    = "#7AA2F7"
+purple  = "#BB9AF7"
+cyan    = "#7DCFFF"
+red     = "#F7768E"
+
+[appearance]
+mode              = "dark"
+accent            = "#7AA2F7"
+transparency      = true
+accent_on_taskbar = false
+
+[wallpaper]
+background = "#1A1B26"
+
+[wallpaper.policy]
+pause_on_fullscreen = true
+pause_on_battery    = true
+pause_when_covered  = true
+fps_limit           = 30
+mute                = true
+
+[[wallpaper.monitor]]
+match          = "all"
+kind           = "video"
+source         = "assets/tokyo-midnight.mp4"
+fallback_image = "assets/tokyo-midnight.png"
+fit            = "fill"
+
+[cursors]
+source = "assets/cursors"
+size   = 32
+
+[cursors.map]
+normal      = "normal.cur"
+help        = "help.cur"
+working     = "working.ani"
+busy        = "busy.ani"
+precision   = "precision.cur"
+text        = "text.cur"
+handwriting = "handwriting.cur"
+unavailable = "unavailable.cur"
+vertical    = "vertical.cur"
+horizontal  = "horizontal.cur"
+diagonal1   = "diagonal1.cur"
+diagonal2   = "diagonal2.cur"
+move        = "move.cur"
+alternate   = "alternate.cur"
+link        = "link.cur"
+location    = "location.cur"
+person      = "person.cur"
+
+[[bar]]
+monitor             = "all"
+position            = "bottom"
+mode                = "float"
+thickness           = 40
+length              = "70%"
+margin              = [0, 0, 10, 0]
+radius              = 14
+background          = { kind = "acrylic", tint = "palette.surface", opacity = 0.82 }
+foreground          = "palette.text"
+hide_native_taskbar = true
+left                = ["start", "windows"]
+center              = ["media"]
+right               = ["tray", "network", "volume", "battery", "clock"]

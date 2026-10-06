@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+# Template: scripts\package.ps1 fills in the version, date and hash (build\package\<version>\winget\).
+PackageIdentifier: AngelLM2.RicingManager
+PackageVersion: {{VERSION}}
+MinimumOSVersion: 10.0.19041.0
+InstallerType: inno
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: {{DATE}}
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/AngelLM2/RicingManagerWindows/releases/download/v{{VERSION}}/RicingManager-{{VERSION}}-setup.exe
+    InstallerSha256: {{SHA256}}
+    ProductCode: '{6B1E3C2A-8F4D-4E7B-9A51-2D7C0F3E9B84}_is1'
+ManifestType: installer
+ManifestVersion: 1.9.0

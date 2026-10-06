@@ -206,6 +206,14 @@ export component PluginsPage inherits ScrollView {
             alignment: start;
 
             Button {
+                text: @tr("Install from a file…");
+                enabled: !Api.busy;
+                clicked => {
+                    Api.plugin-install-file();
+                }
+            }
+
+            Button {
                 text: @tr("Install from a folder…");
                 clicked => {
                     Api.plugin-install();

@@ -6,8 +6,10 @@
 #include "rmw/base/Version.hpp"
 #include "rmw/domain/Color.hpp"
 #include "rmw/domain/MonitorSelector.hpp"
+#include "rmw/domain/PathRules.hpp"
 #include "rmw/domain/PluginApi.hpp"
 #include "rmw/json/Json.hpp"
+#include "rmw/package/Package.hpp"
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/plugins/HostPlan.hpp"
 #include "rmw/plugins/PluginFiles.hpp"
@@ -358,8 +360,12 @@ void SettingsApp::call(std::string method, Json params, Done done, bool operatio
                 const auto deadline = std::chrono::steady_clock::now() + 5min;
                 while (true)
                 {
-                    auto result =
-                        client.call(method, params, operation ? std::chrono::milliseconds(5min) : 30s);
+                    // A package from anyone is unpacked by the core's import worker: up to 10 min.
+                    const bool unpacks = method == "rice.import" || method == "plugin.install";
+                    auto result = client.call(method, params,
+                                              unpacks     ? std::chrono::milliseconds(11min)
+                                              : operation ? std::chrono::milliseconds(5min)
+                                                          : std::chrono::milliseconds(30s));
                     if (result || result.error().code() != ErrorCode::Busy || !operation ||
                         std::chrono::steady_clock::now() > deadline)
                     {
@@ -377,6 +383,25 @@ void SettingsApp::call(std::string method, Json params, Done done, bool operatio
                     }
                     done(std::move(reply));
                 });
+        });
+    }
+    m_wake.notify_one();
+}
+
+void SettingsApp::background(std::function<Reply()> job, Done done)
+{
+    ++m_operations;
+    m_ui->global<Api>().set_busy(true);
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_tasks.emplace_back([this, job = std::move(job),
+                              done = std::move(done)](client::CoreClient&) mutable {
+            Reply reply = job();
+            slint::invoke_from_event_loop([this, reply = std::move(reply), done = std::move(done)]() mutable {
+                --m_operations;
+                m_ui->global<Api>().set_busy(m_operations > 0);
+                done(std::move(reply));
+            });
         });
     }
     m_wake.notify_one();
@@ -1604,6 +1629,54 @@ void SettingsApp::bind()
         rememberFolder(*folder);
         refreshRices();
     });
+    api.on_import_rice([this] {
+        const auto file = pickFile(window(), {{L"Rices", L"*.rice"}});
+        if (!file)
+        {
+            return;
+        }
+        call(
+            "rice.import", Json{{"path", utf8(*file)}},
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+            [this](Reply reply) {
+                if (!reply)
+                {
+                    failed(reply.error());
+                    return;
+                }
+                notice(NoticeKind::Added, json::stringOr(*reply, "name", ""));
+                refreshRices();
+            },
+            true);
+    });
+    api.on_share_rice([this](const slint::SharedString& folder) {
+        const fs::path source = pathOf(folder);
+        const std::string name = domain::safeFileName(settings::readEntry(source).name, "rice");
+        const auto target = pickSaveFile(window(), {L"Rices", L"*.rice"}, utf8To16Lossy(name) + L".rice");
+        if (!target)
+        {
+            return;
+        }
+        background(
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+            [source, target = *target]() -> Reply {
+                auto packed = package::pack(source, package::Kind::Rice, target);
+                if (!packed)
+                {
+                    return std::unexpected(std::move(packed.error()));
+                }
+                return Json{{"bytes", *packed}};
+            },
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+            [this, target = *target](Reply reply) {
+                if (!reply)
+                {
+                    failed(reply.error());
+                    return;
+                }
+                notice(NoticeKind::Shared, utf8(target));
+            });
+    });
     api.on_new_rice([this] {
         const std::string name = text(m_ui->global<Words>().invoke_new_rice_name());
         auto folder = settings::newRiceFolder(m_dataDirectory, name);
@@ -2151,6 +2224,27 @@ void SettingsApp::bind()
             notice(NoticeKind::Installed, json::stringOr(*reply, "name", json::stringOr(*reply, "id", "")));
             refreshPlugins();
         });
+    });
+    api.on_plugin_install_file([this] {
+        const auto file = pickFile(window(), {{L"Plugins", L"*.rmwp"}});
+        if (!file)
+        {
+            return;
+        }
+        // Installed unapproved: its card then shows what it asks for, and "Approve".
+        call(
+            "plugin.install", Json{{"path", utf8(*file)}, {"approve", false}},
+            [this](Reply reply) {
+                if (!reply)
+                {
+                    failed(reply.error());
+                    return;
+                }
+                notice(NoticeKind::Installed,
+                       json::stringOr(*reply, "name", json::stringOr(*reply, "id", "")));
+                refreshPlugins();
+            },
+            true);
     });
     api.on_plugin_approve([this](const slint::SharedString& id) {
         const std::string plugin = text(id);
