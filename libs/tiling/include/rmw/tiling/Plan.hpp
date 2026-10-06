@@ -2,6 +2,7 @@
 
 #include "rmw/base/Error.hpp"
 #include "rmw/domain/Color.hpp"
+#include "rmw/domain/Rice.hpp"
 #include "rmw/domain/Settings.hpp"
 #include "rmw/tiling/Layout.hpp"
 #include "rmw/tiling/Workspace.hpp"
@@ -16,12 +17,35 @@
 namespace rmw::tiling
 {
 
+// The rice's [windows] (M14), its colors resolved: what rmw-tiler paints on other apps' windows.
+struct WindowLook
+{
+    std::optional<domain::WindowCorners> corners;
+    std::optional<domain::Color> border;
+    bool noBorder = false;
+    std::optional<domain::Color> caption;
+    std::optional<domain::Color> text;
+    std::optional<domain::WindowBackdrop> backdrop;
+    std::optional<bool> dark;
+    std::vector<std::string> exclude; // programs, lower case
+
+    friend bool operator==(const WindowLook&, const WindowLook&) = default;
+};
+
+// A rice's [windows] with its palette names resolved; palette.accent, when the palette has none, is
+// Windows' accent now. A name the palette lacks is left out.
+[[nodiscard]] WindowLook lookFromRice(const domain::WindowsLookConfig& config,
+                                      std::span<const domain::PaletteEntry> palette, domain::Color accent);
+[[nodiscard]] std::string toJson(const WindowLook& look);
+[[nodiscard]] Result<WindowLook> parseLook(std::string_view text);
+
 // What the core hands rmw-tiler (<data>\tiler\plan.json): the user's [tiling], the border's color
-// resolved (no plan: no tiler).
+// resolved, and the rice's window look (no plan: no tiler). Tiling off with a look: the look alone.
 struct Plan
 {
     domain::TilingSettings settings; // its borderColor is resolved into `border` (and not kept)
     domain::Color border;            // the focused window's border: the rice's accent unless set
+    std::optional<WindowLook> look;
 
     friend bool operator==(const Plan&, const Plan&) = default;
 };

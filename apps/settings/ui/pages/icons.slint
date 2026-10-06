@@ -1,0 +1,157 @@
+import { Button, LineEdit, ScrollView, Palette } from "std-widgets.slint";
+import { Api, IconRow } from "../api.slint";
+import { Card, Hint, PageHeader } from "../common.slint";
+import { EditingBanner } from "editing.slint";
+import { Words } from "../words.slint";
+
+// One icon of the rice: what it is, its .ico (or Windows' own) and its buttons.
+component IconLine inherits HorizontalLayout {
+    in property <string> kind;      // "desktop", "folder" or "app"
+    in property <IconRow> icon;
+    in property <string> label;
+    spacing: 8px;
+
+    Text {
+        width: 220px;
+        text: root.label;
+        vertical-alignment: center;
+        color: Palette.foreground;
+        overflow: elide;
+    }
+
+    Text {
+        width: 200px;
+        text: root.icon.file != "" ? root.icon.file : @tr("Windows' icon");
+        vertical-alignment: center;
+        color: Palette.foreground.transparentize(30%);
+        overflow: elide;
+    }
+
+    Button {
+        text: @tr("Choose an .ico…");
+        accessible-label: @tr("Choose an icon for {}", root.label);
+        clicked => {
+            Api.icon-pick(root.kind, root.icon.key);
+        }
+    }
+
+    if root.icon.file != "": Button {
+        text: @tr("As it is");
+        accessible-label: @tr("Leave {} as it is", root.label);
+        clicked => {
+            Api.icon-clear(root.kind, root.icon.key);
+        }
+    }
+}
+
+// The rice's icons (M14): the desktop's, the user's folders' and programs' (their shortcuts).
+export component IconsPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Icons");
+            subtitle: @tr("Your .ico files for the desktop, your folders and your programs.");
+        }
+
+        EditingBanner { }
+
+        if Api.editing: Card {
+            title: @tr("Desktop");
+
+            for row in Api.icon-desktop-rows: IconLine {
+                kind: "desktop";
+                icon: row;
+                label: Words.desktop-icon(row.key);
+            }
+
+            Hint {
+                text: @tr("The Recycle Bin has two icons: empty and full.");
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("Folders");
+
+            for row in Api.icon-folder-rows: IconLine {
+                kind: "folder";
+                icon: row;
+                label: Words.user-folder(row.key);
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("Programs");
+
+            for row in Api.icon-app-rows: IconLine {
+                kind: "app";
+                icon: row;
+                label: row.key;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+
+                LineEdit {
+                    width: 220px;
+                    text <=> Api.icon-new-program;
+                    placeholder-text: "firefox.exe";
+                    accessible-label: @tr("Program");
+                }
+
+                Button {
+                    text: @tr("Choose an .ico…");
+                    enabled: Api.icon-new-program != "";
+                    accessible-label: @tr("Choose an icon for the program");
+                    clicked => {
+                        Api.icon-pick("app", Api.icon-new-program);
+                    }
+                }
+            }
+
+            Hint {
+                text: @tr("The program's shortcuts take the icon: in your Start menu, on your desktop and pinned to the taskbar. Ricing Manager's bar and Start show it too.");
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("File types");
+
+            for row in Api.icon-type-rows: IconLine {
+                kind: "type";
+                icon: row;
+                label: "." + row.key;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+
+                LineEdit {
+                    width: 220px;
+                    text <=> Api.icon-new-type;
+                    placeholder-text: "txt";
+                    accessible-label: @tr("File type");
+                }
+
+                Button {
+                    text: @tr("Choose an .ico…");
+                    enabled: Api.icon-new-type != "";
+                    accessible-label: @tr("Choose an icon for the file type");
+                    clicked => {
+                        Api.icon-pick("type", Api.icon-new-type);
+                    }
+                }
+            }
+
+            Hint {
+                text: @tr("Files of that type show the icon, for the program that opens them now.");
+            }
+        }
+
+        if Api.editing: Hint {
+            text: @tr("Windows' own icons are not copied into the rice: a rice you share takes only your files.");
+        }
+    }
+}

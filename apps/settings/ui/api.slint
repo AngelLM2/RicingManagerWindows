@@ -8,6 +8,8 @@ export enum Page {
     appearance,
     wallpapers,
     cursors,
+    sounds,
+    icons,
     bar,
     plugins,
     tiling,
@@ -236,6 +238,19 @@ export struct TilingRuleRow {
     workspace: int,     // 1..9
 }
 
+// A sound event of the edited rice (M14).
+export struct SoundRow {
+    event: string,      // its name in [sounds.events]
+    file: string,       // the .wav in the rice, or ""
+    silent: bool,       // set to no sound
+}
+
+// An icon of the edited rice (M14): a desktop icon, a user folder or a program.
+export struct IconRow {
+    key: string,        // its name in [icons] / [icons.folders], or the program ("firefox.exe")
+    file: string,       // the .ico in the rice, or ""
+}
+
 export struct RuleRow {
     when: int,          // 0 time, 1 battery, 2 plugged in, 3 monitor connected
     at: string,
@@ -278,7 +293,7 @@ export global Api {
     // ---- home ------------------------------------------------------------------------------
     in property <string> active-name;
     in property <string> active-folder;
-    in property <[string]> managed;     // module names: appearance, wallpaper, cursors, taskbar, bar, tweaks
+    in property <[string]> managed;     // module names: appearance, wallpaper, cursors, sounds, taskbar, bar, tweaks
     in property <bool> safe-mode;
     in property <bool> original-captured;
     in property <[StatusLine]> status-lines;
@@ -356,6 +371,44 @@ export global Api {
     callback cursors-pick();
     callback cursors-clear();
     callback cursors-edited();
+
+    // ---- sounds (M14) ----------------------------------------------------------------------
+    in property <[SoundRow]> sound-rows;
+    in-out property <bool> sounds-silence;     // [sounds] scheme = "none"
+    callback sound-pick(string /* event */);
+    callback sound-silence(string /* event */);
+    callback sound-clear(string /* event */);
+    callback sound-play(string /* event */);
+    callback sounds-edited();
+
+    // ---- other apps' windows (M14) ---------------------------------------------------------
+    in-out property <int> windows-corners;     // 0 leave, 1 round, 2 small, 3 square
+    in-out property <int> windows-backdrop;    // 0 leave, 1 none, 2 mica, 3 acrylic, 4 tabbed
+    in-out property <int> windows-dark;        // 0 leave, 1 on, 2 off
+    in-out property <string> windows-border;   // #RRGGBB, palette.<name>, none, or ""
+    in-out property <string> windows-caption;
+    in-out property <string> windows-title;
+    in-out property <string> windows-exclude;  // "code.exe, steam.exe"
+    callback windows-edited();
+
+    // ---- the lock screen (M14) -------------------------------------------------------------
+    in property <string> lock-image;           // [lockscreen] image, or ""
+    in property <bool> lock-spotlight;         // [lockscreen] spotlight = true
+    in-out property <int> lock-tips;           // 0 leave, 1 show, 2 hide
+    callback lock-pick();
+    callback lock-spotlight-on();
+    callback lock-clear();
+    callback lock-edited();
+
+    // ---- icons (M14) -----------------------------------------------------------------------
+    in property <[IconRow]> icon-desktop-rows;
+    in property <[IconRow]> icon-folder-rows;
+    in property <[IconRow]> icon-app-rows;
+    in property <[IconRow]> icon-type-rows;
+    in-out property <string> icon-new-program; // the program the next [icons.apps] entry is for
+    in-out property <string> icon-new-type;    // the file type the next [icons.types] entry is for
+    callback icon-pick(string /* "desktop" | "folder" | "app" | "type" */, string /* key */);
+    callback icon-clear(string /* kind */, string /* key */);
 
     // ---- the native taskbar and our bars ---------------------------------------------------
     in-out property <int> taskbar-alignment;    // 0 leave, 1 left, 2 center

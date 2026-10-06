@@ -38,17 +38,30 @@ struct StartPlan
     friend bool operator==(const StartPlan&, const StartPlan&) = default;
 };
 
+// A program's icon from the rice's [icons.apps] (M14): our bar, dock and Start draw it for the
+// program. rmw-bar checks the file (validateIconFile) before it draws it.
+struct PlanAppIcon
+{
+    std::string program;         // "firefox.exe"
+    std::filesystem::path file;  // an .ico in the rice's folder (absolute)
+
+    friend bool operator==(const PlanAppIcon&, const PlanAppIcon&) = default;
+};
+
 struct Plan
 {
     std::string riceName;
     StartPlan start;
     std::vector<domain::BarConfig> bars; // every ColorRef holds a Color (or nothing)
     std::vector<PlanPlugin> plugins;
+    std::vector<PlanAppIcon> appIcons;
 };
 
 // Resolves palette references. The rice parser checked the rice's own; a name only a skin uses and
 // the rice does not define is left out (the bar's default color shows).
 [[nodiscard]] Result<Plan> planFromRice(const domain::Rice& rice);
+// The rice's [icons.apps], its files in `riceFolder` (the parser checked their paths).
+void addAppIcons(Plan& plan, const domain::Rice& rice, const std::filesystem::path& riceFolder);
 
 [[nodiscard]] std::string toJson(const Plan& plan);
 [[nodiscard]] Result<Plan> planFromJson(std::string_view text);

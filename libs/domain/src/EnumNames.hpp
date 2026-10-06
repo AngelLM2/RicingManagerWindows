@@ -179,4 +179,68 @@ inline constexpr std::array<CursorRoleNames, kCursorRoleCount> kCursorRoleNames 
     {CursorRole::Person, "person", "Person"},
 }};
 
+struct SoundEventNames
+{
+    SoundEvent event;
+    std::string_view riceName;
+    std::string_view registryKey; // under HKCU\AppEvents\Schemes
+};
+
+// Order matches the SoundEvent enumerators.
+inline constexpr std::array<SoundEventNames, kSoundEventCount> kSoundEventNames = {{
+    {SoundEvent::Beep, "beep", R"(Apps\.Default\.Default)"},
+    {SoundEvent::Asterisk, "asterisk", R"(Apps\.Default\SystemAsterisk)"},
+    {SoundEvent::Exclamation, "exclamation", R"(Apps\.Default\SystemExclamation)"},
+    {SoundEvent::Critical, "critical", R"(Apps\.Default\SystemHand)"},
+    {SoundEvent::Question, "question", R"(Apps\.Default\SystemQuestion)"},
+    {SoundEvent::Notification, "notification", R"(Apps\.Default\Notification.Default)"},
+    {SoundEvent::Message, "message", R"(Apps\.Default\Notification.IM)"},
+    {SoundEvent::Mail, "mail", R"(Apps\.Default\Notification.Mail)"},
+    {SoundEvent::Reminder, "reminder", R"(Apps\.Default\Notification.Reminder)"},
+    {SoundEvent::DeviceConnect, "device-connect", R"(Apps\.Default\DeviceConnect)"},
+    {SoundEvent::DeviceDisconnect, "device-disconnect", R"(Apps\.Default\DeviceDisconnect)"},
+    {SoundEvent::DeviceFail, "device-fail", R"(Apps\.Default\DeviceFail)"},
+    {SoundEvent::LowBattery, "low-battery", R"(Apps\.Default\LowBatteryAlarm)"},
+    {SoundEvent::CriticalBattery, "critical-battery", R"(Apps\.Default\CriticalBatteryAlarm)"},
+    {SoundEvent::Unlock, "unlock", R"(Apps\.Default\WindowsUnlock)"},
+    {SoundEvent::PrintComplete, "print-complete", R"(Apps\.Default\PrintComplete)"},
+    {SoundEvent::EmptyRecycleBin, "empty-recycle-bin", R"(Apps\Explorer\EmptyRecycleBin)"},
+    {SoundEvent::Navigating, "navigating", R"(Apps\Explorer\Navigating)"},
+}};
+
+inline constexpr auto kDesktopIconNames = std::to_array<EnumName<DesktopIcon>>({
+    {DesktopIcon::ThisPc, "this-pc"},
+    {DesktopIcon::RecycleBin, "recycle-bin"},
+    {DesktopIcon::RecycleBinFull, "recycle-bin-full"},
+    {DesktopIcon::Network, "network"},
+    {DesktopIcon::UserFiles, "user-files"},
+    {DesktopIcon::ControlPanel, "control-panel"},
+});
+
+inline constexpr auto kUserFolderNames = std::to_array<EnumName<UserFolder>>({
+    {UserFolder::Desktop, "desktop"},
+    {UserFolder::Documents, "documents"},
+    {UserFolder::Downloads, "downloads"},
+    {UserFolder::Pictures, "pictures"},
+    {UserFolder::Music, "music"},
+    {UserFolder::Videos, "videos"},
+});
+
+inline constexpr auto kSoundSchemeNames = std::to_array<EnumName<SoundScheme>>({
+    {SoundScheme::None, "none"},
+});
+
+inline constexpr auto kWindowCornersNames = std::to_array<EnumName<WindowCorners>>({
+    {WindowCorners::Round, "round"},
+    {WindowCorners::Small, "small"},
+    {WindowCorners::Square, "square"},
+});
+
+inline constexpr auto kWindowBackdropNames = std::to_array<EnumName<WindowBackdrop>>({
+    {WindowBackdrop::None, "none"},
+    {WindowBackdrop::Mica, "mica"},
+    {WindowBackdrop::Acrylic, "acrylic"},
+    {WindowBackdrop::Tabbed, "tabbed"},
+});
+
 } // namespace rmw::domain::detail

@@ -112,6 +112,190 @@ void exportCursors(const Json& state, std::string& toml, ExportResult& result,
     toml += "\n[cursors.map]\n" + map;
 }
 
+void exportSounds(const Json& state, std::string& toml, ExportResult& result,
+                  const std::function<std::string(std::string_view)>& extensionOf)
+{
+    if (!state.is_object())
+    {
+        return;
+    }
+    std::string events;
+    bool allSilent = true;
+    bool anyField = false;
+    for (std::size_t i = 0; i < domain::kSoundEventCount; ++i)
+    {
+        const auto event = static_cast<domain::SoundEvent>(i);
+        const Json field = json::memberOr(state, domain::riceName(event), nullptr);
+        if (!field.is_object())
+        {
+            continue;
+        }
+        anyField = true;
+        const std::string source = json::stringOr(field, "data", "");
+        if (source.empty())
+        {
+            continue;
+        }
+        allSilent = false;
+        // Windows' own sounds are Windows' to give: an imported rice keeps the other computer's.
+        if (json::boolOr(field, "keep", false))
+        {
+            continue;
+        }
+        if (lower(extensionOf(source)) != "wav")
+        {
+            result.notes.push_back(std::format("sound '{}' is not a .wav file; skipped", domain::riceName(event)));
+            continue;
+        }
+        const std::string file = std::format("assets/sounds/{}.wav", domain::riceName(event));
+        result.files.push_back({source, file});
+        events += std::format("{} = {}\n", domain::riceName(event), tomlString(file));
+    }
+    if (anyField && allSilent && json::stringOr(json::memberOr(state, "scheme", nullptr), "data", "") == ".None")
+    {
+        toml += "\n[sounds]\nscheme = \"none\"\n";
+        return;
+    }
+    if (!events.empty())
+    {
+        toml += "\n[sounds]\n\n[sounds.events]\n" + events;
+    }
+}
+
+// An icon location ("C:\x.ico,0") that is an .ico of the user's (not Windows'): its file.
+std::string userIconFile(const std::string& location,
+                         const std::function<std::string(std::string_view)>& extensionOf)
+{
+    const auto comma = location.rfind(',');
+    std::string file = comma == std::string::npos ? location : location.substr(0, comma);
+    const std::string lowered = lower(file);
+    if (file.empty() || lowered.starts_with("%systemroot%") || lowered.starts_with("%windir%") ||
+        lowered.starts_with(R"(c:\windows\)") || lower(extensionOf(file)) != "ico")
+    {
+        return {};
+    }
+    return file;
+}
+
+// A captured icon: its copy in the store when it has one (the same picture, always there), else
+// the location itself.
+std::string capturedIcon(const Json& holder, std::string_view key)
+{
+    if (holder.is_string())
+    {
+        return holder.get<std::string>();
+    }
+    const std::string copy = json::stringOr(holder, "copy", "");
+    return copy.empty() ? json::stringOr(holder, key, "") : copy;
+}
+
+void exportIcons(const Json& state, std::string& toml, ExportResult& result,
+                 const std::function<std::string(std::string_view)>& extensionOf)
+{
+    if (!state.is_object())
+    {
+        return;
+    }
+    std::string desktop;
+    for (std::size_t i = 0; i < domain::kDesktopIconCount; ++i)
+    {
+        const std::string name(domain::riceName(static_cast<domain::DesktopIcon>(i)));
+        const std::string file = userIconFile(capturedIcon(json::memberOr(state, name, nullptr), "data"), extensionOf);
+        if (!file.empty())
+        {
+            result.files.push_back({file, "assets/icons/" + name + ".ico"});
+            desktop += std::format("{} = {}\n", name, tomlString("assets/icons/" + name + ".ico"));
+        }
+    }
+    std::string folders;
+    for (std::size_t i = 0; i < domain::kUserFolderCount; ++i)
+    {
+        const std::string name(domain::riceName(static_cast<domain::UserFolder>(i)));
+        const Json field = json::memberOr(state, "folder:" + name, nullptr);
+        const std::string file = userIconFile(capturedIcon(field, "data"), extensionOf);
+        if (!file.empty())
+        {
+            const std::string relative = "assets/icons/folder-" + name + ".ico";
+            result.files.push_back({file, relative});
+            folders += std::format("{} = {}\n", name, tomlString(relative));
+        }
+    }
+    std::string apps;
+    std::vector<std::string> seen;
+    Json shortcuts = json::memberOr(json::memberOr(state, "apps", Json::object()), "byShortcut", Json::object());
+    if (!shortcuts.is_object())
+    {
+        shortcuts = Json::object();
+    }
+    for (const auto& [path, shortcut] : shortcuts.items())
+    {
+        const std::string program = json::stringOr(shortcut, "program", "");
+        const std::string file = userIconFile(capturedIcon(shortcut, "icon"), extensionOf);
+        if (file.empty() || !domain::isValidProgramName(program) || std::ranges::find(seen, program) != seen.end())
+        {
+            continue;
+        }
+        seen.push_back(program);
+        const std::string relative = "assets/icons/app-" + program.substr(0, program.size() - 4) + ".ico";
+        result.files.push_back({file, relative});
+        apps += std::format("{} = {}\n", tomlString(program), tomlString(relative));
+    }
+    if (desktop.empty() && folders.empty() && apps.empty())
+    {
+        return;
+    }
+    toml += "\n[icons]\n" + desktop;
+    if (!folders.empty())
+    {
+        toml += "\n[icons.folders]\n" + folders;
+    }
+    if (!apps.empty())
+    {
+        toml += "\n[icons.apps]\n" + apps;
+    }
+}
+
+void exportLockScreen(const Json& state, std::string& toml, ExportResult& result,
+                      const std::function<std::string(std::string_view)>& extensionOf)
+{
+    if (!state.is_object())
+    {
+        return;
+    }
+    std::string section;
+    const Json picture = json::memberOr(state, "picture", Json::object());
+    const Json spotlight = json::memberOr(picture, "spotlight", nullptr);
+    if (spotlight.is_boolean() && spotlight.get<bool>())
+    {
+        section += "spotlight = true\n";
+    }
+    else
+    {
+        // The store's copy when there is one (always there); Windows' own pictures stay out.
+        std::string file = json::stringOr(picture, "copy", "");
+        if (file.empty())
+        {
+            file = json::stringOr(picture, "file", "");
+        }
+        const std::string extension = lower(extensionOf(file));
+        if (!file.empty() && !lower(file).starts_with(R"(c:\windows\)") &&
+            (extension == "jpg" || extension == "jpeg" || extension == "png"))
+        {
+            const std::string relative = std::string("assets/lockscreen.") + (extension == "png" ? "png" : "jpg");
+            result.files.push_back({file, relative});
+            section += std::format("image = {}\n", tomlString(relative));
+        }
+    }
+    if (const Json tips = json::memberOr(state, "tips", nullptr); tips.is_boolean())
+    {
+        section += std::format("tips = {}\n", tips.get<bool>());
+    }
+    if (!section.empty())
+    {
+        toml += "\n[lockscreen]\n" + section;
+    }
+}
+
 void exportWallpaper(const Json& state, const std::vector<ports::MonitorInfo>& monitors, std::string& toml,
                      ExportResult& result, const std::function<std::string(std::string_view)>& extensionOf)
 {
@@ -264,6 +448,9 @@ Result<ExportResult> exportRice(std::string_view name, const CapturedLook& look,
     exportAppearance(look.appearance, result.toml, result.notes);
     exportTaskbar(look.taskbar, result.toml);
     exportCursors(look.cursors, result.toml, result, extensionOf);
+    exportSounds(look.sounds, result.toml, result, extensionOf);
+    exportIcons(look.icons, result.toml, result, extensionOf);
+    exportLockScreen(look.lockscreen, result.toml, result, extensionOf);
     exportWallpaper(look.wallpaper, look.monitors, result.toml, result, extensionOf);
     return result;
 }

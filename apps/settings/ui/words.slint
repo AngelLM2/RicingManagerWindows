@@ -4,6 +4,9 @@ export global Words {
         return name == "appearance" ? @tr("Light/dark mode and accent")
             : name == "wallpaper" ? @tr("Wallpaper")
             : name == "cursors" ? @tr("Cursors")
+            : name == "sounds" ? @tr("Sounds")
+            : name == "icons" ? @tr("Icons")
+            : name == "lockscreen" ? @tr("Lock screen")
             : name == "taskbar" ? @tr("Windows' taskbar")
             : name == "bar" ? @tr("Ricing Manager's bar")
             : name == "tweaks" ? @tr("Tweaks from plugins")
@@ -19,6 +22,51 @@ export global Words {
             : key == "safe-mode" ? @tr("Safe mode")
             : key == "tools" ? @tr("Other customizers")
             : key;
+    }
+
+    // A sound event (M14), as Windows' Sound settings name it.
+    public pure function sound-event(name: string) -> string {
+        return name == "beep" ? @tr("Default beep")
+            : name == "asterisk" ? @tr("Asterisk")
+            : name == "exclamation" ? @tr("Exclamation")
+            : name == "critical" ? @tr("Critical stop")
+            : name == "question" ? @tr("Question")
+            : name == "notification" ? @tr("Notification")
+            : name == "message" ? @tr("New message")
+            : name == "mail" ? @tr("New mail")
+            : name == "reminder" ? @tr("Reminder")
+            : name == "device-connect" ? @tr("Device connected")
+            : name == "device-disconnect" ? @tr("Device disconnected")
+            : name == "device-fail" ? @tr("Device failed to connect")
+            : name == "low-battery" ? @tr("Low battery")
+            : name == "critical-battery" ? @tr("Critical battery")
+            : name == "unlock" ? @tr("Unlock")
+            : name == "print-complete" ? @tr("Print complete")
+            : name == "empty-recycle-bin" ? @tr("Empty the Recycle Bin")
+            : name == "navigating" ? @tr("Folder navigation (click)")
+            : name;
+    }
+
+    // A desktop icon by its name in [icons] (M14).
+    public pure function desktop-icon(name: string) -> string {
+        return name == "this-pc" ? @tr("This PC")
+            : name == "recycle-bin" ? @tr("Recycle Bin (empty)")
+            : name == "recycle-bin-full" ? @tr("Recycle Bin (full)")
+            : name == "network" ? @tr("Network")
+            : name == "user-files" ? @tr("Your user folder")
+            : name == "control-panel" ? @tr("Control Panel")
+            : name;
+    }
+
+    // A user folder by its name in [icons.folders] (M14).
+    public pure function user-folder(name: string) -> string {
+        return name == "desktop" ? @tr("Desktop")
+            : name == "documents" ? @tr("Documents")
+            : name == "downloads" ? @tr("Downloads")
+            : name == "pictures" ? @tr("Pictures")
+            : name == "music" ? @tr("Music")
+            : name == "videos" ? @tr("Videos")
+            : name;
     }
 
     // What a tiling key does (its name in settings.toml [tiling.keys]; M13).

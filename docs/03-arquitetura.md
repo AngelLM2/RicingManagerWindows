@@ -260,6 +260,35 @@ normal = "pointer.cur"
 busy   = "busy.ani"
 text   = "beam.cur"
 
+[sounds]                            # M14 (ADR-0021)
+scheme = "none"                     # silêncio nos eventos que o rice não dá (sem isso: os do Windows)
+[sounds.events]                     # .wav do rice; "" = sem som
+notification = "assets/sounds/pop.wav"
+mail         = ""
+
+[icons]                             # M14: área de trabalho (this-pc, recycle-bin, recycle-bin-full,
+this-pc     = "assets/icons/pc.ico" #      network, user-files, control-panel); só .ico
+recycle-bin = "assets/icons/bin.ico"
+[icons.folders]                     # desktop | documents | downloads | pictures | music | videos
+documents = "assets/icons/docs.ico"
+[icons.apps]                        # os atalhos do usuário para o programa (Iniciar, área de trabalho,
+"firefox.exe" = "assets/icons/fox.ico"  # barra fixada) e o ícone dele na nossa barra e no nosso Iniciar
+[icons.types]                       # o ícone dos arquivos de um tipo (HKCU\Software\Classes\<ProgID>)
+txt = "assets/icons/txt.ico"
+
+[lockscreen]                        # M14
+image = "assets/lock.jpg"           # .jpg | .png; ou spotlight = true (o Destaque do Windows), não os dois
+tips  = false                       # curiosidades, dicas e mais na tela de bloqueio
+
+[windows]                           # M14: as janelas dos outros apps (Windows 11), pintadas pelo rmw-tiler
+corners  = "small"                  # round | small | square
+border   = "palette.accent"         # cor, palette.<nome> ou "none"
+caption  = "#1a1b26"                # a barra de título
+title    = "#c0caf5"                # o texto dela
+backdrop = "mica"                   # none | mica | acrylic | tabbed
+dark     = true                     # barras de título escuras
+exclude  = ["code.exe"]             # programas deixados como estão
+
 [taskbar]                           # barra NATIVA (quando não escondida)
 alignment   = "left"                # left | center
 autohide    = false

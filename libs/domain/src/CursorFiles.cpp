@@ -444,6 +444,24 @@ Result<CursorFormat> validateCursorFile(std::span<const std::byte> bytes, std::s
     return fail(ErrorCode::InvalidData, "cursor files must be .cur or .ani");
 }
 
+Result<void> validateIconFile(std::span<const std::byte> bytes)
+{
+    if (bytes.size() > limits::kIconMaxBytes)
+    {
+        return fail(ErrorCode::InvalidData, "not a usable icon: larger than 4 MB");
+    }
+    const Bytes file(bytes);
+    if (!file.has(0, 6) || file.u16(0) != 0 || file.u16(2) != 1)
+    {
+        return fail(ErrorCode::InvalidData, "not an .ico file (no icon directory)");
+    }
+    if (auto directory = validateIconDirectory(file, false); !directory)
+    {
+        return fail(ErrorCode::InvalidData, std::format("not a usable icon: {}", directory.error().message()));
+    }
+    return {};
+}
+
 Result<std::vector<CursorAssignment>> parseCursorInf(std::string_view text)
 {
     if (text.size() > limits::kInfMaxBytes)

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "rmw/ports/Display.hpp"
+#include "rmw/ports/Icons.hpp"
+#include "rmw/ports/LockScreen.hpp"
 #include "rmw/ports/Registry.hpp"
 #include "rmw/ports/Shell.hpp"
 
@@ -27,6 +29,7 @@ public:
     [[nodiscard]] Result<void> write(std::string_view key, std::string_view name,
                                      const ports::RegistryValue& value) override;
     [[nodiscard]] Result<void> remove(std::string_view key, std::string_view name) override;
+    [[nodiscard]] Result<void> removeKeyIfEmpty(std::string_view key) override;
 
     // Deletes the redirected root and everything below it (no-op for the real HKCU).
     [[nodiscard]] Result<void> deleteRoot();
@@ -54,6 +57,29 @@ public:
 
 private:
     std::chrono::milliseconds m_timeout;
+};
+
+// The user's folders (desktop.ini) and the user's shortcuts (IShellLink), M14.
+// Windows.System.UserProfile.LockScreen (C++/WinRT), each call on an MTA thread of its own.
+class Win32LockScreen final : public ports::ILockScreen
+{
+public:
+    [[nodiscard]] Result<std::string> currentImage() override;
+    [[nodiscard]] Result<std::string> imageSource() override;
+    [[nodiscard]] Result<void> setImage(const std::string& file) override;
+    [[nodiscard]] bool exists(const std::string& file) override;
+};
+
+class Win32Icons final : public ports::IIcons
+{
+public:
+    [[nodiscard]] Result<std::optional<std::string>> folderIcon(std::string_view folder) override;
+    [[nodiscard]] Result<void> setFolderIcon(std::string_view folder, const std::optional<std::string>& icon) override;
+    [[nodiscard]] Result<std::vector<ports::Shortcut>> shortcuts() override;
+    [[nodiscard]] Result<void> setShortcutIcon(const std::string& path, const std::string& icon) override;
+    [[nodiscard]] Result<std::string> progIdOf(std::string_view extension) override;
+    [[nodiscard]] bool exists(std::string_view location) override;
+    void refresh() override;
 };
 
 // The managed-theme sequence of ADR-0005 on IThemeManager2 (undocumented COM), with the legacy

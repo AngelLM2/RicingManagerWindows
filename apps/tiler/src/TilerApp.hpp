@@ -1,6 +1,7 @@
 #pragma once
 
 #include "KeyHook.hpp"
+#include "Looks.hpp"
 #include "SharedBlock.hpp"
 #include "VirtualDesktops.hpp"
 #include "WindowOps.hpp"
@@ -116,6 +117,7 @@ private:
     std::optional<tiling::WindowId> m_bordered;
     std::optional<tiling::WindowId> m_pendingFocus;
     std::unique_ptr<KeyHook> m_keys;
+    Looks m_looks; // the rice's [windows] (M14): with tiling or alone
     std::unique_ptr<VirtualDesktops> m_virtual;
     VirtualDesktops::State m_virtualState;
     std::vector<void*> m_hooks; // HWINEVENTHOOK

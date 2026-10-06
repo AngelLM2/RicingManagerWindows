@@ -5,7 +5,10 @@ rmw_add_library(modules
         src/Appearance.cpp
         src/Cursors.cpp
         src/Export.cpp
+        src/Icons.cpp
+        src/LockScreen.cpp
         src/RegistryFields.cpp
+        src/Sounds.cpp
         src/Taskbar.cpp
         src/Tweaks.cpp
         src/Wallpaper.cpp
