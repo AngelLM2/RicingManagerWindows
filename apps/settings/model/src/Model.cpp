@@ -389,6 +389,12 @@ Result<LoadedRice> loadRice(const fs::path& folder)
 Result<void> saveRice(const fs::path& folder, const domain::Rice& rice)
 {
     const std::string text = std::string(kWrittenByLine) + "\n" + domain::writeRice(rice);
+    // What would not read back is not written: the rice on disk stays the last one that read.
+    domain::Diagnostics diagnostics;
+    if (auto reread = domain::parseRice(text, diagnostics); !reread)
+    {
+        return fail(ErrorCode::InvalidData, std::format("the rice would not read back: {}", reread.error().message()));
+    }
     return platform::writeFileAtomic(folder / L"rice.toml", std::as_bytes(std::span(text)));
 }
 
@@ -519,7 +525,12 @@ Result<std::string> importAsset(const fs::path& riceFolder, const fs::path& sour
         {
             break;
         }
-        const std::string name = domain::safeFileName(utf8(it->path().filename()), "file");
+        // Its own name when a package may hold it: install.inf names the files as they are ("Help
+        // (1).cur" became "Help -1-.cur", and the pack no longer applied).
+        const std::string original = utf8(it->path().filename());
+        const std::string name = domain::validatePackagePath(sub + folderName + "/" + original)
+                                     ? original
+                                     : domain::safeFileName(original, "file");
         if (auto stored =
                 copyInto(it->path(), target, name, slides ? limits::kImageMaxBytes : limits::kCursorMaxBytes);
             !stored)

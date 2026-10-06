@@ -1,5 +1,7 @@
 #include "rmw/domain/PathRules.hpp"
 
+#include "rmw/base/Utf.hpp"
+
 #include <gtest/gtest.h>
 
 #include <string>
@@ -8,6 +10,7 @@ namespace
 {
 
 using rmw::domain::hasExtension;
+using rmw::domain::safeFileName;
 using rmw::domain::validatePackagePath;
 
 TEST(PathRules, AcceptsAndNormalizesRelativePaths)
@@ -67,6 +70,39 @@ TEST(PathRules, ChecksExtensionsCaseInsensitively)
     EXPECT_FALSE(hasExtension("cur", {"cur"}));
     EXPECT_FALSE(hasExtension("a.cur/b", {"cur"}));
     EXPECT_FALSE(hasExtension("b.cur.exe", {"cur"}));
+}
+
+TEST(PathRules, SafeNamesKeepTheirExtensionWhenCut)
+{
+    EXPECT_EQ(safeFileName("city night.png", "x"), "city night.png");
+    EXPECT_EQ(safeFileName("a<b>:c.png", "x"), "a-b--c.png");
+    EXPECT_EQ(safeFileName("con.png", "fallback.png"), "fallback.png");
+
+    // A long name loses the end of its stem; the rice that names it still reads (v1.7: "<long>" with no .jpg).
+    const std::string longName = std::string(80, 'w') + ".jpg";
+    const std::string cut = safeFileName(longName, "x");
+    EXPECT_EQ(cut.size(), 60u);
+    EXPECT_TRUE(cut.ends_with(".jpg"));
+    EXPECT_TRUE(hasExtension(cut, {"jpg"}));
+
+    // Never half a character: 3-byte characters across the cut.
+    std::string wide;
+    for (int i = 0; i < 30; ++i)
+    {
+        wide += "\xE5\xA4\x9C"; // 夜
+    }
+    const std::string cutWide = safeFileName(wide + ".webm", "x");
+    EXPECT_LE(cutWide.size(), 60u);
+    EXPECT_TRUE(cutWide.ends_with(".webm"));
+    EXPECT_TRUE(rmw::isValidUtf8(cutWide));
+    EXPECT_TRUE(validatePackagePath(cutWide));
+
+    // No extension worth keeping (a dot in a sentence): cut like any text, no trailing dot or space.
+    const std::string sentence = std::string(58, 'a') + " . b";
+    const std::string cutSentence = safeFileName(sentence + std::string(20, 'c'), "x");
+    EXPECT_LE(cutSentence.size(), 60u);
+    EXPECT_FALSE(cutSentence.ends_with('.'));
+    EXPECT_FALSE(cutSentence.ends_with(' '));
 }
 
 } // namespace
