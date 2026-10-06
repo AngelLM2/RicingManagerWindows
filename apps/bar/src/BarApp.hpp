@@ -4,6 +4,8 @@
 #include "PluginBridge.hpp"
 #include "PluginWidgets.hpp"
 #include "SlintPlatform.hpp"
+#include "StartMenu.hpp"
+#include "WinKeyHook.hpp"
 #include "Widgets.hpp"
 
 #include "rmw/platform/NativeTaskbar.hpp"
@@ -45,6 +47,8 @@ private:
     {
         Instance instance;
         std::vector<std::unique_ptr<Provider>> providers;
+        BarWindow* window = nullptr; // Slint owns it
+        domain::BarConfig config;
     };
     struct Pending
     {
@@ -74,6 +78,8 @@ private:
     void trayAction(const bar::bridge::Action& action);
     void watchTray(bool wanted);
     void provideTray();
+    // Ricing Manager's Start (M11): next to the bar the click came from, or the main one (Win key).
+    void openStart(bool fromKey);
 
     Win32Platform* m_loop;
     std::filesystem::path m_planFile;
@@ -97,6 +103,9 @@ private:
     std::map<std::string, CachedValues, std::less<>> m_pluginValues;
     std::vector<std::pair<std::filesystem::path, void*>> m_devWatches; // folder, change notification
     std::size_t m_windowSubscription = 0;
+    std::unique_ptr<StartMenu> m_start;
+    bar::StartPlan m_startPlan;
+    std::unique_ptr<WinKeyHook> m_winKey;
     std::unique_ptr<PluginBridge> m_bridge; // last: its callbacks reach everything above
 };
 

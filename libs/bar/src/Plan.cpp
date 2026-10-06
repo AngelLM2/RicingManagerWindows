@@ -205,6 +205,11 @@ Result<Plan> planFromRice(const domain::Rice& rice)
 {
     Plan plan;
     plan.riceName = rice.meta.name;
+    if (rice.start)
+    {
+        plan.start.ours = rice.start->menu == domain::StartMenuKind::Ours;
+        plan.start.pinned = rice.start->pinned;
+    }
     const auto resolve = [&](std::optional<domain::ColorRef>& color) -> Result<void> {
         if (!color || !color->isPalette())
         {
@@ -281,6 +286,7 @@ std::string toJson(const Plan& plan)
     }
     return json::dumpPretty({{"version", kPlanVersion},
                              {"rice", plan.riceName},
+                             {"start", {{"ours", plan.start.ours}, {"winKey", plan.start.winKey}, {"pinned", plan.start.pinned}, {"language", plan.start.language}}},
                              {"bars", std::move(bars)},
                              {"plugins", std::move(plugins)}});
 }
@@ -304,6 +310,23 @@ Result<Plan> planFromJson(std::string_view text)
     }
     Plan plan;
     plan.riceName = json::stringOr(root, "rice", "");
+    const Json start = json::memberOr(root, "start", Json::object());
+    plan.start.ours = json::boolOr(start, "ours", false);
+    plan.start.winKey = json::boolOr(start, "winKey", false);
+    plan.start.language = json::stringOr(start, "language", "en") == "pt-BR" ? "pt-BR" : "en";
+    const Json pinned = json::memberOr(start, "pinned", Json::array());
+    if (!pinned.is_array() || pinned.size() > limits::kStartMaxPinned)
+    {
+        return fail(ErrorCode::InvalidData, "bar plan: start: expected a short list of pinned apps");
+    }
+    for (const auto& id : pinned)
+    {
+        if (!id.is_string() || id.get<std::string>().empty() || id.get<std::string>().size() > 256)
+        {
+            return fail(ErrorCode::InvalidData, "bar plan: start: invalid pinned app");
+        }
+        plan.start.pinned.push_back(id.get<std::string>());
+    }
     PlanReader reader;
     for (std::size_t i = 0; i < bars.size(); ++i)
     {

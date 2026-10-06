@@ -596,6 +596,48 @@ msgstr "Adicionar o widget"
 msgid "Windows' own taskbar, and bars of your own on any edge, any size."
 msgstr "A barra de tarefas do Windows, e barras suas em qualquer borda, de qualquer tamanho."
 
+msgid "Ricing Manager's Start opens from the Start button of this rice's bar: all apps, a search, your pinned apps, your folders and the power buttons, in the rice's colors."
+msgstr "O Iniciar do Ricing Manager abre pelo botão Iniciar da barra deste rice: todos os apps, uma busca, seus apps fixados, suas pastas e os botões de energia, nas cores do rice."
+
+msgid "Start menu"
+msgstr "Menu Iniciar"
+
+msgid "Windows'"
+msgstr "O do Windows"
+
+msgid "Ricing Manager's"
+msgstr "O do Ricing Manager"
+
+msgid "Unpin"
+msgstr "Desafixar"
+
+msgid "Unpin {}"
+msgstr "Desafixar {}"
+
+msgid "Pin an app to Start…"
+msgstr "Fixar um app no Iniciar…"
+
+msgid "Windows' Start layout"
+msgstr "Layout do Iniciar do Windows"
+
+msgid "Default"
+msgstr "Padrão"
+
+msgid "More pins"
+msgstr "Mais fixados"
+
+msgid "More recommendations"
+msgstr "Mais recomendações"
+
+msgid "Recent files and tips in Recommended"
+msgstr "Arquivos recentes e dicas em Recomendados"
+
+msgid "Show"
+msgstr "Mostrar"
+
+msgid "Hide"
+msgstr "Esconder"
+
 msgid "Used when no bar of this rice hides it."
 msgstr "Usada quando nenhuma barra deste rice a esconde."
 
@@ -649,12 +691,6 @@ msgstr "Dock"
 
 msgid "Pinned apps stay in the dock; every app with a window open shows up after them."
 msgstr "Os apps fixados ficam no dock; todo app com uma janela aberta aparece depois deles."
-
-msgid "Unpin"
-msgstr "Desafixar"
-
-msgid "Unpin {}"
-msgstr "Desafixar {}"
 
 msgid "Pin an app…"
 msgstr "Fixar um app…"
@@ -1090,6 +1126,12 @@ msgstr "Iniciar com o Windows"
 
 msgid "Needed for schedules, hotkeys, rules, the bar and video wallpapers after you sign in."
 msgstr "Necessário para horários, atalhos, regras, a barra e wallpapers em vídeo depois que você entra."
+
+msgid "The Win key opens Ricing Manager's Start"
+msgstr "A tecla Win abre o Iniciar do Ricing Manager"
+
+msgid "When the applied rice uses it. Win with any other key stays Windows' (Win+E, Win+L...)."
+msgstr "Quando o rice aplicado usa ele. Win com qualquer outra tecla continua do Windows (Win+E, Win+L...)."
 
 msgid "Keep the icon in the tray"
 msgstr "Manter o ícone na bandeja"

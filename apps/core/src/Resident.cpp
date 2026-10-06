@@ -741,6 +741,11 @@ void Resident::applySettings(LoadedSettings loaded)
     m_emergencyKey = false; // gone with the others; syncBar puts it back
     m_loaded = std::move(loaded);
     setUiLanguage(m_loaded.settings.language);
+    const std::string& language = m_loaded.settings.language;
+    const bool portuguese = language == domain::kLanguagePortuguese ||
+                            (language.empty() && PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_PORTUGUESE);
+    m_core->setStartOptions(m_loaded.settings.startWinKey,
+                            std::string(portuguese ? domain::kLanguagePortuguese : domain::kLanguageEnglish));
     m_lastFired.clear(); // rule numbers may have changed
     m_hotkeyErrors.assign(m_loaded.settings.hotkeys.size(), std::string());
     std::vector<std::string> taken;

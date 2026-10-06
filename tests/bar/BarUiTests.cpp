@@ -1,4 +1,5 @@
 #include "PluginWidgets.hpp"
+#include "StartMenu.hpp"
 #include "Surface.hpp"
 #include "Widgets.hpp"
 
@@ -9,7 +10,9 @@
 #include <slint-interpreter.h>
 #include <slint-platform.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <regex>
 
@@ -96,12 +99,13 @@ std::uint32_t alphaOf(std::uint32_t pixel)
     return pixel >> 24;
 }
 
-Surface::Matte matteOf(const slint::ComponentHandle<slint::interpreter::ComponentInstance>& instance)
+Surface::Matte matteOf(const slint::ComponentHandle<slint::interpreter::ComponentInstance>& instance,
+                       const std::string& property = "bar-matte")
 {
-    return [instance](bool white) {
+    return [instance, property](bool white) {
         const auto color =
             white ? slint::Color::from_rgb_uint8(255, 255, 255) : slint::Color::from_rgb_uint8(0, 0, 0);
-        instance->set_property("bar-matte", Value(slint::Brush(color)));
+        instance->set_property(property, Value(slint::Brush(color)));
     };
 }
 
@@ -227,6 +231,41 @@ TEST(BarSurface, DockSpacerSeparatorAndTextDrawAndAutoLengthFollowsThem)
         EXPECT_GT(six, two + 150.0) << "four more apps, about 50 px each";
         const auto pixels = surface.pixels();
         EXPECT_TRUE(std::ranges::any_of(pixels, [&](std::uint32_t p) { return p != pixels[0]; }));
+    }
+}
+
+TEST(BarSurface, TheStartMenuCompilesAndDraws)
+{
+    // M11: the menu as it opens, then while searching, then with every app and the power list.
+    auto instance = compile(std::string(rmw::barapp::startMenuSource()));
+    auto apps = std::make_shared<slint::VectorModel<Value>>();
+    for (int i = 0; i < 40; ++i)
+    {
+        apps->push_back(Value(slint::interpreter::Struct{{"id", Value(slint::SharedString(std::format("app{}", i)))},
+                                                         {"name", Value(slint::SharedString(std::format("App {}", i)))},
+                                                         {"icon", Value(slint::Image())}}));
+    }
+    const Value model{std::shared_ptr<slint::Model<Value>>(apps)};
+    ASSERT_TRUE(instance->set_property("pinned", model));
+    ASSERT_TRUE(instance->set_property("apps", model));
+    ASSERT_TRUE(instance->set_property("user", Value(slint::SharedString("Ana"))));
+    ASSERT_TRUE(instance->set_property("open", Value(true)));
+    HeadlessPlatform::last->resize(640, 700);
+    Surface surface;
+    for (const auto& [property, value] : std::vector<std::pair<std::string, Value>>{
+             {"query", Value(slint::SharedString())},
+             {"query", Value(slint::SharedString("App"))},
+             {"all-apps", Value(true)},
+             {"power-open", Value(true)}})
+    {
+        ASSERT_TRUE(instance->set_property(property, value)) << property;
+        if (property == "query")
+        {
+            ASSERT_TRUE(instance->set_property("results", model));
+        }
+        HeadlessPlatform::last->draw(surface, true, matteOf(instance, "menu-matte"));
+        const auto pixels = surface.pixels();
+        EXPECT_TRUE(std::ranges::any_of(pixels, [&](std::uint32_t p) { return p != pixels[0]; })) << property;
     }
 }
 

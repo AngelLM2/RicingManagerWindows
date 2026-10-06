@@ -99,6 +99,16 @@ app with a window open; a bar can be **auto** long, as long as what it shows. **
 wrong, Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back. If the bar hangs or
 stops, Windows' taskbar comes back in under a second.
 
+## A Start of your own
+
+In **Taskbar → Start**, choose **Ricing Manager's** Start: the Start button of your bar then opens a
+menu with all your apps and a search (type, then Enter), your pinned apps (**Pin an app to Start…**),
+your folders, Settings and the power buttons, in the rice's colors. In **Settings**, **The Win key
+opens Ricing Manager's Start** makes the Win key open it too; Win with any other key (Win+E, Win+L,
+Win+arrows...) stays Windows'. If Ricing Manager's bar stops, the Win key is Windows' again by
+itself. With **Windows'** Start, a rice can choose its layout (more pins or more recommendations)
+and hide the recent files and tips; restoring brings back what you had.
+
 ## Plugins
 
 Plugins add widgets, bar skins, tweaks, actions and rules. They come as `.rmwp` files or folders.

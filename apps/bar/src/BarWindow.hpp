@@ -74,6 +74,7 @@ private:
     Surface::Matte m_matte;
     bar::Rect m_rect;   // where the bar is when shown
     bar::Rect m_screen; // the monitor's full rectangle (auto-hide hides past its edge)
+    bar::Rect m_reserved; // the strip the shell granted (Reserve), as last logged
     double m_scale = 1.0;
     bool m_layered = true;
     bool m_translucent = true;
