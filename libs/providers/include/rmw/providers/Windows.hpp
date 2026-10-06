@@ -38,6 +38,10 @@ struct IconPixels
     friend bool operator==(const IconPixels&, const IconPixels&) = default;
 };
 
+// The same picture made to fit in `side` x `side` (aspect kept), each pixel the average of the area it
+// covers; as it is when it already fits. What the Shell hands out at 256 px is shown at 24.
+[[nodiscard]] IconPixels shrinkPixels(const IconPixels& pixels, int side);
+
 // Draws an HICON at `size` x `size` pixels; 0 takes the icon's own size (at most 64). Icons without
 // an alpha channel take it from their mask. Any thread: an HICON is usable from any process of the
 // session, and the copy stays valid after its owner destroys it. Empty when it cannot be drawn.
@@ -46,9 +50,9 @@ struct IconPixels
 // Who a window belongs to, as Start knows it: its AppUserModelID (packaged and grouped apps, File
 // Explorer) or else its executable's path. Windows of one app share it. "" when it cannot be read.
 [[nodiscard]] std::wstring appIdentity(void* window);
-// The app's icon as the Shell draws it (Start, the taskbar), at `size` pixels or a little more:
-// sharp at any scale, where a window's own icon is often 16 px. COM must be initialized on the
-// calling thread. Empty when there is none.
+// The app's icon as the Shell draws it (Start, the taskbar), at most `size` pixels: sharp at any
+// scale, where a window's own icon is often 16 px. COM must be initialized on the calling thread.
+// Empty when there is none.
 [[nodiscard]] IconPixels appIconPixels(const std::wstring& identity, int size);
 // The rice's own icons for programs (M14): program file name in lower case ("firefox.exe") -> an
 // .ico the caller checked. appIconPixels() then draws that file for any identity that names the

@@ -24,4 +24,9 @@ struct InstalledApp
 // Opens the app `id` names, when installedApps() lists it.
 [[nodiscard]] Result<void> launchApp(std::string_view id);
 
+// launchApp() on a thread of its own, for a UI thread: it lists every app first, and an app that asks for
+// administrator holds ShellExecuteEx until the person answers the UAC (a bar waiting that long is taken
+// for hung). A failure goes to the log, after `who`.
+void launchAppInBackground(std::string id, std::string who);
+
 } // namespace rmw::platform

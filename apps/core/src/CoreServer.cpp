@@ -800,6 +800,9 @@ Result<void> CoreServer::startBar()
     spec.hangAfter = std::chrono::milliseconds(2000);
     spec.startGrace = std::chrono::milliseconds(10'000);
     spec.endsWithCore = false; // it shows Windows' taskbar again if the core dies
+    // The apps its Start and dock open live on their own: in its job they shared its memory ceiling
+    // (a browser started from "All apps" passed the limit and was killed with the bar).
+    spec.childrenLeaveJob = true;
     log::info("starting the bar");
     return m_supervisor->start(std::move(spec));
 }

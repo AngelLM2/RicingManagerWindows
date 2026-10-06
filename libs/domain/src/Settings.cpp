@@ -279,6 +279,7 @@ private:
         tiling.border = t.boolean("border").value_or(true);
         tiling.borderColor = t.parsed("border_color", Color::parse);
         tiling.runAsAdmin = t.boolean("run_as_admin").value_or(false);
+        tiling.animations = t.boolean("animations").value_or(true);
         if (const auto* keys = t.table("keys"))
         {
             TableReader k(*keys, t.pathOf("keys"), m_diagnostics);
@@ -861,6 +862,10 @@ std::string writeSettings(const Settings& settings)
     if (tiling.runAsAdmin)
     {
         text += "run_as_admin = true\n";
+    }
+    if (!tiling.animations)
+    {
+        text += "animations = false\n";
     }
     if (tiling.keys != defaultTilingKeys())
     {

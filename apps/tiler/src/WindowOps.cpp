@@ -346,6 +346,12 @@ Window foreground() noexcept
     return GetForegroundWindow();
 }
 
+bool windowsAnimates() noexcept
+{
+    BOOL on = TRUE;
+    return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &on, 0) == FALSE || on != FALSE;
+}
+
 std::vector<tiling::Monitor> monitorsNow()
 {
     std::vector<tiling::Monitor> monitors;

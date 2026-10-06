@@ -37,6 +37,10 @@ struct ChildOptions
     // ownJob only: the child cannot start processes of its own. (No JOB_OBJECT_UILIMIT_*: any of
     // them, even the clipboard ones alone, hides the other processes' windows from the child.)
     bool noChildProcesses = false;
+    // ownJob only: what the child starts is not in the job (JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK). The bar
+    // opens the person's apps (its Start, the dock): in the job they had the bar's memory ceiling, counted
+    // towards its limit and were killed with it.
+    bool childrenLeaveJob = false;
 };
 
 // A child process (RAII). With ownJob, destroying the object ends the child: workers never

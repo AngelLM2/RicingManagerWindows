@@ -212,4 +212,18 @@ bool isValidUtf8(std::string_view text) noexcept
     return true;
 }
 
+std::string_view utf8Prefix(std::string_view text, std::size_t maxBytes) noexcept
+{
+    if (text.size() <= maxBytes)
+    {
+        return text;
+    }
+    std::size_t cut = maxBytes;
+    while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0U) == 0x80U)
+    {
+        --cut; // a continuation byte: the character started before
+    }
+    return text.substr(0, cut);
+}
+
 } // namespace rmw

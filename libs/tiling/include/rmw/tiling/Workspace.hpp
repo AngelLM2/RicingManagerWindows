@@ -63,6 +63,9 @@ public:
     void promote(WindowId window);
 
 private:
+    // The minimums of `windows` from the options, in order (empty when none is known).
+    [[nodiscard]] static std::vector<Size> minimumsOf(std::span<const WindowId> windows, const LayoutOptions& options);
+
     std::vector<WindowId> m_windows; // oldest first
     std::vector<WindowId> m_floating;
     std::optional<WindowId> m_focused;

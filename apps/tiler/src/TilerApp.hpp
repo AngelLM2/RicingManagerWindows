@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Animator.hpp"
 #include "KeyHook.hpp"
 #include "Looks.hpp"
 #include "SharedBlock.hpp"
@@ -87,12 +88,20 @@ private:
     // In Mac mode, whether `window` is on the virtual desktop shown now (focusing one on another desktop
     // makes Windows go there).
     [[nodiscard]] bool onShownDesktop(Window window) const;
-    // The windows a workspace switch brings, shown in their slots and above the ones that go.
-    void placeComing(std::span<const tiling::WindowId> coming);
+    // The windows a workspace switch brings, shown in their slots and above the ones that go; with
+    // animations, from `side` (+1: they come from the right, -1: from the left, 0: in place).
+    void placeComing(std::span<const tiling::WindowId> coming, int side);
+    // A window larger than its slot although it is at its place: the app keeps a smallest size of its own.
+    // Remembered (true), so the next layout gives it room.
+    bool learnMinimum(tiling::WindowId id, const tiling::Rect& frame, const tiling::Rect& slot);
+    // Where a window goes: its slot, grown to the size the app keeps, inside the monitor's area.
+    [[nodiscard]] tiling::Rect targetOf(tiling::WindowId id, const tiling::Rect& slot, const tiling::Rect& area) const;
+    [[nodiscard]] bool animations() const noexcept;
     void command(domain::TilingCommand command, int number);
     void focusToward(tiling::Direction direction);
     void moveToward(tiling::Direction direction);
-    void goTo(std::size_t monitor, int workspace);
+    // `side`: where the windows come from (see placeComing); 0 works it out from the numbers.
+    void goTo(std::size_t monitor, int workspace, int side = 0);
     void syncMonitors();
     void syncDesktops(); // the Mac style: Windows' virtual desktops changed
     void updateBorder(Window focused);
@@ -125,6 +134,8 @@ private:
     std::optional<tiling::WindowId> m_bordered;
     std::optional<tiling::WindowId> m_pendingFocus;
     std::set<tiling::WindowId> m_appearing; // shown a moment ago: tiled if still there (kAdoptDelayMs)
+    tiling::MinimumSizes m_minimums;        // what each app refused to go under (learnMinimum)
+    std::unique_ptr<Animator> m_animator;   // windows sliding to their places
     std::unique_ptr<KeyHook> m_keys;
     Looks m_looks; // the rice's [windows] (M14): with tiling or alone
     std::unique_ptr<VirtualDesktops> m_virtual;

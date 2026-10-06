@@ -68,6 +68,10 @@ Result<ChildProcess> ChildProcess::spawn(const std::filesystem::path& executable
             limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
             limits.BasicLimitInformation.ActiveProcessLimit = 1;
         }
+        else if (options.childrenLeaveJob)
+        {
+            limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+        }
 #if !defined(__SANITIZE_ADDRESS__)
         if (options.memoryLimitBytes > 0)
         {

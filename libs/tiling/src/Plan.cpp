@@ -337,6 +337,7 @@ std::string toJson(const Plan& plan)
                              {"border", s.border},
                              {"borderColor", plan.border.toHex()},
                              {"runAsAdmin", s.runAsAdmin},
+                             {"animations", s.animations},
                  {"keys", std::move(keys)},
                  {"rules", std::move(rules)}};
     if (plan.look)
@@ -393,6 +394,7 @@ Result<Plan> parsePlan(std::string_view text)
     s.masterPercent = static_cast<int>(*master);
     s.border = *border;
     s.runAsAdmin = *admin;
+    s.animations = boolIn(root, "animations").value_or(true); // a plan of before v1.8 has none
     plan.border = *colorValue;
 
     const auto keys = root.find("keys");

@@ -1127,6 +1127,7 @@ void SettingsApp::refreshSettings()
     api.set_tiling_master(tiling.masterPercent);
     api.set_tiling_border(tiling.border);
     api.set_tiling_admin(tiling.runAsAdmin);
+    api.set_tiling_animations(tiling.animations);
     api.set_tiling_border_color(shared(tiling.borderColor ? tiling.borderColor->toHex() : std::string()));
     std::vector<TilingKeyRow> tilingKeys;
     tilingKeys.reserve(domain::kTilingCommandCount);
@@ -4116,6 +4117,7 @@ void SettingsApp::bindTiling()
         tiling.masterPercent = std::clamp(api.get_tiling_master(), 10, 90);
         tiling.border = api.get_tiling_border();
         tiling.runAsAdmin = api.get_tiling_admin();
+        tiling.animations = api.get_tiling_animations();
         const std::string color = text(api.get_tiling_border_color());
         if (color.empty())
         {

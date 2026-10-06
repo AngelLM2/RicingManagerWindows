@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 // Tiling (M13): where windows go, without Windows. Every layout is a pure function of the area, how
@@ -36,17 +37,37 @@ using LayoutKind = domain::TilingLayout;
 // Floating is chosen in the settings, never by the shortcut (the windows would stop being placed).
 [[nodiscard]] LayoutKind nextLayout(LayoutKind layout) noexcept;
 
+// The smallest a window lets itself be made (pixels, its visible frame): Discord, Spotify and many
+// others refuse to go under a size of their own. 0: no limit known.
+struct Size
+{
+    std::int32_t width = 0;
+    std::int32_t height = 0;
+    friend bool operator==(const Size&, const Size&) = default;
+};
+
+// Windows (HWNDs, as numbers) and the smallest size each was seen to keep.
+using MinimumSizes = std::unordered_map<std::uint64_t, Size>;
+
 struct LayoutOptions
 {
     std::int32_t outerGap = 8;  // between the windows and the area's edges (pixels)
     std::int32_t innerGap = 8;  // between two windows
     double masterRatio = 0.55;  // MasterStack: the master's share of the width
+    const MinimumSizes* minimums = nullptr; // Workspace::placements gives them to arrange()
 };
 
 // Where each of `count` windows goes in `area`, in their order (the first is the oldest, the master
 // of MasterStack). Floating: none (empty). Never smaller than 1x1, never outside the area.
+// `minimums` (in the same order; missing ones: no limit): when the room allows, every split gives each
+// window at least its minimum, the others sharing what is left; when it does not, the room is shared in
+// proportion to the minimums.
 [[nodiscard]] std::vector<Rect> arrange(LayoutKind layout, const Rect& area, std::size_t count,
-                                        const LayoutOptions& options);
+                                        const LayoutOptions& options, std::span<const Size> minimums = {});
+
+// Where a window that keeps `minimum` goes when its slot is `slot`: the slot, grown to the minimum and
+// moved back inside `area` if it then passes the edge (never off the screen, never under a bar).
+[[nodiscard]] Rect fitted(const Rect& slot, const Size& minimum, const Rect& area) noexcept;
 
 enum class Direction : std::uint8_t
 {

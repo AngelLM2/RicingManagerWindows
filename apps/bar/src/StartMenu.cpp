@@ -36,13 +36,14 @@ constexpr int kIconSize = 48;
 constexpr std::size_t kResults = 24;
 constexpr std::size_t kIconsPerTick = 12;
 constexpr auto kIconTick = std::chrono::milliseconds(30);
+constexpr auto kIconBudget = std::chrono::milliseconds(8);
 constexpr auto kReopenGuard = std::chrono::milliseconds(300);
 
 bool g_wantsWindow = false; // the platform's next window is the menu's
 MenuWindow* g_created = nullptr;
 
 constexpr std::string_view kSource = R"slint(
-import { LineEdit, ScrollView } from "std-widgets.slint";
+import { LineEdit, ListView, ScrollView } from "std-widgets.slint";
 
 export struct RmwStartWords {
     search: string,
@@ -313,16 +314,14 @@ export component RmwStartMenu inherits Window {
                     }
                 }
 
-                if !root.searching && root.all-apps: ScrollView {
+                // Only the rows in sight exist: a PC with hundreds of apps costs what a screenful does.
+                if !root.searching && root.all-apps: ListView {
                     vertical-stretch: 1;
-                    VerticalLayout {
-                        spacing: 2px;
-                        for app in root.apps: RmwStartRow {
-                            app: app;
-                            foreground: root.foreground;
-                            accent: root.accent;
-                            launch(id) => { root.launch(id); }
-                        }
+                    for app in root.apps: RmwStartRow {
+                        app: app;
+                        foreground: root.foreground;
+                        accent: root.accent;
+                        launch(id) => { root.launch(id); }
                     }
                 }
 
@@ -836,8 +835,11 @@ void StartMenu::load()
 
 void StartMenu::loadIcons()
 {
+    // A few at a time and never long: the Shell takes from 1 to 50 ms per icon, and the menu scrolls
+    // and types meanwhile.
+    const auto until = std::chrono::steady_clock::now() + kIconBudget;
     std::size_t loaded = 0;
-    while (m_nextIcon < m_apps.size() && loaded < kIconsPerTick)
+    while (m_nextIcon < m_apps.size() && loaded < kIconsPerTick && std::chrono::steady_clock::now() < until)
     {
         const std::size_t i = m_nextIcon++;
         if (m_iconLoaded[i])
@@ -874,10 +876,7 @@ void StartMenu::search(std::string_view query)
 void StartMenu::launch(std::string_view id)
 {
     hide();
-    if (auto launched = platform::launchApp(id); !launched)
-    {
-        log::warn("start menu: {}", launched.error().toString());
-    }
+    platform::launchAppInBackground(std::string(id), "start menu");
 }
 
 void StartMenu::place(std::string_view name)

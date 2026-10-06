@@ -1,5 +1,6 @@
 #include "rmw/platform/Apps.hpp"
 
+#include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/platform/WinError.hpp"
 
@@ -114,6 +115,30 @@ Result<void> launchApp(std::string_view id)
         }
         return {};
     });
+}
+
+void launchAppInBackground(std::string id, std::string who)
+{
+    try
+    {
+        std::thread([id = std::move(id), who = std::move(who)] {
+            try
+            {
+                if (auto launched = launchApp(id); !launched)
+                {
+                    log::warn("{}: {}", who, launched.error().toString());
+                }
+            }
+            catch (const std::exception& e)
+            {
+                log::warn("{}: open {}: {}", who, id, e.what());
+            }
+        }).detach();
+    }
+    catch (const std::system_error& e)
+    {
+        log::warn("{}: open {}: {}", who, id, e.what());
+    }
 }
 
 } // namespace rmw::platform

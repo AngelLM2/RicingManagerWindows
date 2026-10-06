@@ -162,6 +162,18 @@ export component TilingPage inherits ScrollView {
                     }
                 }
             }
+
+            SettingRow {
+                label: @tr("Animations");
+                description: @tr("Windows slide to their places: a workspace that comes in, a window that opens, two that trade places. Off when Windows' animation effects are off.");
+                Switch {
+                    checked <=> Api.tiling-animations;
+                    accessible-label: @tr("Animations");
+                    toggled => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
         }
 
         Card {
