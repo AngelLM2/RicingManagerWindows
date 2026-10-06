@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: v1.2.0 (milestones M12 "Live wallpapers" and M10 "Bars").** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows, video wallpapers and live wallpapers (effects and particles; Wallpaper Engine's own wallpapers read from this PC); a custom, fully resizable taskbar with the system tray, five ready-made styles and a dock; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
+**Status: v1.3.0 (milestone M11 "Start").** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows, video wallpapers and live wallpapers (effects and particles; Wallpaper Engine's own wallpapers read from this PC); a custom, fully resizable taskbar with the system tray, five ready-made styles, a dock and its own Start menu; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
 
 ---
 
