@@ -71,6 +71,8 @@ struct Settings
     bool keepInTray =
         true; // the tray icon stays (the user asked for it in the v1.0 test); off: "zero resident"
     std::string language; // [ui] language: kLanguageEnglish, kLanguagePortuguese or empty
+    // [start] win_key (M11): the Win key alone opens Ricing Manager's Start, when the rice uses it.
+    bool startWinKey = false;
     std::vector<Hotkey> hotkeys;
     std::vector<Rule> rules;
 

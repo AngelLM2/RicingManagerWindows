@@ -568,8 +568,39 @@ bool CoreServer::barOff() const
     return m_barOff;
 }
 
-void CoreServer::setBarPlan(const std::optional<std::string>& plan)
+void CoreServer::setStartOptions(bool winKey, std::string language)
 {
+    std::optional<std::string> plan;
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_startWinKey == winKey && m_startLanguage == language)
+        {
+            return;
+        }
+        m_startWinKey = winKey;
+        m_startLanguage = std::move(language);
+        plan = m_barPlan;
+    }
+    if (plan)
+    {
+        setBarPlan(plan); // the bar hears of it
+    }
+}
+
+void CoreServer::setBarPlan(const std::optional<std::string>& given)
+{
+    // The user's Win key choice (settings.toml) goes with the rice's bars.
+    std::optional<std::string> plan = given;
+    if (plan)
+    {
+        if (auto parsed = json::parse(*plan, {.maxBytes = limits::kManifestMaxBytes}); parsed && parsed->is_object())
+        {
+            const std::scoped_lock lock(m_scheduleMutex);
+            (*parsed)["start"]["winKey"] = m_startWinKey;
+            (*parsed)["start"]["language"] = m_startLanguage;
+            plan = json::dumpPretty(*parsed);
+        }
+    }
     {
         const std::scoped_lock lock(m_scheduleMutex);
         if (m_barPlan == plan)

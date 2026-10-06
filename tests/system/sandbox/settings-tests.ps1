@@ -262,6 +262,10 @@ Check 'settings:import-and-share' ((Find-Named $window 'Import a .rice…') -ne 
 [void](Press $window 'Plugins')
 Start-Sleep -Milliseconds 500
 Check 'settings:install-from-file' ((Find-Named $window 'Install from a file…') -ne $null) ''
+# M11: Start in the editor's Taskbar page (with a rice to edit), the Win key in Settings.
+[void](Press $window 'Settings')
+Start-Sleep -Milliseconds 500
+Check 'settings:win-key-switch' ((Find-Named $window "The Win key opens Ricing Manager's Start") -ne $null) ''
 [void](Press $window 'Rices')
 Start-Sleep -Milliseconds 500
 
@@ -395,6 +399,13 @@ Check 'settings:engine-rice-not-shareable' ($null -ne (Find-Named $window 'Apply
 $r = Invoke-Rmw @('pack', $night)
 Check 'settings:engine-rice-not-packed' ($r.code -ne 0 -and $r.output -match 'Wallpaper Engine') $r.output
 [void](Press $window 'Edit Night')
+# M11: Start, in the Taskbar page (the window is still tall: everything is in view).
+[void](Press $window 'Taskbar')
+Start-Sleep -Milliseconds 800
+$startPicked = Pick $window 'Start menu' "Ricing Manager's"
+Check 'settings:start-ours-saved' ($startPicked -and (Wait-Until { (Night-Text) -match '\[start\]\s+menu = "ours"' } 5)) ((Night-Text) -replace "`r?`n", ' | ')
+Check 'settings:start-pin-button' ($null -ne (Find-Named $window 'Pin an app to Start…')) ''
+Shot $app 'taskbar-start'
 Check 'settings:apply-live' (Press $window 'Apply') ''
 [void][Rmw.Win]::SetWindowPos($app.MainWindowHandle, [IntPtr]::Zero, $tall.Left, $tall.Top, $tall.Right - $tall.Left, $tall.Bottom - $tall.Top, 0x14)
 Check 'settings:live-wallpaper-runs' (Wait-Until { $null -ne (Get-Process rmw-wallpaper -ErrorAction SilentlyContinue) } 20) ((Invoke-Rmw @('status')).output)

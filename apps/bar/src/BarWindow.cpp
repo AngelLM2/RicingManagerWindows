@@ -198,8 +198,9 @@ void BarWindow::set_visible(bool visible)
     {
         if (m_rect.empty())
         {
-            // The first time: it slides in from its edge.
-            if (!m_introduced && animationsWanted())
+            // The first time: a floating bar slides in from its edge (a reserving one is an app bar:
+            // it stays in its strip, where the shell put it).
+            if (!m_introduced && animationsWanted() && m_config.mode == domain::BarMode::Float)
             {
                 m_reveal = 0.0;
             }
@@ -286,6 +287,12 @@ void BarWindow::place()
         }
         SHAppBarMessage(ABM_SETPOS, &data);
         area = fromRect(data.rc);
+        if (area != m_reserved)
+        {
+            log::info("bar: reserves {},{} {}x{} (asked {},{} {}x{})", area.left, area.top, area.width(),
+                      area.height(), wanted.left, wanted.top, wanted.width(), wanted.height());
+            m_reserved = area;
+        }
     }
 
     m_placedContent = m_config.length.fit && m_contentLength ? m_contentLength() : 0.0;

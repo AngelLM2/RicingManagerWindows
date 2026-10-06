@@ -266,6 +266,12 @@ autohide    = false
 task_view   = false
 search      = "icon"                # hidden | icon | box | button
 
+[start]                             # M11
+menu            = "ours"            # ours (o Iniciar do Ricing Manager, aberto pelo botão da nossa barra) | windows
+pinned          = ["Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"]   # ids do `rmw apps`, até 24
+layout          = "more-pins"       # o Iniciar do Windows: default | more-pins | more-recommendations
+recommendations = false             # o Iniciar do Windows: arquivos recentes e dicas em "Recomendados"
+
 [[bar]]                             # barra PRÓPRIA (pode haver várias)
 # style    = "dock"                 # M10: windows | dock | island | status | side: uma barra pronta; as
                                     # chaves escritas aqui (e as de um skin) valem, o estilo preenche o resto

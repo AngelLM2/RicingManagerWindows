@@ -14,6 +14,8 @@
 
 #include <windows.h>
 
+#include <shellscalingapi.h>
+
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -369,6 +371,10 @@ bool BarApp::leaveOutBrokenWidgets(const domain::BarConfig& config)
 
 std::unique_ptr<slint::platform::WindowAdapter> BarApp::createAdapter()
 {
+    if (startMenuWantsWindow())
+    {
+        return makeStartMenuWindow();
+    }
     if (!m_pending)
     {
         // Slint asked for a window we did not plan (it should not): a hidden, harmless one.
@@ -379,6 +385,71 @@ std::unique_ptr<slint::platform::WindowAdapter> BarApp::createAdapter()
     auto window = std::make_unique<BarWindow>(m_pending->config, m_pending->monitor);
     m_created = window.get();
     return window;
+}
+
+void BarApp::openStart(bool fromKey)
+{
+    if (!m_start)
+    {
+        return;
+    }
+    // The bar the click came from (under the mouse); for the Win key, the main monitor's.
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    const Shown* chosen = nullptr;
+    const auto hasStart = [](const domain::BarConfig& config) {
+        return std::ranges::any_of(std::array{&config.left, &config.center, &config.right}, [](const auto* zone) {
+            return std::ranges::any_of(*zone, [](const auto& item) { return item.id == "start"; });
+        });
+    };
+    for (const auto& shown : m_bars)
+    {
+        RECT rect{};
+        if (!fromKey && shown->window != nullptr &&
+            GetWindowRect(static_cast<HWND>(shown->window->hwnd()), &rect) != FALSE && PtInRect(&rect, cursor) != FALSE)
+        {
+            chosen = shown.get();
+            break;
+        }
+    }
+    if (chosen == nullptr)
+    {
+        auto* const primary = MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
+        for (const auto& shown : m_bars)
+        {
+            if (shown->window != nullptr && hasStart(shown->config) &&
+                MonitorFromWindow(static_cast<HWND>(shown->window->hwnd()), MONITOR_DEFAULTTONEAREST) == primary)
+            {
+                chosen = shown.get();
+                break;
+            }
+        }
+    }
+    if (chosen == nullptr && !m_bars.empty())
+    {
+        chosen = m_bars.front().get();
+    }
+    if (chosen == nullptr || chosen->window == nullptr)
+    {
+        return;
+    }
+    const auto hwnd = static_cast<HWND>(chosen->window->hwnd());
+    RECT rect{};
+    GetWindowRect(hwnd, &rect);
+    auto* const monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    GetMonitorInfoW(monitor, &info);
+    UINT dpiX = 96;
+    UINT dpiY = 96;
+    GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+    StartAnchor anchor;
+    anchor.bar = {rect.left, rect.top, rect.right, rect.bottom};
+    anchor.work = {info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom};
+    anchor.scale = dpiX / 96.0;
+    anchor.edge = chosen->config.position;
+    anchor.centered = std::ranges::any_of(chosen->config.center, [](const auto& item) { return item.id == "start"; });
+    m_start->toggle(anchor);
 }
 
 void BarApp::clear()
@@ -491,6 +562,7 @@ bool BarApp::rebuild()
             m_pending = Pending{config, handles[i]};
             Instance instance = definition->create();
             m_pending.reset();
+            BarWindow* const created = m_created;
             if (m_created != nullptr)
             {
                 const slint::ComponentWeakHandle<slint::interpreter::ComponentInstance> weak(instance);
@@ -518,7 +590,7 @@ bool BarApp::rebuild()
             instance->set_property("bar-radius", Value(static_cast<double>(config.radius)));
             instance->set_property("bar-foreground", Value(slint::Brush(foregroundOf(config, light))));
             instance->set_property("bar-accent", Value(slint::Brush(accentOf(light))));
-            auto shown = std::make_unique<Shown>(Shown{instance, {}});
+            auto shown = std::make_unique<Shown>(Shown{instance, {}, created, config});
             for (const auto& slot : generated.slots)
             {
                 if (const PluginWidget* widget = m_plugins.find(slot.kind->id))
@@ -559,6 +631,48 @@ bool BarApp::rebuild()
         }
     }
     m_native.hide(std::move(hideOn));
+
+    // Ricing Manager's Start (M11): made when the plan asks for it (again when it changes), in the
+    // first bar's colors; the Win key opens it too when the user wants that.
+    if (plan->start.ours)
+    {
+        if (!m_start || plan->start != m_startPlan)
+        {
+            m_start.reset();
+            m_start = StartMenu::create(plan->start);
+        }
+        if (m_start)
+        {
+            const auto& first = plan->bars.front();
+            const auto* tint = first.background.tint ? std::get_if<domain::Color>(&first.background.tint->value) : nullptr;
+            const domain::Color base = tint != nullptr ? *tint
+                                       : light ? domain::Color{0xf3, 0xf3, 0xf3, 255}
+                                               : domain::Color{0x20, 0x20, 0x20, 255};
+            m_start->setLook(colorOf(base, 0.96), foregroundOf(first, light), accentOf(light),
+                             first.radius > 0 ? std::min(first.radius, 16U) : 8.0);
+        }
+    }
+    else
+    {
+        m_start.reset();
+    }
+    m_startPlan = plan->start;
+    setStartOpener(m_start ? std::function<bool()>([this] {
+                       openStart(false);
+                       return true;
+                   })
+                           : std::function<bool()>());
+    if (m_start && plan->start.winKey)
+    {
+        if (!m_winKey)
+        {
+            m_winKey = std::make_unique<WinKeyHook>([this] { slint::invoke_from_event_loop([this] { openStart(true); }); });
+        }
+    }
+    else
+    {
+        m_winKey.reset();
+    }
     // Values of widgets that are gone (or whose place another plugin took) go with them.
     std::erase_if(m_pluginValues, [this](const auto& entry) {
         return std::ranges::none_of(m_pluginSlots, [&](const PluginSlot& slot) {
