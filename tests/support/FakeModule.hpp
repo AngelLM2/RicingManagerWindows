@@ -2,6 +2,7 @@
 
 #include "rmw/engine/Module.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <stdexcept>
 #include <string>
@@ -50,7 +51,12 @@ public:
         {
             return fail(ErrorCode::System, "capture failed (injected)");
         }
-        return engine::CaptureResult{m_fields, lossy ? engine::Fidelity::Lossy : engine::Fidelity::Exact,
+        Json shown = m_fields;
+        for (const auto& field : unplugged)
+        {
+            shown.erase(field);
+        }
+        return engine::CaptureResult{std::move(shown), lossy ? engine::Fidelity::Lossy : engine::Fidelity::Exact,
                                      lossy ? "lossy (injected)" : ""};
     }
     Result<void> apply(const Json& fields) override
@@ -76,7 +82,10 @@ public:
         }
         for (const auto& [key, value] : fields.items())
         {
-            m_fields[key] = value;
+            if (std::ranges::find(unplugged, key) == unplugged.end())
+            {
+                m_fields[key] = value;
+            }
         }
         return {};
     }
@@ -91,6 +100,9 @@ public:
     int crashApplyAt = 0;       // 1-based apply call that throws
     bool failCapture = false;
     bool lossy = false;
+    // Fields Windows does not show now (a monitor that is not connected): left out of captures,
+    // skipped by applies, which still succeed.
+    std::vector<std::string> unplugged;
 
 private:
     std::string m_id;

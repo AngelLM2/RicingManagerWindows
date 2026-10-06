@@ -37,6 +37,7 @@ add_executable(rmw_unit_tests
     unit/SettingsTests.cpp
     unit/SoundsTests.cpp
     unit/StatementTests.cpp
+    unit/StateDbTests.cpp
     unit/SupervisorTests.cpp
     unit/TilingTests.cpp
     unit/TrayTests.cpp

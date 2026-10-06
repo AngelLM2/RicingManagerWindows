@@ -1,6 +1,7 @@
 #include "rmw/engine/RiceEngine.hpp"
 
 #include "rmw/base/Log.hpp"
+#include "rmw/platform/FileSystem.hpp"
 
 #include <algorithm>
 #include <format>
@@ -12,6 +13,16 @@ namespace
 {
 
 constexpr std::string_view kNeedsRestore = "needs_restore";
+// A crash in the middle of a restore is finished on the next start, never undone (undoing it would
+// apply the rice again); the journal says which restore it was.
+constexpr std::string_view kRestoreOriginal = "restore";        // the fields are no longer ours after it
+constexpr std::string_view kRestoreHistory = "restore.history"; // the fields stay ours
+constexpr std::uint64_t kBackupMaxBytes = std::uint64_t{64} << 20;
+
+bool isRestore(std::string_view operation) noexcept
+{
+    return operation == kRestoreOriginal || operation == kRestoreHistory;
+}
 
 std::string_view fidelityName(Fidelity fidelity) noexcept
 {
@@ -55,6 +66,16 @@ Result<OperationReport> nothingToChange(bool changesElsewhere)
         return OperationReport{};
     }
     return fail(ErrorCode::InvalidArgument, "this rice does not change anything");
+}
+
+std::string moduleNames(const std::vector<FailedModule>& modules)
+{
+    std::string names;
+    for (const auto& module : modules)
+    {
+        names += (names.empty() ? "" : ", ") + module.module;
+    }
+    return names;
 }
 
 } // namespace
@@ -112,16 +133,21 @@ Result<bool> RiceEngine::needsRestore()
 
 // ---- recovery and the original snapshot -----------------------------------------------------------
 
-Result<void> RiceEngine::undo(const Json& beforeModules, const Json& desired,
-                              const std::vector<std::string>& touched)
+std::vector<FailedModule> RiceEngine::undo(const Json& beforeModules, const Json& desired,
+                                           const std::vector<std::string>& touched)
 {
-    std::optional<Error> firstError;
+    std::vector<FailedModule> failed;
     for (const auto& id : touched | std::views::reverse)
     {
-        const Json* before = stateIn(beforeModules, id);
         const auto fields = desired.find(id);
-        if (before == nullptr || fields == desired.end() || !fields->is_object())
+        if (fields == desired.end() || !fields->is_object() || fields->empty())
         {
+            continue;
+        }
+        const Json* before = stateIn(beforeModules, id);
+        if (before == nullptr)
+        {
+            failed.push_back({id, "how it was before is not known"});
             continue;
         }
         // Only the fields this operation was changing; the rest were never touched.
@@ -140,17 +166,108 @@ Result<void> RiceEngine::undo(const Json& beforeModules, const Json& desired,
         if (auto applied = m_runner.apply(id, restore); !applied)
         {
             log::error("undo {} failed: {}", id, applied.error().toString());
-            if (!firstError)
-            {
-                firstError = std::move(applied.error()).withContext(std::format("undo {}", id));
-            }
+            failed.push_back({id, applied.error().message()});
         }
     }
-    if (firstError)
+    return failed;
+}
+
+Result<void> RiceEngine::closeUndone(const JournalEntry& entry, const Json& beforeModules, const std::string& label,
+                                     const std::vector<FailedModule>& notUndone, bool discarded)
+{
+    // What was not undone stays as the operation left it: ours from now on, so a restore puts it back
+    // (and the base snapshot learns the originals of the fields it set for the first time).
+    Json kept = Json::object();
+    for (const auto& failed : notUndone)
     {
-        return std::unexpected(std::move(*firstError));
+        if (const auto fields = entry.desired.find(failed.module);
+            fields != entry.desired.end() && fields->is_object() && !fields->empty())
+        {
+            kept[failed.module] = *fields;
+        }
     }
-    return {};
+    if (!kept.empty())
+    {
+        if (auto remembered = rememberOriginals(beforeModules, kept); !remembered)
+        {
+            log::error("cannot remember the originals of what was not undone: {}", remembered.error().toString());
+        }
+    }
+    std::vector<std::pair<std::string, Json>> adopted;
+    for (const auto& [id, fields] : kept.items())
+    {
+        auto existing = m_state.applied(id);
+        if (!existing)
+        {
+            return propagate(existing);
+        }
+        std::optional<CaptureResult> now;
+        // A discarded operation runs no module code at all (safe mode: that may be what crashes).
+        if (const IModuleLogic* module = m_catalog.find(id); module != nullptr && !discarded)
+        {
+            std::vector<std::string> names;
+            for (const auto& [field, value] : fields.items())
+            {
+                names.push_back(field);
+            }
+            if (auto captured = captureInternalized(*module, names))
+            {
+                now = std::move(*captured);
+            }
+        }
+        for (const auto& [field, value] : fields.items())
+        {
+            // What Windows shows now when it can be read, else what the operation was writing.
+            const bool shown = now && now->state.contains(field);
+            (*existing)[field] = shown ? now->state[field] : value;
+        }
+        adopted.emplace_back(id, std::move(*existing));
+    }
+
+    auto transaction = m_state.transaction();
+    if (!transaction)
+    {
+        return propagate(transaction);
+    }
+    for (const auto& [id, fields] : adopted)
+    {
+        if (auto saved = m_state.setApplied(id, fields); !saved)
+        {
+            return propagate(saved);
+        }
+    }
+    if (auto closed = m_state.closeJournal(); !closed)
+    {
+        return propagate(closed);
+    }
+    if (notUndone.empty())
+    {
+        if (auto dropped = m_state.deleteSnapshot(entry.snapshotId); !dropped)
+        {
+            return propagate(dropped);
+        }
+    }
+    else if (entry.snapshotId != 0)
+    {
+        // How things were right before it: going back one step stays possible.
+        if (auto added = m_state.addHistory(entry.snapshotId,
+                                            std::format("{} ({})", label, discarded ? "not undone" : "not fully undone"),
+                                            kHistoryLimit);
+            !added)
+        {
+            return propagate(added);
+        }
+    }
+    const bool flag = !discarded && !notUndone.empty();
+    if (discarded || flag)
+    {
+        if (auto flagged = m_state.setMeta(kNeedsRestore, flag ? std::optional<std::string_view>("1") : std::nullopt);
+            !flagged)
+        {
+            return propagate(flagged);
+        }
+    }
+    return transaction->commit();
 }
 
 Result<void> RiceEngine::undoOpenJournalIfAny()
@@ -168,25 +285,50 @@ Result<bool> RiceEngine::recover()
     auto journal = m_state.openJournal();
     if (!journal)
     {
-        return propagate(journal);
+        // A journal that cannot be read cannot be undone either; kept, it would block every operation.
+        log::error("the interrupted operation cannot be read ({}); it is dropped", journal.error().toString());
+        auto transaction = m_state.transaction();
+        if (!transaction)
+        {
+            return propagate(transaction);
+        }
+        for (auto step : {m_state.closeJournal(), m_state.setMeta(kNeedsRestore, "1")})
+        {
+            if (!step)
+            {
+                return propagate(step);
+            }
+        }
+        if (auto committed = transaction->commit(); !committed)
+        {
+            return propagate(committed);
+        }
+        return true;
     }
     if (!*journal)
     {
         return false;
     }
-    const JournalEntry& entry = **journal;
-    log::warn("undoing interrupted operation '{}' from {}", entry.operation, entry.startedAt);
-
+    const JournalEntry entry = std::move(**journal);
     auto snapshot = m_state.snapshot(entry.snapshotId);
     if (!snapshot)
     {
         return propagate(snapshot);
     }
-    if (!*snapshot)
+    const bool hasSnapshot = snapshot->has_value();
+    const std::string label = hasSnapshot ? (*snapshot)->label : entry.operation;
+
+    if (isRestore(entry.operation))
     {
-        return fail(ErrorCode::InvalidData, "the interrupted operation has no snapshot to undo with");
+        log::warn("finishing the interrupted '{}' from {}", label, entry.startedAt);
+        if (auto finished = finishRestore(entry, label, hasSnapshot); !finished)
+        {
+            return propagate(finished, "finish the interrupted restore");
+        }
+        return true;
     }
 
+    log::warn("undoing the interrupted '{}' ({}) from {}", label, entry.operation, entry.startedAt);
     // Everything the operation meant to change, in apply order (undo reverses it).
     std::vector<std::string> touched;
     for (const auto* module : m_catalog.ordered())
@@ -196,45 +338,199 @@ Result<bool> RiceEngine::recover()
             touched.emplace_back(module->id());
         }
     }
-
-    if (auto undone = undo((*snapshot)->modules, entry.desired, touched); !undone)
+    const Json beforeModules = hasSnapshot ? (*snapshot)->modules : Json::object();
+    if (!hasSnapshot)
     {
-        if (auto flagged = m_state.setMeta(kNeedsRestore, "1"); !flagged)
-        {
-            log::error("cannot record needs_restore: {}", flagged.error().toString());
-        }
-        return propagate(undone, "undo the interrupted operation");
+        log::error("the interrupted operation has no snapshot to undo with: what it changed stays");
     }
-
-    auto transaction = m_state.transaction();
-    if (!transaction)
+    const auto notUndone = undo(beforeModules, entry.desired, touched);
+    if (!notUndone.empty())
     {
-        return propagate(transaction);
+        log::error("not undone: {}; restoring the original puts it back", moduleNames(notUndone));
     }
-    for (auto step : {m_state.closeJournal(), m_state.deleteSnapshot(entry.snapshotId),
-                      m_state.setMeta(kNeedsRestore, std::nullopt)})
+    JournalEntry closing = entry;
+    closing.snapshotId = hasSnapshot ? entry.snapshotId : 0;
+    if (auto closed = closeUndone(closing, beforeModules, label, notUndone, false); !closed)
     {
-        if (!step)
-        {
-            return propagate(step);
-        }
-    }
-    if (auto committed = transaction->commit(); !committed)
-    {
-        return propagate(committed);
+        return propagate(closed, "close the interrupted operation");
     }
     return true;
 }
 
-Result<bool> RiceEngine::ensureBaseSnapshot()
+Result<bool> RiceEngine::discardJournal()
+{
+    auto journal = m_state.openJournal();
+    std::optional<JournalEntry> entry;
+    if (journal && *journal)
+    {
+        entry = std::move(**journal);
+    }
+    if (!journal || !entry)
+    {
+        // Nothing (readable) to keep: the row goes, and so does the flag.
+        auto transaction = m_state.transaction();
+        if (!transaction)
+        {
+            return propagate(transaction);
+        }
+        for (auto step : {m_state.closeJournal(), m_state.setMeta(kNeedsRestore, std::nullopt)})
+        {
+            if (!step)
+            {
+                return propagate(step);
+            }
+        }
+        if (auto committed = transaction->commit(); !committed)
+        {
+            return propagate(committed);
+        }
+        return !journal; // an unreadable one was there
+    }
+    auto snapshot = m_state.snapshot(entry->snapshotId);
+    if (!snapshot)
+    {
+        return propagate(snapshot);
+    }
+    const bool hasSnapshot = snapshot->has_value();
+    const std::string label = hasSnapshot ? (*snapshot)->label : entry->operation;
+    log::warn("forgetting the interrupted '{}' without undoing it", label);
+    std::vector<FailedModule> kept;
+    for (const auto& [id, fields] : entry->desired.items())
+    {
+        kept.push_back({id, "discarded"});
+    }
+    JournalEntry closing = *entry;
+    closing.snapshotId = hasSnapshot ? entry->snapshotId : 0;
+    if (auto closed = closeUndone(closing, hasSnapshot ? (*snapshot)->modules : Json::object(), label, kept, true);
+        !closed)
+    {
+        return propagate(closed);
+    }
+    return true;
+}
+
+Result<void> RiceEngine::finishRestore(const JournalEntry& entry, const std::string& label, bool hasSnapshot)
+{
+    std::vector<Step> steps;
+    for (const auto* module : m_catalog.ordered())
+    {
+        const auto fields = entry.desired.find(module->id());
+        if (fields != entry.desired.end() && fields->is_object() && !fields->empty())
+        {
+            steps.push_back({module, *fields, std::nullopt});
+        }
+    }
+    OperationReport report;
+    for (const auto& step : steps)
+    {
+        const std::string id(step.module->id());
+        if (auto applied = m_runner.apply(id, step.desired); !applied)
+        {
+            log::warn("restore: {} stays as it is: {}", id, applied.error().toString());
+            report.failed.push_back({id, applied.error().message()});
+        }
+    }
+    if (report.failed.size() == steps.size())
+    {
+        // Nothing came back: nothing to record (what is ours stays ours).
+        auto transaction = m_state.transaction();
+        if (!transaction)
+        {
+            return propagate(transaction);
+        }
+        for (auto step : {m_state.closeJournal(), m_state.deleteSnapshot(entry.snapshotId)})
+        {
+            if (!step)
+            {
+                return propagate(step);
+            }
+        }
+        return transaction->commit();
+    }
+    const AppliedUpdate update = entry.operation == kRestoreOriginal ? AppliedUpdate::Remove : AppliedUpdate::Merge;
+    // Without its snapshot there is no history entry to make (nor anything to go back to).
+    auto recorded = recordOperation(label, steps, update, entry.snapshotId, !hasSnapshot, report);
+    if (!recorded)
+    {
+        return propagate(recorded);
+    }
+    return {};
+}
+
+Result<std::optional<SnapshotRecord>> RiceEngine::originalSnapshot()
 {
     auto base = m_state.baseSnapshot();
+    if (!base || *base || m_originalBackup.empty())
+    {
+        return base;
+    }
+    std::error_code ec;
+    if (!std::filesystem::exists(m_originalBackup, ec))
+    {
+        return base; // nothing was ever applied
+    }
+    auto bytes = platform::readFileLimited(m_originalBackup, kBackupMaxBytes);
+    if (!bytes)
+    {
+        log::error("the copy of the original snapshot cannot be read: {}", bytes.error().toString());
+        return base;
+    }
+    json::ParseLimits limits;
+    limits.maxBytes = kBackupMaxBytes;
+    limits.maxElements = 1'000'000;
+    auto saved = json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), limits);
+    if (!saved || !saved->is_object() || !json::memberOr(*saved, "modules", Json()).is_object())
+    {
+        log::error("the copy of the original snapshot is damaged; it is not used");
+        return base;
+    }
+    SnapshotRecord record;
+    record.kind = SnapshotKind::Base;
+    record.label = json::stringOr(*saved, "label", "Original Windows");
+    record.createdAt = json::intOr(*saved, "createdAt", 0);
+    record.modules = (*saved)["modules"];
+    log::warn("state.db has no original snapshot: the copy kept outside it (taken at {}) comes back",
+              record.createdAt);
+    if (auto added = m_state.addSnapshot(record); !added)
+    {
+        return propagate(added);
+    }
+    return m_state.baseSnapshot();
+}
+
+void RiceEngine::backUpOriginal()
+{
+    if (m_originalBackup.empty())
+    {
+        return;
+    }
+    auto base = m_state.baseSnapshot();
+    if (!base || !*base)
+    {
+        return;
+    }
+    const std::string text =
+        json::dump(Json{{"label", (*base)->label}, {"createdAt", (*base)->createdAt}, {"modules", (*base)->modules}});
+    if (auto written = platform::writeFileAtomic(m_originalBackup, std::as_bytes(std::span(text))); !written)
+    {
+        log::warn("cannot keep a copy of the original snapshot: {}", written.error().toString());
+    }
+}
+
+Result<bool> RiceEngine::ensureBaseSnapshot()
+{
+    auto base = originalSnapshot();
     if (!base)
     {
         return propagate(base);
     }
     if (*base)
     {
+        std::error_code ec;
+        if (!m_originalBackup.empty() && !std::filesystem::exists(m_originalBackup, ec))
+        {
+            backUpOriginal(); // taken before there was a copy
+        }
         return false;
     }
 
@@ -254,6 +550,7 @@ Result<bool> RiceEngine::ensureBaseSnapshot()
     {
         return propagate(added);
     }
+    backUpOriginal();
     return true;
 }
 
@@ -439,7 +736,7 @@ Result<OperationReport> RiceEngine::reapplyManaged(std::span<const std::string> 
 
 Result<OperationReport> RiceEngine::restoreOriginal(const RestoreOptions& options)
 {
-    auto base = m_state.baseSnapshot();
+    auto base = originalSnapshot();
     if (!base)
     {
         return propagate(base);
@@ -448,7 +745,7 @@ Result<OperationReport> RiceEngine::restoreOriginal(const RestoreOptions& option
     {
         return fail(ErrorCode::NotFound, "there is no original snapshot yet (nothing was ever applied)");
     }
-    return restoreTo((*base)->modules, "Restored the original Windows", options, AppliedUpdate::Remove);
+    return restoreTo(**base, kRestoreOriginal, "Restored the original Windows", options, AppliedUpdate::Remove);
 }
 
 Result<OperationReport> RiceEngine::restoreHistory(std::int64_t historyId, const RestoreOptions& options)
@@ -471,16 +768,27 @@ Result<OperationReport> RiceEngine::restoreHistory(std::int64_t historyId, const
     {
         return fail(ErrorCode::NotFound, std::format("history entry {} has no snapshot", historyId));
     }
-    return restoreTo((*snapshot)->modules, std::format("Went back to before \"{}\"", (*entry)->label),
-                     options, AppliedUpdate::Merge);
+    auto report = restoreTo(**snapshot, kRestoreHistory, std::format("Went back to before \"{}\"", (*entry)->label),
+                            options, AppliedUpdate::Merge);
+    if (report)
+    {
+        report->core = (*snapshot)->core;
+    }
+    return report;
 }
 
-Result<OperationReport> RiceEngine::restoreTo(const Json& targetModules, const std::string& label,
-                                              const RestoreOptions& options, AppliedUpdate update)
+Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std::string_view operation,
+                                              const std::string& label, const RestoreOptions& options,
+                                              AppliedUpdate update)
 {
     if (auto clean = undoOpenJournalIfAny(); !clean)
     {
-        return propagate(clean);
+        // Going back must stay possible whatever happened to the last operation.
+        log::error("{}; it is dropped and the restore goes on", clean.error().toString());
+        if (auto dropped = discardJournal(); !dropped)
+        {
+            return propagate(clean);
+        }
     }
 
     OperationReport report;
@@ -493,41 +801,73 @@ Result<OperationReport> RiceEngine::restoreTo(const Json& targetModules, const s
         {
             return propagate(applied);
         }
-        if (applied->empty())
+        // Going back past an operation also brings back what it changed and we no longer hold (a
+        // restore of the original took the rice's fields away from us).
+        Json then = Json::object();
+        if (const auto changed = target.changes.find(id); changed != target.changes.end() && changed->is_object())
+        {
+            then = *changed;
+        }
+        if (applied->empty() && then.empty())
         {
             continue; // we never changed this module
         }
-        const Json* target = stateIn(targetModules, id);
+        const Json* wanted = stateIn(target.modules, id);
         std::optional<Json> original;
-        if (target != nullptr && update == AppliedUpdate::Remove)
+        if (wanted != nullptr && update == AppliedUpdate::Remove)
         {
-            original = *target;
+            original = *wanted;
             module->forOriginal(*original);
-            target = &*original;
+            wanted = &*original;
         }
 
-        auto current = captureInternalized(*module);
+        std::vector<std::string> fields;
+        for (const auto& [field, value] : then.items())
+        {
+            fields.push_back(field);
+        }
+        auto current = captureInternalized(*module, fields);
         if (!current)
         {
-            return propagate(current);
+            // Like a module that fails to apply: it stays as it is, and the others still come back.
+            log::warn("{}: {} stays as it is: {}", operation, id, current.error().toString());
+            report.failed.push_back({id, current.error().message()});
+            continue;
         }
 
-        // Three-way, per field: original (target) / what we set (applied) / what is there now.
+        // Three-way, per field: the target / what we set (applied, or what that operation set) / now.
         Json desired = Json::object();
-        for (const auto& [field, ours] : applied->items())
-        {
-            if (target == nullptr || !target->contains(field))
+        const auto consider = [&](const std::string& field, const Json& ours, bool managed) {
+            if (wanted == nullptr || !wanted->contains(field))
             {
-                report.skipped.push_back({id, field, "not in the snapshot"});
-                continue;
+                if (managed)
+                {
+                    report.skipped.push_back({id, field, "not in the snapshot"});
+                }
+                return;
             }
             const auto now = current->state.find(field);
+            if (!managed && now != current->state.end() && module->fieldEquivalent(field, *now, (*wanted)[field]))
+            {
+                return; // already as it was then
+            }
             if (!options.force && now != current->state.end() && !module->fieldEquivalent(field, *now, ours))
             {
                 report.skipped.push_back({id, field, "changed after it was applied"});
-                continue;
+                return;
             }
-            desired[field] = (*target)[field];
+            desired[field] = (*wanted)[field];
+        };
+        for (const auto& [field, ours] : applied->items())
+        {
+            consider(field, ours, true);
+        }
+        for (const auto& [field, set] : then.items())
+        {
+            if (!applied->contains(field))
+            {
+                consider(field, set, false);
+            }
         }
         if (!desired.empty())
         {
@@ -536,9 +876,23 @@ Result<OperationReport> RiceEngine::restoreTo(const Json& targetModules, const s
     }
     if (steps.empty())
     {
+        if (!report.failed.empty())
+        {
+            // Nothing came back.
+            return fail(ErrorCode::System,
+                        std::format("{}: {}", report.failed.front().module, report.failed.front().reason));
+        }
+        if (update == AppliedUpdate::Remove)
+        {
+            // Nothing of ours is left to put back.
+            if (auto cleared = m_state.setMeta(kNeedsRestore, std::nullopt); !cleared)
+            {
+                log::warn("cannot clear needs_restore: {}", cleared.error().toString());
+            }
+        }
         return report; // nothing to do
     }
-    return run("restore", label, std::move(steps), update, std::move(report));
+    return run(operation, label, std::move(steps), update, std::move(report));
 }
 
 Result<void> RiceEngine::rememberOriginals(const Json& beforeModules, const Json& desiredAll)
@@ -590,7 +944,12 @@ Result<void> RiceEngine::rememberOriginals(const Json& beforeModules, const Json
     {
         return {};
     }
-    return m_state.setSnapshotModules((*base)->id, modules);
+    if (auto saved = m_state.setSnapshotModules((*base)->id, modules); !saved)
+    {
+        return saved;
+    }
+    backUpOriginal();
+    return {};
 }
 
 Result<OperationReport> RiceEngine::run(std::string_view operation, const std::string& label,
@@ -656,7 +1015,16 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         }
     }
 
-    // 3. durable "in progress" marker
+    // 3. durable "in progress" marker; the snapshot also keeps what the operation changes and the
+    // core's own state, for a history entry to bring back
+    SnapshotRecord before;
+    before.label = label;
+    before.modules = beforeModules;
+    before.changes = desiredAll;
+    if (m_coreState && !automatic)
+    {
+        before.core = m_coreState();
+    }
     std::int64_t snapshotId = 0;
     {
         auto transaction = m_state.transaction();
@@ -664,7 +1032,7 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         {
             return propagate(transaction);
         }
-        auto added = m_state.addSnapshot(SnapshotKind::Before, label, beforeModules);
+        auto added = m_state.addSnapshot(before);
         if (!added)
         {
             return propagate(added);
@@ -681,8 +1049,9 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
     }
 
     // 4. apply in dependency order; undo everything touched on the first failure (a restore goes on)
-    const bool bestEffort = operation == "restore";
+    const bool bestEffort = isRestore(operation);
     std::vector<std::string> touched;
+    std::size_t applyFailures = 0;
     std::optional<Error> firstFailure;
     for (const auto& step : steps)
     {
@@ -702,6 +1071,7 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         {
             log::warn("{}: {} stays as it is: {}", operation, id, error.toString());
             report.failed.push_back({id, error.message()});
+            ++applyFailures;
             if (!firstFailure)
             {
                 firstFailure = std::move(error);
@@ -709,28 +1079,22 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
             continue;
         }
         log::error("{} failed: {}; undoing", operation, error.toString());
-        if (auto undone = undo(beforeModules, desiredAll, touched); !undone)
+        const auto notUndone = undo(beforeModules, desiredAll, touched);
+        const JournalEntry entry{std::string(operation), snapshotId, desiredAll, 0};
+        if (auto closed = closeUndone(entry, beforeModules, label, notUndone, false); !closed)
         {
-            if (auto flagged = m_state.setMeta(kNeedsRestore, "1"); !flagged)
-            {
-                log::error("cannot record needs_restore: {}", flagged.error().toString());
-            }
-            return std::unexpected(std::move(error).withContext(std::format(
-                "undo also failed ({}); it will be retried on the next start", undone.error().message())));
+            log::error("cannot close the journal after the undo ({}); it is undone again on the next start",
+                       closed.error().toString());
         }
-        auto transaction = m_state.transaction();
-        if (transaction)
+        if (!notUndone.empty())
         {
-            const bool closed = m_state.closeJournal() && m_state.deleteSnapshot(snapshotId);
-            if (!closed || !transaction->commit())
-            {
-                log::error("cannot close the journal after undo; it will be undone again on the next start");
-            }
+            return std::unexpected(std::move(error).withContext(std::format(
+                "undo also failed for {}; restore the original to put it back", moduleNames(notUndone))));
         }
         return std::unexpected(std::move(error));
     }
 
-    if (firstFailure && report.failed.size() == steps.size())
+    if (firstFailure && applyFailures == steps.size())
     {
         // Nothing came back: nothing to record.
         if (auto transaction = m_state.transaction())
@@ -738,16 +1102,30 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
             const bool closed = m_state.closeJournal() && m_state.deleteSnapshot(snapshotId);
             if (!closed || !transaction->commit())
             {
-                log::error("cannot close the journal; the operation will be undone on the next start");
+                log::error("cannot close the journal; the operation will be finished on the next start");
             }
         }
         return std::unexpected(std::move(*firstFailure));
     }
+
+    // 5. lastApplied per field, history, journal closed — in one database transaction
+    auto historyId = recordOperation(label, steps, update, snapshotId, automatic, report);
+    if (!historyId)
+    {
+        return propagate(historyId);
+    }
+    report.historyId = *historyId;
+    collectGarbage(report);
+    return report;
+}
+
+Result<std::int64_t> RiceEngine::recordOperation(const std::string& label, std::span<const Step> steps,
+                                                 AppliedUpdate update, std::int64_t snapshotId, bool automatic,
+                                                 OperationReport& report)
+{
     const auto failed = [&](const std::string& id) {
         return std::ranges::any_of(report.failed, [&](const FailedModule& entry) { return entry.module == id; });
     };
-
-    // 5. lastApplied per field, history, journal closed — in one database transaction
     std::vector<std::pair<std::string, Json>> appliedUpdates;
     for (const auto& step : steps)
     {
@@ -761,23 +1139,28 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         {
             return propagate(existing);
         }
-        if (update == AppliedUpdate::Remove)
+        // What Windows actually holds now (it may normalize what we wrote), in the shape of every other
+        // capture (markers such as "keep" resolved), so later three-way comparisons compare like with like.
+        auto after = captureInternalized(*step.module);
+        const auto shown = [&](const std::string& field) {
+            return after && after->state.is_object() && after->state.contains(field);
+        };
+        for (const auto& [field, value] : step.desired.items())
         {
-            for (const auto& [field, value] : step.desired.items())
+            if (update == AppliedUpdate::Merge)
+            {
+                (*existing)[field] = shown(field) ? after->state[field] : value;
+            }
+            else if (after && !shown(field))
+            {
+                // Windows does not show it now (a monitor that is not connected): it did not come back.
+                // It stays ours with its original value, which comes back when it is there again.
+                (*existing)[field] = value;
+                report.skipped.push_back({id, field, "not there now; it comes back when it is"});
+            }
+            else
             {
                 existing->erase(field);
-            }
-        }
-        else
-        {
-            // Record what Windows actually holds now (it may normalize what we wrote).
-            // Same shape as every other capture (markers such as "keep" resolved), so later
-            // three-way comparisons compare like with like.
-            auto after = captureInternalized(*step.module);
-            for (const auto& [field, value] : step.desired.items())
-            {
-                const bool captured = after && after->state.is_object() && after->state.contains(field);
-                (*existing)[field] = captured ? after->state[field] : value;
             }
         }
         appliedUpdates.emplace_back(id, std::move(*existing));
@@ -818,13 +1201,19 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
             return propagate(dropped);
         }
     }
+    if (update == AppliedUpdate::Remove && report.failed.empty())
+    {
+        // The original came back: whatever an interrupted operation left behind with it.
+        if (auto cleared = m_state.setMeta(kNeedsRestore, std::nullopt); !cleared)
+        {
+            return propagate(cleared);
+        }
+    }
     if (auto committed = transaction->commit(); !committed)
     {
         return propagate(committed);
     }
-    report.historyId = historyId;
-    collectGarbage(report);
-    return report;
+    return historyId;
 }
 
 void RiceEngine::collectGarbage(OperationReport& report)
