@@ -380,7 +380,7 @@ $startRice = Join-Path $Work 'rice-start'
 Write-Rice $startRice ("[start]`nmenu = `"ours`"`npinned = [`"" + ($appId -replace '\\', '\\') + "`"]`n`n[[bar]]`nstyle = `"status`"`n")
 $r = Invoke-Rmw @('apply', $startRice, '--wait')
 $placed = Wait-Until { (Work-Area).Top -eq $screen.Top + 28 -and (Bar-Rect).Height -eq 28 } 20
-Check 'start:apply' ($r.code -eq 0 -and $placed) "$($r.output) work=$(Work-Area) bar=$(Bar-Rect)"
+Check 'start:apply' ($r.code -eq 0 -and $placed) "$($r.output) work=$(Work-Area) bar=$(Bar-Rect) native=$(Native-Visible)"
 Start-Sleep -Seconds 2
 
 $openMs = Press-Start
@@ -398,7 +398,8 @@ Shot 'bar-4c-start-search'
 $new = $null
 $launched = Wait-Until {
     $script:new = @(Get-Process | Where-Object { $before -notcontains $_.Id -and $_.Name -notmatch '^(rmw|conhost|svchost|RuntimeBroker|dllhost|backgroundTaskHost|smartscreen|SearchHost|StartMenuExperienceHost)' })
-    $script:new.Count -gt 0
+    # Windows starts processes of its own now and then (taskhostw): the app itself is waited for.
+    @($script:new | Where-Object { $_.Name -match 'powershell|cmd|notepad|mspaint|calc' }).Count -gt 0
 } 15
 $opensWhat = @($script:new | Where-Object { $_.Name -match 'powershell|cmd|notepad|mspaint|calc' })
 Check 'start:search-and-enter-opens-the-app' ($launched -and $opensWhat.Count -gt 0) "$appName -> $(($script:new | ForEach-Object Name) -join ', ')"

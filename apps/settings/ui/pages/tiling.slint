@@ -1,0 +1,277 @@
+import { Button, ComboBox, LineEdit, ScrollView, SpinBox, Switch, Palette } from "std-widgets.slint";
+import { Api, TilingKeyRow, TilingRuleRow } from "../api.slint";
+import { Card, Hint, PageHeader, Problem, SettingRow } from "../common.slint";
+import { Words } from "../words.slint";
+
+// Tiling (M13): windows side by side, workspaces, and the keys for both. Everything here is
+// settings.toml [tiling]; rmw-tiler follows it a moment after each change.
+export component TilingPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Tiling");
+            subtitle: @tr("Windows side by side, workspaces and the keys for them, as on Linux.");
+        }
+
+        if Api.settings-problem != "": Problem {
+            text: @tr("settings.toml has a problem, so it is not changed from here until it is fixed: {}", Api.settings-problem);
+        }
+
+        if Api.tiling-problem != "": Problem {
+            text: @tr("Not saved: {}", Api.tiling-problem);
+        }
+
+        Card {
+            title: @tr("Tiling");
+
+            SettingRow {
+                label: @tr("Organize the windows");
+                description: @tr("Each new window takes a place beside the others. Turning it off puts every window back where it was.");
+                Switch {
+                    checked <=> Api.tiling-enabled;
+                    accessible-label: @tr("Organize the windows");
+                    toggled => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Workspaces");
+                description: @tr("Like Linux: workspaces 1 to 9 on each monitor. Like a Mac: Windows' own virtual desktops, which slide.");
+                ComboBox {
+                    width: 260px;
+                    model: [@tr("Like Linux (each monitor)"), @tr("Like a Mac (Windows' desktops)")];
+                    current-index <=> Api.tiling-mode;
+                    accessible-label: @tr("Workspaces");
+                    selected => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+
+            if Api.tiling-mode == 0: SettingRow {
+                label: @tr("How many workspaces");
+                description: @tr("Ctrl+Win+1 to 9 go to them; the bar's \"Workspaces (tiling)\" widget shows the ones in use.");
+                SpinBox {
+                    width: 120px;
+                    minimum: 1;
+                    maximum: 9;
+                    value <=> Api.tiling-workspaces;
+                    accessible-label: @tr("How many workspaces");
+                    edited => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Layout");
+                description: @tr("How the windows of a workspace share it. Ctrl+Alt+Space changes it for a while.");
+                ComboBox {
+                    width: 260px;
+                    model: [@tr("Halves that turn (dwindle)"), @tr("A main window and a stack"), @tr("Columns"), @tr("One at a time (monocle)"), @tr("Free (floating)")];
+                    current-index <=> Api.tiling-layout;
+                    accessible-label: @tr("Layout");
+                    selected => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+
+            if Api.tiling-layout == 1: SettingRow {
+                label: @tr("Size of the main window (%)");
+                SpinBox {
+                    width: 120px;
+                    minimum: 10;
+                    maximum: 90;
+                    step-size: 5;
+                    value <=> Api.tiling-master;
+                    accessible-label: @tr("Size of the main window (%)");
+                    edited => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Space between the windows");
+                description: @tr("In pixels at 100% scale.");
+                SpinBox {
+                    width: 120px;
+                    minimum: 0;
+                    maximum: 64;
+                    value <=> Api.tiling-gap;
+                    accessible-label: @tr("Space between the windows");
+                    edited => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Space at the edges of the screen");
+                SpinBox {
+                    width: 120px;
+                    minimum: 0;
+                    maximum: 64;
+                    value <=> Api.tiling-outer-gap;
+                    accessible-label: @tr("Space at the edges of the screen");
+                    edited => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("A colored border on the window in focus");
+                description: @tr("Windows 11. An empty color is the rice's accent.");
+                HorizontalLayout {
+                    spacing: 8px;
+                    Switch {
+                        checked <=> Api.tiling-border;
+                        accessible-label: @tr("A colored border on the window in focus");
+                        toggled => {
+                            Api.tiling-edited();
+                        }
+                    }
+                    LineEdit {
+                        width: 110px;
+                        text: Api.tiling-border-color;
+                        placeholder-text: "#89b4fa";
+                        accessible-label: @tr("Color of the border");
+                        accepted(text) => {
+                            Api.tiling-border-color = text;
+                            Api.tiling-edited();
+                        }
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("Advanced mode");
+
+            SettingRow {
+                label: @tr("Also the windows of apps running as administrator");
+                description: @tr("Windows asks for your permission each time tiling starts. Without it, those windows are left where they are, and the keys do nothing while one of them is in front.");
+                Switch {
+                    checked <=> Api.tiling-admin;
+                    accessible-label: @tr("Also the windows of apps running as administrator");
+                    toggled => {
+                        Api.tiling-edited();
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("Keys");
+            subtitle: @tr("Like Ctrl+Alt+Left. # is the workspace's number (1 to 9). Empty: no key. Press Enter in the box to save it.");
+
+            for key[index] in Api.tiling-keys: VerticalLayout {
+                spacing: 2px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        width: 300px;
+                        text: Words.tiling-command(key.command);
+                        vertical-alignment: center;
+                        color: Palette.foreground;
+                        overflow: elide;
+                    }
+
+                    LineEdit {
+                        width: 200px;
+                        text: key.keys;
+                        accessible-label: Words.tiling-command(key.command);
+                        accepted(text) => {
+                            Api.tiling-key-edited(index, text);
+                        }
+                    }
+                }
+
+                if key.problem != "": Hint {
+                    text: key.problem;
+                    color: #e0403a;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: @tr("Back to the keys it came with");
+                    clicked => {
+                        Api.tiling-keys-default();
+                    }
+                }
+            }
+
+            Hint {
+                text: @tr("On some keyboards (ABNT2's included) Ctrl+Alt is AltGr: AltGr never counts as Ctrl+Alt, and the keys it came with leave out Ctrl+Alt with numbers. Win+L and Ctrl+Alt+Del stay Windows'.");
+            }
+        }
+
+        Card {
+            title: @tr("Apps");
+            subtitle: @tr("Windows of these apps float, are left alone, or open on a workspace of their own. The app is its program (Calculator.exe).");
+
+            for rule[index] in Api.tiling-rules: HorizontalLayout {
+                spacing: 8px;
+
+                LineEdit {
+                    width: 200px;
+                    text: rule.app;
+                    placeholder-text: "Calculator.exe";
+                    accessible-label: @tr("App");
+                    accepted(text) => {
+                        Api.tiling-rule-edited(index, { app: text, window-class: rule.window-class, title: rule.title, action: rule.action, workspace: rule.workspace });
+                    }
+                }
+
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Floats"), @tr("Left alone"), @tr("Opens on workspace")];
+                    current-index: rule.action;
+                    accessible-label: @tr("What its windows do");
+                    selected => {
+                        Api.tiling-rule-edited(index, { app: rule.app, window-class: rule.window-class, title: rule.title, action: self.current-index, workspace: rule.workspace });
+                    }
+                }
+
+                if rule.action == 2: SpinBox {
+                    width: 100px;
+                    minimum: 1;
+                    maximum: 9;
+                    value: rule.workspace;
+                    accessible-label: @tr("Workspace");
+                    edited(value) => {
+                        Api.tiling-rule-edited(index, { app: rule.app, window-class: rule.window-class, title: rule.title, action: rule.action, workspace: value });
+                    }
+                }
+
+                Button {
+                    text: @tr("Remove");
+                    clicked => {
+                        Api.tiling-rule-remove(index);
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: @tr("Add an app");
+                    clicked => {
+                        Api.tiling-rule-add();
+                    }
+                }
+            }
+        }
+    }
+}

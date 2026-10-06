@@ -1,0 +1,1190 @@
+#include "TilerApp.hpp"
+
+#include "rmw/base/Log.hpp"
+#include "rmw/platform/FileSystem.hpp"
+
+#include <windows.h>
+
+#include <windowsx.h>
+
+#include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <format>
+#include <utility>
+
+namespace rmw::tilerapp
+{
+namespace
+{
+
+using domain::TilingCommand;
+
+constexpr UINT_PTR kLayoutTimer = 1;
+constexpr UINT_PTR kSettleTimer = 2;
+constexpr UINT_PTR kSaveTimer = 3;
+constexpr UINT_PTR kPlanTimer = 4;
+constexpr UINT_PTR kMonitorTimer = 5;
+constexpr UINT_PTR kFocusTimer = 6;
+constexpr UINT kSettleDelayMs = 200;
+constexpr int kSettleRounds = 2;
+constexpr UINT kFocusDelayMs = 30; // after the shows: a window still hidden takes no focus
+constexpr DWORD kBeatMs = 250;
+constexpr std::uint64_t kAreaCheckMs = 2000;
+constexpr std::uint64_t kMaxPlanBytes = std::uint64_t{256} << 10;
+
+TilerApp* g_app = nullptr; // the one app of this process (the WinEvent callback has no context)
+
+std::optional<tiling::Direction> directionOf(TilingCommand command) noexcept
+{
+    switch (command)
+    {
+    case TilingCommand::FocusLeft:
+    case TilingCommand::MoveLeft:
+        return tiling::Direction::Left;
+    case TilingCommand::FocusRight:
+    case TilingCommand::MoveRight:
+        return tiling::Direction::Right;
+    case TilingCommand::FocusUp:
+    case TilingCommand::MoveUp:
+        return tiling::Direction::Up;
+    case TilingCommand::FocusDown:
+    case TilingCommand::MoveDown:
+        return tiling::Direction::Down;
+    default:
+        return std::nullopt;
+    }
+}
+
+bool nearly(const tiling::Rect& a, const tiling::Rect& b) noexcept
+{
+    return std::abs(a.left - b.left) <= 1 && std::abs(a.top - b.top) <= 1 && std::abs(a.right - b.right) <= 1 &&
+           std::abs(a.bottom - b.bottom) <= 1;
+}
+
+std::uint32_t colorref(const domain::Color& color) noexcept
+{
+    return static_cast<std::uint32_t>(RGB(color.r, color.g, color.b));
+}
+
+struct FollowerSearch
+{
+    HWND owner = nullptr;
+    std::vector<tiling::WindowId> found;
+};
+
+BOOL CALLBACK collectFollower(HWND window, LPARAM context)
+{
+    auto& search = *reinterpret_cast<FollowerSearch*>(context); // NOLINT(performance-no-int-to-ptr)
+    if (GetWindow(window, GW_OWNER) == search.owner && IsWindowVisible(window) != FALSE)
+    {
+        search.found.push_back(idOf(window));
+    }
+    return TRUE;
+}
+
+BOOL CALLBACK collectWindow(HWND window, LPARAM context)
+{
+    reinterpret_cast<std::vector<HWND>*>(context)->push_back(window); // NOLINT(performance-no-int-to-ptr)
+    return TRUE;
+}
+
+} // namespace
+
+struct TilerApp::Access
+{
+    static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        if (g_app != nullptr && g_app->m_window == window)
+        {
+            return g_app->handle(message, wParam, lParam);
+        }
+        return DefWindowProcW(window, message, wParam, lParam);
+    }
+
+    static void CALLBACK onEvent(HWINEVENTHOOK /*hook*/, DWORD event, HWND window, LONG object, LONG child,
+                                 DWORD /*thread*/, DWORD /*time*/)
+    {
+        if (g_app != nullptr && window != nullptr && object == OBJID_WINDOW && child == CHILDID_SELF)
+        {
+            g_app->onEvent(event, window);
+        }
+    }
+};
+
+TilerApp::TilerApp(std::filesystem::path planFile, platform::Heartbeat& heartbeat, void* core, Options options)
+    : m_planFile(std::move(planFile))
+    , m_windowsFile(m_planFile.parent_path() / L"windows.json")
+    , m_heartbeat(&heartbeat)
+    , m_core(core)
+    , m_options(options)
+    , m_window(makeControlWindow())
+    , m_shared(options.elevated)
+{
+    g_app = this;
+    // A tiler that ended badly left its windows hidden or out of place: back first.
+    putBackFromFile(m_windowsFile);
+    if (m_options.elevated && m_window != nullptr)
+    {
+        // The bars (not elevated) ask for a workspace; the core asks it to leave.
+        ChangeWindowMessageFilterEx(static_cast<HWND>(m_window), tiling::kGoToMessage, MSGFLT_ALLOW, nullptr);
+        ChangeWindowMessageFilterEx(static_cast<HWND>(m_window), WM_CLOSE, MSGFLT_ALLOW, nullptr);
+    }
+
+    const std::array<std::pair<DWORD, DWORD>, 4> ranges = {{
+        {EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND},
+        {EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MINIMIZEEND},
+        {EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE},
+        {EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED},
+    }};
+    for (const auto& [first, last] : ranges)
+    {
+        if (HWINEVENTHOOK hook = SetWinEventHook(first, last, nullptr, &Access::onEvent, 0, 0,
+                                                 WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS))
+        {
+            m_hooks.push_back(hook);
+        }
+    }
+    m_keys = std::make_unique<KeyHook>(m_window);
+    m_planWatch = FindFirstChangeNotificationW(m_planFile.parent_path().c_str(), FALSE,
+                                               FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
+    if (m_planWatch == INVALID_HANDLE_VALUE)
+    {
+        m_planWatch = nullptr;
+    }
+}
+
+TilerApp::~TilerApp()
+{
+    try
+    {
+        stop();
+    }
+    catch (...) // NOLINT(bugprone-empty-catch): the hooks and the window must still go below
+    {
+    }
+    m_keys.reset();
+    for (void* hook : m_hooks)
+    {
+        UnhookWinEvent(static_cast<HWINEVENTHOOK>(hook));
+    }
+    if (m_planWatch != nullptr)
+    {
+        FindCloseChangeNotification(m_planWatch);
+    }
+    m_virtual.reset();
+    if (m_window != nullptr)
+    {
+        DestroyWindow(static_cast<HWND>(m_window));
+    }
+    g_app = nullptr;
+}
+
+void* TilerApp::makeControlWindow()
+{
+    WNDCLASSEXW windowClass{};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.lpfnWndProc = &Access::windowProc;
+    windowClass.hInstance = GetModuleHandleW(nullptr);
+    windowClass.lpszClassName = tiling::kControlClass;
+    RegisterClassExW(&windowClass);
+    // Top-level (not message-only): it hears the session end and the monitors change.
+    return CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, tiling::kControlClass, L"Ricing Manager tiler",
+                           WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+}
+
+TilerApp::Ending TilerApp::run()
+{
+    if (m_window == nullptr)
+    {
+        log::error("tiler: no control window ({})", GetLastError());
+        return Ending::Failed;
+    }
+    if (!readPlan())
+    {
+        log::info("tiler: no plan; nothing to do");
+        return Ending::Done;
+    }
+    log::info("tiler: running{}", m_options.elevated ? " as administrator" : "");
+    while (!m_quit)
+    {
+        std::array<HANDLE, 3> handles{};
+        DWORD count = 0;
+        if (m_core != nullptr)
+        {
+            handles[count++] = m_core;
+        }
+        if (m_planWatch != nullptr)
+        {
+            handles[count++] = m_planWatch;
+        }
+        if (m_virtual && m_virtual->changed() != nullptr)
+        {
+            handles[count++] = m_virtual->changed();
+        }
+        const DWORD woke = MsgWaitForMultipleObjectsEx(count, handles.data(), kBeatMs, QS_ALLINPUT,
+                                                       MWMO_INPUTAVAILABLE);
+        m_heartbeat->beat();
+        // A bar that ends without a word gives its strip back silently: the work areas are
+        // compared now and then (a few microseconds).
+        if (const auto now = GetTickCount64(); now - m_lastAreaCheck >= kAreaCheckMs)
+        {
+            m_lastAreaCheck = now;
+            if (m_desktop && monitorsNow() != m_monitors)
+            {
+                syncMonitors();
+            }
+        }
+        if (woke < WAIT_OBJECT_0 + count) // WAIT_OBJECT_0 is 0
+        {
+            HANDLE signaled = handles[woke - WAIT_OBJECT_0];
+            if (signaled == m_core)
+            {
+                log::info("tiler: the core is gone; every window goes back");
+                break;
+            }
+            if (signaled == m_planWatch)
+            {
+                FindNextChangeNotification(m_planWatch);
+                SetTimer(static_cast<HWND>(m_window), kPlanTimer, 100, nullptr);
+            }
+            else if (m_virtual && signaled == m_virtual->changed())
+            {
+                m_virtual->rearm();
+                syncDesktops();
+            }
+        }
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
+        {
+            if (message.message == WM_QUIT)
+            {
+                m_quit = true;
+                break;
+            }
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    stop();
+    log::info("tiler: stopped");
+    return m_ending;
+}
+
+std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam)
+{
+    HWND self = static_cast<HWND>(m_window);
+    switch (message)
+    {
+    case WM_TIMER:
+        switch (wParam)
+        {
+        case kLayoutTimer:
+            KillTimer(self, kLayoutTimer);
+            layout();
+            break;
+        case kSettleTimer:
+            settle();
+            break;
+        case kSaveTimer:
+            KillTimer(self, kSaveTimer);
+            save();
+            break;
+        case kPlanTimer:
+            KillTimer(self, kPlanTimer);
+            if (!readPlan())
+            {
+                log::info("tiler: the plan is gone; every window goes back");
+                m_quit = true;
+            }
+            break;
+        case kMonitorTimer:
+            KillTimer(self, kMonitorTimer);
+            syncMonitors();
+            break;
+        case kFocusTimer:
+            KillTimer(self, kFocusTimer);
+            if (m_pendingFocus && IsWindow(static_cast<HWND>(windowOf(*m_pendingFocus))) != FALSE)
+            {
+                focus(windowOf(*m_pendingFocus));
+            }
+            m_pendingFocus.reset();
+            break;
+        default:
+            break;
+        }
+        return 0;
+    case KeyHook::kCommandMessage:
+        if (wParam < domain::kTilingCommandCount)
+        {
+            command(static_cast<TilingCommand>(wParam), static_cast<int>(lParam));
+        }
+        return 0;
+    case tiling::kGoToMessage: {
+        const int x = GET_X_LPARAM(lParam);
+        const int y = GET_Y_LPARAM(lParam);
+        const int workspace = static_cast<int>(wParam) - 1;
+        if (mac() && m_virtual)
+        {
+            VirtualDesktops::goTo(workspace, m_virtualState);
+            return 0;
+        }
+        for (std::size_t i = 0; i < m_monitors.size(); ++i)
+        {
+            if (m_monitors[i].bounds.contains(x, y))
+            {
+                goTo(i, workspace);
+                break;
+            }
+        }
+        return 0;
+    }
+    case WM_DISPLAYCHANGE:
+    case WM_DPICHANGED:
+        SetTimer(self, kMonitorTimer, 200, nullptr);
+        return 0;
+    case WM_SETTINGCHANGE:
+        // A bar took or gave back its strip (Explorer does not always say SPI_SETWORKAREA).
+        SetTimer(self, kMonitorTimer, 100, nullptr);
+        return 0;
+    case WM_QUERYENDSESSION:
+        // Apps asking "save your work?" must be seen: every window back now.
+        stop();
+        return TRUE;
+    case WM_ENDSESSION:
+        if (wParam != FALSE)
+        {
+            m_quit = true;
+        }
+        return 0;
+    case WM_CLOSE:
+        m_quit = true;
+        return 0;
+    default:
+        return DefWindowProcW(self, message, wParam, lParam);
+    }
+}
+
+bool TilerApp::readPlan()
+{
+    std::error_code ec;
+    if (!std::filesystem::exists(m_planFile, ec))
+    {
+        return false;
+    }
+    auto bytes = platform::readFileLimited(m_planFile, kMaxPlanBytes);
+    if (!bytes)
+    {
+        return m_plan.has_value(); // being rewritten, maybe: the next change reads it again
+    }
+    std::string text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+    if (text == m_planText)
+    {
+        return true;
+    }
+    auto plan = tiling::parsePlan(text);
+    if (!plan)
+    {
+        log::warn("tiler: {}", plan.error().toString());
+        return m_plan.has_value();
+    }
+    m_planText = std::move(text);
+    applyPlan(std::move(*plan));
+    return true;
+}
+
+void TilerApp::applyPlan(tiling::Plan plan)
+{
+    const std::optional<tiling::Plan> old = std::move(m_plan);
+    const domain::TilingSettings& now = m_plan.emplace(std::move(plan)).settings;
+    // Advanced mode (admin apps' windows too): an elevated copy does the work, or stops doing it.
+    if (now.runAsAdmin && !m_options.elevated && !m_options.adminDeclined)
+    {
+        m_ending = Ending::BeAdmin;
+        m_quit = true;
+        return;
+    }
+    if (!now.runAsAdmin && m_options.elevatedCopy)
+    {
+        m_ending = Ending::BePlain;
+        m_quit = true;
+        return;
+    }
+    if (m_keys)
+    {
+        m_keys->setKeys(hookKeys());
+    }
+    if (!old || old->settings.mode != now.mode)
+    {
+        stop();
+        if (mac() && !m_virtual)
+        {
+            m_virtual = VirtualDesktops::create();
+        }
+        if (!m_paused)
+        {
+            start();
+        }
+        return;
+    }
+    if (!m_desktop)
+    {
+        publish();
+        return;
+    }
+    if (!mac() && old->settings.workspaces != now.workspaces)
+    {
+        apply(m_desktop->setWorkspaceCount(now.workspaces));
+    }
+    if (old->settings.layout != now.layout)
+    {
+        m_desktop->setLayout(now.layout);
+    }
+    m_bordered.reset(); // the color may have changed: paint it again
+    updateBorder(foreground());
+    scheduleLayout();
+    publish();
+}
+
+std::vector<domain::TilingKey> TilerApp::hookKeys() const
+{
+    std::vector<domain::TilingKey> keys = m_plan ? m_plan->settings.keys : std::vector<domain::TilingKey>{};
+    if (m_paused)
+    {
+        // Off for now: every key is the apps' again, but the one that turns it back on.
+        std::erase_if(keys, [](const domain::TilingKey& key) { return key.command != TilingCommand::Toggle; });
+        return keys;
+    }
+    if (mac())
+    {
+        // Windows' own Ctrl+Win+arrows already slide: let them through. Sending a window to another
+        // desktop is not something Windows lets a program do: that key stays the app's.
+        std::erase_if(keys, [](const domain::TilingKey& key) {
+            const bool native = key.keys.modifiers == (MOD_CONTROL | MOD_WIN) &&
+                                (key.keys.virtualKey == VK_LEFT || key.keys.virtualKey == VK_RIGHT);
+            return key.command == TilingCommand::SendToWorkspace ||
+                   (native && (key.command == TilingCommand::WorkspacePrevious ||
+                               key.command == TilingCommand::WorkspaceNext));
+        });
+    }
+    return keys;
+}
+
+bool TilerApp::mac() const noexcept
+{
+    return m_plan && m_plan->settings.mode == domain::TilingMode::Mac;
+}
+
+void TilerApp::start()
+{
+    if (!m_plan || m_desktop)
+    {
+        return;
+    }
+    int workspaces = m_plan->settings.workspaces;
+    const domain::TilingMode mode = m_plan->settings.mode;
+    if (mac() && m_virtual)
+    {
+        m_virtualState = m_virtual->read();
+        workspaces = static_cast<int>(std::min<std::size_t>(m_virtualState.desktops.size(), domain::kMaxWorkspaces));
+    }
+    m_desktop = std::make_unique<tiling::Desktop>(workspaces, m_plan->settings.layout);
+    m_monitors = monitorsNow();
+    m_desktop->setMonitors(m_monitors);
+    if (mac())
+    {
+        for (std::size_t m = 0; m < m_desktop->monitorCount(); ++m)
+        {
+            m_desktop->goTo(m, std::min(m_virtualState.current, workspaces - 1));
+        }
+    }
+    // Bottom to top: the window in front is the newest (and keeps the focus).
+    std::vector<HWND> windows;
+    EnumWindows(&collectWindow, reinterpret_cast<LPARAM>(&windows));
+    for (auto it = windows.rbegin(); it != windows.rend(); ++it)
+    {
+        adopt(*it);
+    }
+    updateBorder(foreground());
+    layout();
+    publish();
+    log::info("tiler: {} window(s) on {} monitor(s), {} style", m_desktop->all().size(), m_monitors.size(),
+              domain::toString(mode));
+}
+
+void TilerApp::stop()
+{
+    if (!m_desktop)
+    {
+        return;
+    }
+    std::vector<tiling::Original> windows;
+    windows.reserve(m_originals.size());
+    for (auto [id, original] : m_originals)
+    {
+        original.hidden = m_hidden.contains(id);
+        windows.push_back(original);
+    }
+    if (const auto left = putBack(windows); !left.empty())
+    {
+        log::warn("tiler: {} window(s) of apps running as administrator could not be put back", left.size());
+    }
+    if (m_bordered)
+    {
+        setBorder(windowOf(*m_bordered), std::nullopt);
+    }
+    m_originals.clear();
+    m_hidden.clear();
+    m_followers.clear();
+    m_targets.clear();
+    m_bordered.reset();
+    m_pendingFocus.reset();
+    m_desktop.reset();
+    std::error_code ec;
+    std::filesystem::remove(m_windowsFile, ec);
+    publish();
+}
+
+void TilerApp::remember(tiling::WindowId id, Window window)
+{
+    if (!m_originals.contains(id))
+    {
+        m_originals.emplace(id, originalOf(window));
+        scheduleSave();
+    }
+}
+
+void TilerApp::adopt(Window window)
+{
+    if (!m_desktop || !m_plan)
+    {
+        return;
+    }
+    const tiling::WindowId id = idOf(window);
+    if (m_desktop->find(id) || !isAppWindow(window) || isOurs(window) || !canMove(window))
+    {
+        return;
+    }
+    const tiling::WindowFacts facts = factsOf(window);
+    const domain::TilingRule* rule = tiling::matchRule(m_plan->settings.rules, facts);
+    if (rule != nullptr && rule->action == domain::TilingRuleAction::Ignore)
+    {
+        return;
+    }
+    const bool floating =
+        (rule != nullptr && rule->action == domain::TilingRuleAction::Float) || !isResizable(window);
+    std::optional<int> workspace;
+    if (mac())
+    {
+        if (!m_virtual)
+        {
+            return;
+        }
+        workspace = m_virtual->desktopOf(window, m_virtualState);
+        if (!workspace || *workspace >= m_desktop->workspaceCount())
+        {
+            syncDesktops(); // a desktop made a moment ago, maybe: read them again
+            workspace = m_virtual->desktopOf(window, m_virtualState);
+        }
+        // On no desktop of the list: shown on every one (pinned), so with the one shown now.
+        workspace = workspace.value_or(m_virtualState.current);
+        if (*workspace >= m_desktop->workspaceCount())
+        {
+            return; // beyond the ninth
+        }
+    }
+    else if (rule != nullptr && rule->action == domain::TilingRuleAction::Workspace)
+    {
+        workspace = rule->workspace - 1;
+    }
+    if (!floating)
+    {
+        remember(id, window); // before anything moves it
+        if (IsZoomed(static_cast<HWND>(window)) != FALSE)
+        {
+            ShowWindowAsync(static_cast<HWND>(window), SW_SHOWNOACTIVATE); // maximized: back to a tile
+        }
+    }
+    tiling::Change change =
+        m_desktop->add(id, monitorIndex(m_monitors, window), workspace, floating);
+    change.focus.reset(); // a window that opens has the focus it has
+    apply(std::move(change));
+    scheduleLayout();
+    publish();
+}
+
+void TilerApp::forget(Window window, bool gone)
+{
+    const tiling::WindowId id = idOf(window);
+    if (gone)
+    {
+        m_originals.erase(id);
+        m_followers.erase(id);
+    }
+    if (!m_desktop || !m_desktop->remove(id))
+    {
+        return;
+    }
+    m_hidden.erase(id);
+    m_targets.erase(id);
+    if (m_bordered == id)
+    {
+        m_bordered.reset();
+    }
+    scheduleLayout();
+    scheduleSave();
+    publish();
+}
+
+void TilerApp::apply(tiling::Change change)
+{
+    if (mac())
+    {
+        // Windows shows and hides the virtual desktops' windows itself.
+        change.hide.clear();
+        change.show.clear();
+    }
+    // The new ones first, then the old ones go: no flash of the empty desktop in between.
+    for (const tiling::WindowId id : change.show)
+    {
+        m_hidden.erase(id);
+        if (auto it = m_originals.find(id); it != m_originals.end() && !it->second.placed)
+        {
+            m_originals.erase(it);
+        }
+        show(windowOf(id));
+        showFollowers(id);
+    }
+    for (const tiling::WindowId id : change.hide)
+    {
+        Window window = windowOf(id);
+        if (!m_originals.contains(id))
+        {
+            tiling::Original original = originalOf(window);
+            original.placed = false; // a floating window: hidden, never moved
+            m_originals.emplace(id, original);
+        }
+        m_hidden.insert(id);
+        hideFollowers(id);
+        hide(window);
+    }
+    if (!change.hide.empty() || !change.show.empty())
+    {
+        save(); // now: a crash right after must find them
+    }
+    if (change.focus)
+    {
+        m_pendingFocus = change.focus;
+        SetTimer(static_cast<HWND>(m_window), kFocusTimer, change.show.empty() ? 0 : kFocusDelayMs, nullptr);
+    }
+}
+
+void TilerApp::hideFollowers(tiling::WindowId owner)
+{
+    FollowerSearch search{static_cast<HWND>(windowOf(owner)), {}};
+    EnumWindows(&collectFollower, reinterpret_cast<LPARAM>(&search));
+    for (const tiling::WindowId follower : search.found)
+    {
+        if (!m_originals.contains(follower))
+        {
+            tiling::Original original = originalOf(windowOf(follower));
+            original.placed = false;
+            m_originals.emplace(follower, original);
+        }
+        m_hidden.insert(follower);
+        hide(windowOf(follower));
+    }
+    if (!search.found.empty())
+    {
+        m_followers[owner] = std::move(search.found);
+    }
+}
+
+void TilerApp::showFollowers(tiling::WindowId owner)
+{
+    const auto it = m_followers.find(owner);
+    if (it == m_followers.end())
+    {
+        return;
+    }
+    for (const tiling::WindowId follower : it->second)
+    {
+        m_hidden.erase(follower);
+        m_originals.erase(follower);
+        if (IsWindow(static_cast<HWND>(windowOf(follower))) != FALSE)
+        {
+            show(windowOf(follower));
+        }
+    }
+    m_followers.erase(it);
+}
+
+void TilerApp::scheduleLayout()
+{
+    SetTimer(static_cast<HWND>(m_window), kLayoutTimer, 0, nullptr);
+}
+
+void TilerApp::layout()
+{
+    m_targets.clear();
+    if (!m_desktop || !m_plan)
+    {
+        return;
+    }
+    for (std::size_t m = 0; m < m_desktop->monitorCount(); ++m)
+    {
+        for (const auto& [id, rect] : m_desktop->activeWorkspace(m).placements(m_desktop->area(m), options(m)))
+        {
+            Window window = windowOf(id);
+            HWND w = static_cast<HWND>(window);
+            if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE)
+            {
+                continue; // maximized by the person: theirs until they restore it
+            }
+            remember(id, window);
+            m_targets[id] = rect;
+            if (!nearly(frameOf(window), rect))
+            {
+                place(window, rect);
+            }
+        }
+    }
+    m_settleRounds = kSettleRounds;
+    SetTimer(static_cast<HWND>(m_window), kSettleTimer, kSettleDelayMs, nullptr);
+}
+
+void TilerApp::settle()
+{
+    // Apps that answer late, or change their size when their DPI changes: placed once more.
+    for (const auto& [id, rect] : m_targets)
+    {
+        Window window = windowOf(id);
+        HWND w = static_cast<HWND>(window);
+        if (IsWindow(w) != FALSE && IsZoomed(w) == FALSE && IsIconic(w) == FALSE && !nearly(frameOf(window), rect))
+        {
+            place(window, rect);
+        }
+    }
+    if (--m_settleRounds <= 0)
+    {
+        KillTimer(static_cast<HWND>(m_window), kSettleTimer);
+    }
+}
+
+tiling::LayoutOptions TilerApp::options(std::size_t monitor) const
+{
+    const double scale = monitor < m_monitors.size() ? m_monitors[monitor].scale : 1.0;
+    return m_plan ? tiling::layoutOptions(m_plan->settings, scale) : tiling::LayoutOptions{};
+}
+
+std::size_t TilerApp::currentMonitor() const
+{
+    if (m_desktop)
+    {
+        if (const auto place = m_desktop->find(idOf(foreground())))
+        {
+            return place->monitor;
+        }
+    }
+    return monitorIndex(m_monitors, nullptr); // the one under the mouse
+}
+
+void TilerApp::onEvent(std::uint32_t event, Window window)
+{
+    if (!m_desktop)
+    {
+        return;
+    }
+    const tiling::WindowId id = idOf(window);
+    switch (event)
+    {
+    case EVENT_SYSTEM_FOREGROUND:
+        onForeground(window);
+        break;
+    case EVENT_OBJECT_SHOW:
+    case EVENT_OBJECT_UNCLOAKED:
+    case EVENT_SYSTEM_MINIMIZEEND:
+        adopt(window);
+        break;
+    case EVENT_OBJECT_HIDE:
+        // Ours (another workspace), or shown again since: not the app hiding it.
+        if (!m_hidden.contains(id) && IsWindowVisible(static_cast<HWND>(window)) == FALSE)
+        {
+            forget(window, false);
+        }
+        break;
+    case EVENT_OBJECT_CLOAKED:
+        // Mac style: on another virtual desktop now, still ours. Linux style: the app went away.
+        if (!mac() && !m_hidden.contains(id))
+        {
+            forget(window, false);
+        }
+        break;
+    case EVENT_SYSTEM_MINIMIZESTART:
+        forget(window, false);
+        break;
+    case EVENT_OBJECT_DESTROY:
+        forget(window, true);
+        break;
+    case EVENT_SYSTEM_MOVESIZEEND:
+        onMoved(window);
+        break;
+    default:
+        break;
+    }
+}
+
+void TilerApp::onForeground(Window window)
+{
+    const tiling::WindowId id = idOf(window);
+    auto place = m_desktop->find(id);
+    if (!place)
+    {
+        adopt(window);
+        place = m_desktop->find(id);
+    }
+    if (place)
+    {
+        m_desktop->workspace(*place).focus(id);
+        // An app brought a window of a workspace not shown to the front: that workspace comes.
+        if (!mac() && !m_desktop->shown(id))
+        {
+            goTo(place->monitor, place->workspace);
+        }
+    }
+    updateBorder(window);
+}
+
+void TilerApp::onMoved(Window window)
+{
+    const tiling::WindowId id = idOf(window);
+    const auto place = m_desktop->find(id);
+    if (!place || m_desktop->workspace(*place).floating(id))
+    {
+        return;
+    }
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    const std::size_t monitor = monitorIndex(m_monitors, nullptr);
+    if (monitor != place->monitor)
+    {
+        tiling::Change change = m_desktop->moveToMonitor(id, monitor);
+        change.focus.reset();
+        apply(std::move(change));
+    }
+    else
+    {
+        // Dropped onto another window: they trade places. Anywhere else: back to its tile.
+        tiling::Workspace& workspace = m_desktop->workspace(*place);
+        for (const auto& [other, rect] : workspace.placements(m_desktop->area(monitor), options(monitor)))
+        {
+            if (other != id && rect.contains(cursor.x, cursor.y))
+            {
+                workspace.exchange(id, other);
+                break;
+            }
+        }
+    }
+    scheduleLayout();
+    publish();
+}
+
+void TilerApp::command(TilingCommand command, int number)
+{
+    log::info("tiler: {}{}", domain::toString(command), number != 0 ? std::format(" {}", number) : std::string());
+    if (command == TilingCommand::Toggle)
+    {
+        m_paused = m_desktop != nullptr;
+        if (m_paused)
+        {
+            log::info("tiler: off for now; every window back");
+            stop();
+        }
+        else
+        {
+            start();
+        }
+        if (m_keys)
+        {
+            m_keys->setKeys(hookKeys());
+        }
+        publish();
+        return;
+    }
+    if (!m_desktop)
+    {
+        return;
+    }
+    if (const auto direction = directionOf(command))
+    {
+        if (command == TilingCommand::MoveLeft || command == TilingCommand::MoveRight ||
+            command == TilingCommand::MoveUp || command == TilingCommand::MoveDown)
+        {
+            moveToward(*direction);
+        }
+        else
+        {
+            focusToward(*direction);
+        }
+        return;
+    }
+    auto* const window = foreground();
+    const tiling::WindowId id = idOf(window);
+    const auto place = m_desktop->find(id);
+    const std::size_t monitor = place ? place->monitor : currentMonitor();
+    switch (command)
+    {
+    case TilingCommand::WorkspacePrevious:
+    case TilingCommand::WorkspaceNext: {
+        const bool next = command == TilingCommand::WorkspaceNext;
+        if (mac())
+        {
+            VirtualDesktops::step(next);
+            break;
+        }
+        const int count = m_desktop->workspaceCount();
+        goTo(monitor, (m_desktop->active(monitor) + (next ? 1 : count - 1)) % count);
+        break;
+    }
+    case TilingCommand::Workspace:
+        if (mac())
+        {
+            VirtualDesktops::goTo(number - 1, m_virtualState);
+        }
+        else
+        {
+            goTo(monitor, number - 1);
+        }
+        break;
+    case TilingCommand::SendToWorkspace:
+        if (mac())
+        {
+            if (!std::exchange(m_toldMacSend, true))
+            {
+                log::info("tiler: Windows does not let a program move another app's window to another "
+                          "virtual desktop; use Win+Tab");
+            }
+        }
+        else if (place)
+        {
+            apply(m_desktop->sendTo(id, number - 1));
+            scheduleLayout();
+            publish();
+        }
+        break;
+    case TilingCommand::Float:
+        if (place)
+        {
+            tiling::Workspace& workspace = m_desktop->workspace(*place);
+            workspace.toggleFloating(id);
+            if (!workspace.floating(id))
+            {
+                remember(id, window);
+            }
+            scheduleLayout();
+        }
+        break;
+    case TilingCommand::Fullscreen:
+        m_desktop->activeWorkspace(monitor).toggleMonocle();
+        scheduleLayout();
+        publish();
+        break;
+    case TilingCommand::NextLayout:
+        m_desktop->activeWorkspace(monitor).cycleLayout();
+        scheduleLayout();
+        publish();
+        break;
+    case TilingCommand::Promote:
+        if (place)
+        {
+            m_desktop->workspace(*place).promote(id);
+            scheduleLayout();
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void TilerApp::focusToward(tiling::Direction direction)
+{
+    const tiling::WindowId id = idOf(foreground());
+    const auto place = m_desktop->find(id);
+    const std::size_t monitor = place ? place->monitor : currentMonitor();
+    if (place && m_desktop->shown(id))
+    {
+        const tiling::Workspace& workspace = m_desktop->workspace(*place);
+        if (const auto next = workspace.neighborOf(id, direction, m_desktop->area(monitor), options(monitor)))
+        {
+            focus(windowOf(*next));
+            return;
+        }
+    }
+    // Past the last window: the monitor that way (or, from a window not ours, this monitor's).
+    const auto other = place ? m_desktop->monitorToward(monitor, direction) : std::optional(monitor);
+    if (!other)
+    {
+        return;
+    }
+    if (const auto focused = m_desktop->activeWorkspace(*other).focused())
+    {
+        focus(windowOf(*focused));
+    }
+    else
+    {
+        // Nothing there: the mouse goes, so the next window opens on it.
+        const tiling::Rect& area = m_desktop->area(*other);
+        SetCursorPos((area.left + area.right) / 2, (area.top + area.bottom) / 2);
+    }
+}
+
+void TilerApp::moveToward(tiling::Direction direction)
+{
+    const tiling::WindowId id = idOf(foreground());
+    const auto place = m_desktop->find(id);
+    if (!place || !m_desktop->shown(id) || m_desktop->workspace(*place).floating(id))
+    {
+        return;
+    }
+    tiling::Workspace& workspace = m_desktop->workspace(*place);
+    if (!workspace.exchange(id, direction, m_desktop->area(place->monitor), options(place->monitor)))
+    {
+        if (const auto other = m_desktop->monitorToward(place->monitor, direction))
+        {
+            tiling::Change change = m_desktop->moveToMonitor(id, *other);
+            change.focus.reset();
+            apply(std::move(change));
+        }
+    }
+    scheduleLayout();
+    publish();
+}
+
+void TilerApp::goTo(std::size_t monitor, int workspace)
+{
+    if (!m_desktop)
+    {
+        return;
+    }
+    apply(m_desktop->goTo(monitor, workspace));
+    layout(); // now: the windows that came show in their places
+    publish();
+}
+
+void TilerApp::syncMonitors()
+{
+    if (!m_desktop)
+    {
+        return;
+    }
+    m_monitors = monitorsNow();
+    apply(m_desktop->setMonitors(m_monitors));
+    scheduleLayout();
+    publish();
+}
+
+void TilerApp::syncDesktops()
+{
+    if (!m_desktop || !m_virtual || !mac())
+    {
+        return;
+    }
+    const VirtualDesktops::State before = m_virtualState;
+    m_virtualState = m_virtual->read();
+    const int count = static_cast<int>(std::min<std::size_t>(m_virtualState.desktops.size(), domain::kMaxWorkspaces));
+    if (m_virtualState.desktops.size() != before.desktops.size() || m_virtualState.current != before.current)
+    {
+        log::info("tiler: {} virtual desktop(s), number {} shown", m_virtualState.desktops.size(),
+                  m_virtualState.current + 1);
+    }
+    m_desktop->setWorkspaceCount(count);
+    // Windows moved to another desktop with Win+Tab: they follow.
+    for (const tiling::WindowId id : m_desktop->all())
+    {
+        const auto desktop = m_virtual->desktopOf(windowOf(id), m_virtualState);
+        const auto place = m_desktop->find(id);
+        if (desktop && place && *desktop != place->workspace && *desktop < count)
+        {
+            m_desktop->sendTo(id, *desktop);
+        }
+    }
+    for (std::size_t m = 0; m < m_desktop->monitorCount(); ++m)
+    {
+        m_desktop->goTo(m, std::min(m_virtualState.current, count - 1));
+    }
+    scheduleLayout();
+    publish();
+}
+
+void TilerApp::updateBorder(Window focused)
+{
+    const tiling::WindowId id = idOf(focused);
+    std::optional<std::uint32_t> color;
+    if (m_plan && m_plan->settings.border && m_desktop && m_desktop->find(id))
+    {
+        color = colorref(m_plan->border);
+    }
+    if (m_bordered && (!color || *m_bordered != id))
+    {
+        setBorder(windowOf(*m_bordered), std::nullopt);
+        m_bordered.reset();
+    }
+    if (color && m_bordered != id)
+    {
+        setBorder(focused, color);
+        m_bordered = id;
+    }
+}
+
+void TilerApp::scheduleSave()
+{
+    SetTimer(static_cast<HWND>(m_window), kSaveTimer, 300, nullptr);
+}
+
+void TilerApp::save()
+{
+    std::error_code ec;
+    if (m_originals.empty())
+    {
+        std::filesystem::remove(m_windowsFile, ec);
+        return;
+    }
+    std::vector<tiling::Original> windows;
+    windows.reserve(m_originals.size());
+    for (auto [id, original] : m_originals)
+    {
+        original.hidden = m_hidden.contains(id);
+        windows.push_back(original);
+    }
+    const std::string text = tiling::toJson(windows);
+    const auto* bytes = reinterpret_cast<const std::byte*>(text.data());
+    if (auto written = platform::writeFileAtomic(m_windowsFile, std::span(bytes, text.size())); !written)
+    {
+        log::warn("tiler: cannot keep the list of windows to put back: {}", written.error().toString());
+    }
+}
+
+void TilerApp::publish()
+{
+    m_shared.write([this](tiling::SharedState& state) {
+        state.mode = static_cast<std::uint8_t>(m_plan ? m_plan->settings.mode : domain::TilingMode::Linux);
+        state.paused = m_desktop ? 0 : 1;
+        state.workspaces = m_desktop ? static_cast<std::uint32_t>(m_desktop->workspaceCount()) : 0;
+        const std::size_t count = m_desktop ? std::min(m_desktop->monitorCount(), tiling::kMaxSharedMonitors) : 0;
+        state.monitorCount = static_cast<std::uint32_t>(count);
+        for (std::size_t m = 0; m < count; ++m)
+        {
+            tiling::SharedMonitor& out = state.monitors.at(m);
+            const tiling::Rect bounds = m < m_monitors.size() ? m_monitors[m].bounds : tiling::Rect{};
+            out.left = bounds.left;
+            out.top = bounds.top;
+            out.right = bounds.right;
+            out.bottom = bounds.bottom;
+            out.occupied = m_desktop->occupied(m);
+            out.active = static_cast<std::uint8_t>(m_desktop->active(m));
+            out.layout = static_cast<std::uint8_t>(m_desktop->activeWorkspace(m).layout());
+        }
+    });
+}
+
+} // namespace rmw::tilerapp

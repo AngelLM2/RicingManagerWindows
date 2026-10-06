@@ -22,6 +22,7 @@ rmw_add_fuzzer(widget_slint DEPS rmw::bar)
 rmw_add_fuzzer(bridge DEPS rmw::bar)
 rmw_add_fuzzer(tray DEPS rmw::bar)
 rmw_add_fuzzer(plans DEPS rmw::bar rmw::plugins rmw::video)
+rmw_add_fuzzer(tiling DEPS rmw::tiling)
 rmw_add_fuzzer(url DEPS rmw::plugins)
 rmw_add_fuzzer(package DEPS rmw::package)
 # The settings app is not part of the fuzz build: its Wallpaper Engine reader is built in directly.

@@ -187,6 +187,13 @@ TEST_F(RiceEngineTest, RiceThatChangesNothingIsRejected)
     const auto report = m_engine->apply(m_rice, package());
     ASSERT_FALSE(report.has_value());
     EXPECT_EQ(report.error().code(), rmw::ErrorCode::InvalidArgument);
+    // A rice of Ricing Manager's bars only (Windows' taskbar kept): the core shows them; the engine
+    // has nothing to do and says so without failing.
+    const auto barsOnly = m_engine->apply(m_rice, package(), true);
+    ASSERT_TRUE(barsOnly.has_value()) << barsOnly.error().toString();
+    EXPECT_EQ(barsOnly->historyId, 0);
+    EXPECT_TRUE(barsOnly->modules.empty());
+    EXPECT_TRUE(applyCalls().empty());
 }
 
 TEST_F(RiceEngineTest, RestoreOriginalPutsBackOnlyWhatWeChanged)

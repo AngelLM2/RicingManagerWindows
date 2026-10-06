@@ -279,7 +279,10 @@ void printReport(const Json& report, std::string_view done)
     const auto historyId = json::intOr(report, "historyId", 0);
     if (historyId == 0)
     {
-        out("Nothing to change.");
+        // A rice of bars only: Windows' own settings stay, Ricing Manager's bars come.
+        const auto bars = json::intOr(report, "bars", 0);
+        out(bars > 0 ? std::format("{}: Ricing Manager's bar ({}); nothing of Windows changed", done, bars)
+                     : std::string("Nothing to change."));
     }
     else
     {
@@ -999,6 +1002,20 @@ int run(std::span<const std::string> args)
                 out(std::format("  {}: {}", json::stringOr(monitor, "monitor", "?"), line));
             }
         }
+        const Json tilerStatus = json::memberOr(*status, "tiler", Json::object());
+        if (json::boolOr(tilerStatus, "configured", false))
+        {
+            std::string state = json::boolOr(tilerStatus, "disabled", false)
+                                    ? "stopped after failing too often (the windows went back)"
+                                : json::boolOr(tilerStatus, "running", false)
+                                    ? std::format("running (pid {})", json::intOr(tilerStatus, "pid", 0))
+                                    : "starting";
+            if (const auto restarts = json::intOr(tilerStatus, "restarts", 0); restarts > 0)
+            {
+                state += std::format(", restarted {} time(s)", restarts);
+            }
+            out("Tiling: " + state);
+        }
         if (const auto slideshows = json::intOr(*status, "slideshows", 0); slideshows > 0)
         {
             out(std::format("Slideshow turned by Ricing Manager on {} monitor(s)", slideshows));
@@ -1257,9 +1274,9 @@ int run(std::span<const std::string> args)
         {
             return failure(self.error());
         }
-        constexpr std::array<std::wstring_view, 5> kPrograms = {L"rmw-core.exe", L"rmw-bar.exe",
-                                                                L"rmw-wallpaper.exe", L"rmw-plugin-host.exe",
-                                                                L"rmw-settings.exe"};
+        constexpr std::array<std::wstring_view, 6> kPrograms = {L"rmw-core.exe",        L"rmw-bar.exe",
+                                                                L"rmw-wallpaper.exe",   L"rmw-plugin-host.exe",
+                                                                L"rmw-settings.exe",    L"rmw-tiler.exe"};
         // The settings window closes like when its X is clicked.
         constexpr std::array<std::wstring_view, 1> kWindows = {L"rmw-settings.exe"};
         auto windows = platform::processesFromFolder(self->parent_path(), kWindows);

@@ -75,6 +75,7 @@ Hide the bar	Esconder a barra
 Next wallpaper (slideshow)	Próximo wallpaper (apresentação)
 Start	Iniciar
 Desktops	Áreas de trabalho
+Workspaces (tiling)	Áreas do tiling
 Windows	Janelas
 System tray	Bandeja do sistema
 Clock	Relógio
@@ -497,3 +498,60 @@ Show	Mostrar
 Hide	Esconder
 The Win key opens Ricing Manager's Start	A tecla Win abre o Iniciar do Ricing Manager
 When the applied rice uses it. Win with any other key stays Windows' (Win+E, Win+L...).	Quando o rice aplicado usa ele. Win com qualquer outra tecla continua do Windows (Win+E, Win+L...).
+Tiling	Tiling
+Focus the window on the left	Foco na janela da esquerda
+Focus the window on the right	Foco na janela da direita
+Focus the window above	Foco na janela de cima
+Focus the window below	Foco na janela de baixo
+Move the window left	Mover a janela para a esquerda
+Move the window right	Mover a janela para a direita
+Move the window up	Mover a janela para cima
+Move the window down	Mover a janela para baixo
+Previous workspace	Área anterior
+Next workspace	Próxima área
+Go to workspace #	Ir para a área #
+Send the window to workspace #	Mandar a janela para a área #
+Float the window (or tile it again)	Deixar a janela solta (ou organizar de novo)
+The window takes the whole screen (and back)	A janela ocupa a tela toda (e volta)
+Next layout	Próximo layout
+Make the window the main one	Tornar a janela a principal
+Tiling off and on	Desligar e ligar o tiling
+Windows side by side, workspaces and the keys for them, as on Linux.	Janelas lado a lado, áreas de trabalho e os atalhos delas, como no Linux.
+Not saved: {}	Não foi salvo: {}
+Organize the windows	Organizar as janelas
+Each new window takes a place beside the others. Turning it off puts every window back where it was.	Cada janela nova ganha um lugar ao lado das outras. Desligar devolve cada janela para onde estava.
+Workspaces	Áreas de trabalho
+Like Linux: workspaces 1 to 9 on each monitor. Like a Mac: Windows' own virtual desktops, which slide.	Como no Linux: áreas 1 a 9 em cada monitor. Como no Mac: as áreas de trabalho do próprio Windows, que deslizam.
+Like Linux (each monitor)	Como no Linux (cada monitor)
+Like a Mac (Windows' desktops)	Como no Mac (as do Windows)
+How many workspaces	Quantas áreas
+Ctrl+Win+1 to 9 go to them; the bar's "Workspaces (tiling)" widget shows the ones in use.	Ctrl+Win+1 a 9 levam até elas; o widget "Áreas do tiling" da barra mostra as que estão em uso.
+Layout	Layout
+How the windows of a workspace share it. Ctrl+Alt+Space changes it for a while.	Como as janelas de uma área dividem o espaço. Ctrl+Alt+Espaço troca por um tempo.
+Halves that turn (dwindle)	Metades que giram (dwindle)
+A main window and a stack	Uma principal e uma pilha
+Columns	Colunas
+One at a time (monocle)	Uma de cada vez (monocle)
+Free (floating)	Livres (flutuante)
+Size of the main window (%)	Tamanho da janela principal (%)
+Space between the windows	Espaço entre as janelas
+In pixels at 100% scale.	Em pixels, na escala de 100%.
+Space at the edges of the screen	Espaço nas bordas da tela
+A colored border on the window in focus	Borda colorida na janela em foco
+Windows 11. An empty color is the rice's accent.	Windows 11. Sem cor, usa o destaque do rice.
+Color of the border	Cor da borda
+Like Ctrl+Alt+Left. # is the workspace's number (1 to 9). Empty: no key. Press Enter in the box to save it.	Como Ctrl+Alt+Left. # é o número da área (1 a 9). Vazio: sem atalho. Aperte Enter na caixa para salvar.
+Back to the keys it came with	Voltar aos atalhos de fábrica
+On some keyboards (ABNT2's included) Ctrl+Alt is AltGr: AltGr never counts as Ctrl+Alt, and the keys it came with leave out Ctrl+Alt with numbers. Win+L and Ctrl+Alt+Del stay Windows'.	Em alguns teclados (inclusive o ABNT2) Ctrl+Alt é o AltGr: o AltGr nunca conta como Ctrl+Alt, e os atalhos de fábrica não usam Ctrl+Alt com números. Win+L e Ctrl+Alt+Del continuam do Windows.
+Apps	Apps
+Windows of these apps float, are left alone, or open on a workspace of their own. The app is its program (Calculator.exe).	As janelas destes apps ficam soltas, ficam como estão ou abrem numa área própria. O app é o programa dele (Calculator.exe).
+App	App
+Floats	Fica solta
+Left alone	Fica como está
+Opens on workspace	Abre na área
+What its windows do	O que as janelas fazem
+Workspace	Área
+Add an app	Adicionar um app
+Advanced mode	Modo avançado
+Also the windows of apps running as administrator	Também as janelas de apps rodando como administrador
+Windows asks for your permission each time tiling starts. Without it, those windows are left where they are, and the keys do nothing while one of them is in front.	O Windows pede a sua permissão cada vez que o tiling começa. Sem isto, essas janelas ficam onde estão, e os atalhos não fazem nada enquanto uma delas está na frente.

@@ -62,6 +62,127 @@ struct Rule
     ActionCall action;
 };
 
+// ---- M13: the tiler (settings.toml [tiling]) ----
+
+// How the windows of a workspace are laid out.
+enum class TilingLayout : std::uint8_t
+{
+    Dwindle,     // each new window takes half of the last one's place, turning (bspwm, Hyprland)
+    MasterStack, // the first on one side, the rest stacked on the other (dwm, xmonad)
+    Columns,     // side by side, the same width
+    Monocle,     // each takes the whole area (the focused one in front)
+    Floating,    // nothing is placed: the windows stay where the user puts them
+};
+
+// Workspaces like Linux (ours, 1-9 on each monitor: switching hides and shows windows) or like a
+// Mac (Windows' own virtual desktops, with their sliding animation).
+enum class TilingMode : std::uint8_t
+{
+    Linux,
+    Mac,
+};
+
+// What a tiler shortcut does.
+enum class TilingCommand : std::uint8_t
+{
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    WorkspacePrevious,
+    WorkspaceNext,
+    Workspace,       // + a number: go to workspace N
+    SendToWorkspace, // + a number: send the focused window to workspace N
+    Float,           // the window floats (or is tiled again)
+    Fullscreen,      // the focused window takes the whole area (monocle), and back
+    NextLayout,
+    Promote,         // the focused window becomes the first (the master)
+    Toggle,          // tiling off (every window back where it was) and on again
+};
+inline constexpr std::size_t kTilingCommandCount = 17;
+
+// A shortcut: `keys`, or with `anyDigit` the modifiers of `keys` plus 1..9 ("Ctrl+Win+#").
+struct TilingKey
+{
+    TilingCommand command = TilingCommand::FocusLeft;
+    KeyChord keys;
+    bool anyDigit = false;
+
+    // "Ctrl+Alt+Left", "Ctrl+Win+#"; "" for none. The commands that take a number need "#".
+    static Result<TilingKey> parse(TilingCommand command, std::string_view text);
+    [[nodiscard]] std::string toString() const;
+    // Whether both would fire on some key (a "#" covers 1..9 and the numpad's).
+    [[nodiscard]] bool overlaps(const KeyChord& chord) const noexcept;
+    [[nodiscard]] bool overlaps(const TilingKey& other) const noexcept;
+
+    friend bool operator==(const TilingKey&, const TilingKey&) = default;
+};
+
+enum class TilingRuleAction : std::uint8_t
+{
+    Float,     // never tiled
+    Ignore,    // not touched at all (no border, never hidden)
+    Workspace, // opens on workspace `workspace`
+};
+
+// Per app: windows whose app (the .exe name), class and title match (every field given must).
+struct TilingRule
+{
+    std::string app;         // "notepad.exe" (any case)
+    std::string windowClass; // exactly
+    std::string title;       // contained (any case)
+    TilingRuleAction action = TilingRuleAction::Float;
+    int workspace = 1; // Workspace: 1..9
+
+    friend bool operator==(const TilingRule&, const TilingRule&) = default;
+};
+
+inline constexpr int kMaxWorkspaces = 9;
+
+// The shortcuts out of the box (docs/14 §M13: with Ctrl, as the owner asked; Toggle has none).
+[[nodiscard]] std::vector<TilingKey> defaultTilingKeys();
+
+struct TilingSettings
+{
+    bool enabled = false;
+    TilingMode mode = TilingMode::Linux;
+    TilingLayout layout = TilingLayout::Dwindle;
+    int workspaces = kMaxWorkspaces; // Linux: on each monitor
+    int gap = 8;                     // between two windows (pixels at 100%)
+    int outerGap = 8;                // between the windows and the edges of the screen
+    int masterPercent = 55;          // MasterStack: the master's share of the width, 10..90
+    bool border = true;              // a colored border on the focused window (Windows 11)
+    std::optional<Color> borderColor; // none: the rice's accent
+    bool runAsAdmin = false;          // advanced mode: admin apps' windows too (asks the UAC)
+    std::vector<TilingKey> keys = defaultTilingKeys();
+    std::vector<TilingRule> rules;
+
+    friend bool operator==(const TilingSettings&, const TilingSettings&) = default;
+};
+
+[[nodiscard]] std::string_view toString(TilingLayout layout) noexcept;
+[[nodiscard]] std::string_view toString(TilingMode mode) noexcept;
+[[nodiscard]] std::string_view toString(TilingCommand command) noexcept; // its key in [tiling.keys]
+[[nodiscard]] std::string_view toString(TilingRuleAction action) noexcept;
+[[nodiscard]] std::optional<TilingLayout> tilingLayoutFromName(std::string_view name) noexcept;
+[[nodiscard]] std::optional<TilingMode> tilingModeFromName(std::string_view name) noexcept;
+[[nodiscard]] std::optional<TilingCommand> tilingCommandFromName(std::string_view name) noexcept;
+[[nodiscard]] std::optional<TilingRuleAction> tilingRuleActionFromName(std::string_view name) noexcept;
+// What makes `settings` unreadable once written, in what the tiling part holds (two commands on one
+// key, a key a hotkey has while tiling is on, a rule that says no window): the settings app checks
+// a change before it saves it. Nothing: fine.
+struct Settings;
+[[nodiscard]] std::optional<std::string> tilingProblem(const Settings& settings);
+// Workspace and SendToWorkspace: the shortcut ends in "#".
+[[nodiscard]] constexpr bool takesNumber(TilingCommand command) noexcept
+{
+    return command == TilingCommand::Workspace || command == TilingCommand::SendToWorkspace;
+}
+
 // The languages of the interface (the settings app, the tray menu). Empty: Windows' own.
 inline constexpr std::string_view kLanguageEnglish = "en";
 inline constexpr std::string_view kLanguagePortuguese = "pt-BR";
@@ -75,11 +196,12 @@ struct Settings
     bool startWinKey = false;
     std::vector<Hotkey> hotkeys;
     std::vector<Rule> rules;
+    TilingSettings tiling; // [tiling] (M13)
 
     // Something needs the core to stay running.
     [[nodiscard]] bool needsResidency() const noexcept
     {
-        return keepInTray || !hotkeys.empty() || !rules.empty();
+        return keepInTray || !hotkeys.empty() || !rules.empty() || tiling.enabled;
     }
 };
 

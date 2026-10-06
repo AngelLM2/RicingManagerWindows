@@ -20,6 +20,8 @@
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
 #include "rmw/plugins/HostPlan.hpp"
+#include "rmw/tiling/Plan.hpp"
+#include "rmw/tiling/Shared.hpp"
 #include "rmw/video/Plan.hpp"
 
 #include <windows.h>
@@ -63,6 +65,8 @@ constexpr std::uint64_t kVideoMemoryLimit = std::uint64_t{768} << 20;
 constexpr std::uint64_t kVideoMaxBytes = std::uint64_t{4} << 30;        // what one video may weigh
 constexpr std::uint64_t kVideoStatusMaxBytes = std::uint64_t{64} << 10; // rmw-wallpaper's status.json
 constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20;      // the bar's budget is 25 MB
+constexpr std::string_view kTilerWorker = "tiler";
+constexpr std::uint64_t kTilerMemoryLimit = std::uint64_t{64} << 20; // it keeps a list of windows
 constexpr std::string_view kPluginWorker = "plugins";
 // 16 MB per plugin VM (docs/12 §6), a dozen plugins and the host itself.
 constexpr std::uint64_t kPluginHostMemoryLimit = std::uint64_t{256} << 20;
@@ -942,6 +946,154 @@ Json CoreServer::videoStatus() const
     return status;
 }
 
+void CoreServer::setTiling(const domain::TilingSettings& settings)
+{
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        m_tiling = settings;
+    }
+    refreshTilerPlan();
+}
+
+void CoreServer::refreshTilerPlan()
+{
+    std::optional<std::string> plan;
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        if (m_tiling.enabled)
+        {
+            tiling::Plan tiler;
+            tiler.settings = m_tiling;
+            tiler.border = m_tiling.borderColor.value_or(systemAccent());
+            tiler.settings.borderColor.reset();
+            plan = tiling::toJson(tiler);
+        }
+        if (plan == m_tilerPlan)
+        {
+            return;
+        }
+        m_tilerPlan = plan;
+    }
+    // rmw-tiler follows the file: rewritten, it takes the new plan; gone, it puts every window back
+    // and leaves.
+    const auto file = m_options.dataDirectory / L"tiler" / L"plan.json";
+    std::error_code ec;
+    if (plan)
+    {
+        std::filesystem::create_directories(file.parent_path(), ec);
+        const auto* bytes = reinterpret_cast<const std::byte*>(plan->data());
+        if (auto written = platform::writeFileAtomic(file, std::span(bytes, plan->size())); !written)
+        {
+            log::error("cannot write the tiler plan: {}", written.error().toString());
+        }
+    }
+    else
+    {
+        std::filesystem::remove(file, ec);
+    }
+    log::info("tiler plan: {}", plan ? "set" : "none");
+    notifyResident();
+}
+
+std::optional<std::string> CoreServer::tilerPlan() const
+{
+    const std::scoped_lock lock(m_scheduleMutex);
+    return m_tilerPlan;
+}
+
+Result<void> CoreServer::startTiler()
+{
+    if (!m_supervisor)
+    {
+        return fail(ErrorCode::Unsupported, "no worker supervisor");
+    }
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return std::unexpected(std::move(self.error()));
+    }
+    platform::WorkerSpec spec;
+    spec.name = std::string(kTilerWorker);
+    spec.executable = self->parent_path() / L"rmw-tiler.exe";
+    spec.arguments = std::format(L"--plan \"{}\"", (m_options.dataDirectory / L"tiler" / L"plan.json").native());
+    spec.memoryLimitBytes = kTilerMemoryLimit;
+    spec.hangAfter = std::chrono::milliseconds(2000);
+    spec.startGrace = std::chrono::milliseconds(10'000);
+    spec.endsWithCore = false; // it puts every window back when the core is gone
+    log::info("starting the tiler");
+    return m_supervisor->start(std::move(spec));
+}
+
+void CoreServer::stopTiler(bool force)
+{
+    if (!force)
+    {
+        if (HWND control = FindWindowW(tiling::kControlClass, nullptr))
+        {
+            PostMessageW(control, WM_CLOSE, 0, 0);
+        }
+        return;
+    }
+    if (m_supervisor)
+    {
+        m_supervisor->stop(kTilerWorker);
+    }
+    putBackTiledWindows();
+}
+
+bool CoreServer::tilerRunning() const
+{
+    return json::boolOr(tilerStatus(), "running", false);
+}
+
+Json CoreServer::tilerStatus() const
+{
+    Json status{{"configured", tilerPlan().has_value()}, {"running", false}};
+    if (!m_supervisor)
+    {
+        return status;
+    }
+    for (const auto& worker : m_supervisor->status())
+    {
+        if (worker.name != kTilerWorker)
+        {
+            continue;
+        }
+        status["running"] = worker.running;
+        status["pid"] = worker.pid;
+        status["restarts"] = worker.restarts;
+        status["disabled"] = worker.disabled;
+        status["lastFailure"] = static_cast<int>(worker.lastFailure);
+    }
+    return status;
+}
+
+void CoreServer::putBackTiledWindows() const
+{
+    const auto file = m_options.dataDirectory / L"tiler" / L"windows.json";
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec))
+    {
+        return;
+    }
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return;
+    }
+    platform::ChildOptions options;
+    options.ownJob = false; // a moment's work that must finish even if the core goes
+    auto child = platform::ChildProcess::spawn(self->parent_path() / L"rmw-tiler.exe",
+                                               std::format(L"--restore \"{}\"", file.native()), options);
+    if (!child)
+    {
+        log::error("cannot put the tiled windows back: {}", child.error().toString());
+        return;
+    }
+    log::info("putting the tiled windows back");
+    child->detach();
+}
+
 Json CoreServer::barStatus() const
 {
     Json status{{"configured", barPlan().has_value()}, {"off", barOff()}, {"running", false}};
@@ -969,6 +1121,15 @@ void CoreServer::onWorkerEvent(const platform::WorkerEvent& event)
     if (event.name == kPluginWorker)
     {
         onPluginHostFailure(event);
+        return;
+    }
+    if (event.name == kTilerWorker)
+    {
+        // Crashed, hung or given up on: no window stays hidden until (or unless) it is back.
+        if (event.kind == platform::WorkerEventKind::Failed || event.kind == platform::WorkerEventKind::Disabled)
+        {
+            putBackTiledWindows();
+        }
         return;
     }
     if (event.name != kBarWorker || event.kind == platform::WorkerEventKind::Started)
@@ -1454,6 +1615,7 @@ Result<Json> CoreServer::status()
                 {"slideshows", slideshows},
                 {"bar", barStatus()},
                 {"video", videoStatus()},
+                {"tiler", tilerStatus()},
                 {"resident", m_resident != nullptr ? m_resident->status() : Json(nullptr)},
                 {"otherTools", platform::detectOtherCustomizers()},
                 {"history", std::move(lastOperations)}};
@@ -1578,10 +1740,12 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
         setRotation(*plan);
     }
 
-    auto report =
-        origin == Origin::User
-            ? m_engine->apply(rice, loaded->folder)
-            : m_engine->applyAutomatic(rice, loaded->folder, std::format("Automatic: {}", rice.meta.name));
+    // Ricing Manager's bars are the core's, not a module's: a rice of bars only still does something.
+    const bool bars = !rice.bars.empty();
+    auto report = origin == Origin::User
+                      ? m_engine->apply(rice, loaded->folder, bars)
+                      : m_engine->applyAutomatic(rice, loaded->folder,
+                                                 std::format("Automatic: {}", rice.meta.name), bars);
     if (!report)
     {
         setRotation(previousRotation);
@@ -1647,6 +1811,7 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     }
     Json result = reportJson(*report);
     result["name"] = rice.meta.name;
+    result["bars"] = rice.bars.size();
     return result;
 }
 
