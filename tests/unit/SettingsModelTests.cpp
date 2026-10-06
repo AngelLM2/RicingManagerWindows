@@ -80,6 +80,20 @@ TEST_F(SettingsModel, SavedRicesReadBackAndKnowWhoWroteThem)
     auto hand = settings::loadRice(data() / L"rices" / L"Hand");
     ASSERT_TRUE(hand);
     EXPECT_TRUE(hand->handWritten);
+
+    // `rmw export` opens its file with a note of its own: not the user's comments.
+    write(L"data/rices/Mine/rice.toml",
+          "# Exported by Ricing Manager 1.1.0 from this computer.\n# Monitors are matched by identity.\n"
+          "schema = 1\n[meta]\nname = \"Mine\"\n");
+    auto exported = settings::loadRice(data() / L"rices" / L"Mine");
+    ASSERT_TRUE(exported);
+    EXPECT_FALSE(exported->handWritten);
+    write(
+        L"data/rices/Mixed/rice.toml",
+        "# Exported by Ricing Manager 1.1.0 from this computer.\nschema = 1\n# mine\n[meta]\nname = \"M\"\n");
+    auto mixed = settings::loadRice(data() / L"rices" / L"Mixed");
+    ASSERT_TRUE(mixed);
+    EXPECT_TRUE(mixed->handWritten);
 }
 
 TEST_F(SettingsModel, ImagesComeIntoTheRiceOnce)

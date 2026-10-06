@@ -68,6 +68,9 @@ msgstr "Início"
 msgid "Rices"
 msgstr "Rices"
 
+msgid "CUSTOMIZE"
+msgstr "PERSONALIZAR"
+
 msgid "Appearance"
 msgstr "Aparência"
 
@@ -82,6 +85,9 @@ msgstr "Barra de tarefas"
 
 msgid "Plugins"
 msgstr "Plugins"
+
+msgid "MORE"
+msgstr "MAIS"
 
 msgid "Hotkeys and rules"
 msgstr "Atalhos e regras"
@@ -779,6 +785,12 @@ msgstr "Criar um pacote de suporte"
 msgid "The bundle is a folder with the logs and the current state, your user folder hidden. Nothing is sent anywhere: you choose whom to give it to."
 msgstr "O pacote é uma pasta com os logs e o estado atual, com a sua pasta de usuário escondida. Nada é enviado: você escolhe para quem entregar."
 
+msgid "Getting your current look ready to edit…"
+msgstr "Preparando o seu visual atual para editar…"
+
+msgid "It is saved as a rice of its own, so you can always go back."
+msgstr "Ele é salvo como um rice próprio, para você sempre poder voltar."
+
 msgid "Pick a rice to change"
 msgstr "Escolha um rice para mudar"
 
@@ -806,20 +818,38 @@ msgstr "Aplicar"
 msgid "This rice.toml was written by hand: saving from here keeps every setting but not its comments. Duplicate it in Rices to keep the original as it is."
 msgstr "Este rice.toml foi escrito à mão: salvar daqui mantém todas as configurações, mas não os comentários. Duplique-o em Rices para manter o original como está."
 
+msgid "Apply {}"
+msgstr "Aplicar {}"
+
 msgid "What Ricing Manager manages now, and the way back."
 msgstr "O que o Ricing Manager gerencia agora, e o caminho de volta."
 
 msgid "Safe mode: Ricing Manager stopped unexpectedly when starting, so nothing runs by itself. Restoring still works."
 msgstr "Modo seguro: o Ricing Manager parou inesperadamente ao iniciar, então nada roda sozinho. Restaurar continua funcionando."
 
+msgid "Applied now"
+msgstr "Aplicado agora"
+
+msgid "Windows as it came"
+msgstr "O Windows como veio"
+
 msgid "No rice applied"
 msgstr "Nenhum rice aplicado"
 
-msgid "Pick one in Rices, or start your own."
-msgstr "Escolha um em Rices, ou comece o seu."
+msgid "Customize"
+msgstr "Personalizar"
 
-msgid "Edit this rice"
-msgstr "Editar este rice"
+msgid "Customize my Windows"
+msgstr "Personalizar meu Windows"
+
+msgid "Change the rice"
+msgstr "Trocar de rice"
+
+msgid "Your rices"
+msgstr "Seus rices"
+
+msgid "Click one to apply it"
+msgstr "Clique em um para aplicar"
 
 msgid "Every change is recorded and can be taken back."
 msgstr "Toda mudança fica registrada e pode ser desfeita."
@@ -923,29 +953,17 @@ msgstr "aplicado"
 msgid "by {}"
 msgstr "por {}"
 
-msgid "Apply {}"
-msgstr "Aplicar {}"
-
-msgid "Edit"
-msgstr "Editar"
+msgid "Apply again"
+msgstr "Aplicar de novo"
 
 msgid "Edit {}"
 msgstr "Editar {}"
 
-msgid "Duplicate"
-msgstr "Duplicar"
-
 msgid "Duplicate {}"
 msgstr "Duplicar {}"
 
-msgid "Share…"
-msgstr "Compartilhar…"
-
 msgid "Share {} as a .rice file"
 msgstr "Compartilhar {} como arquivo .rice"
-
-msgid "Open folder"
-msgstr "Abrir pasta"
 
 msgid "Open the folder of {}"
 msgstr "Abrir a pasta de {}"
@@ -953,11 +971,11 @@ msgstr "Abrir a pasta de {}"
 msgid "A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share."
 msgstr "Um rice é um visual inteiro: wallpaper, cores, cursores, barras e plugins, numa pasta que você pode compartilhar."
 
-msgid "Save my current look as a rice"
-msgstr "Salvar meu visual atual como um rice"
-
 msgid "Import a .rice…"
 msgstr "Importar um .rice…"
+
+msgid "Save my current look as a rice"
+msgstr "Salvar meu visual atual como um rice"
 
 msgid "Add a rice folder…"
 msgstr "Adicionar uma pasta de rice…"

@@ -40,6 +40,8 @@ export component Cpu inherits Rectangle {
 
 - O componente de `component` precisa ser **exportado** e declarar, como `in property`, cada propriedade do manifesto, e cada callback. A barra confere ao carregar (e `rmw plugin validate` também).
 - `foreground` e `vertical` são opcionais: declare-os para recebê-los da barra.
+- Também da barra (v1.1): `in property <length> item-radius` (o raio dos destaques: segue os cantos da barra) e `in property <color> accent` (a cor de destaque do Windows, a que o rice aplica). Um destaque de passar o mouse que combina com a barra:
+  `background: touch.has-hover ? root.foreground.transparentize(89%) : transparent; border-radius: root.item-radius; animate background { duration: 120ms; }`. Se o seu manifesto já tem uma propriedade `accent` (configurável pelo rice), a barra não a sobrescreve.
 - Dê valores iniciais às propriedades (`: "…"`): a barra mostra o widget antes de o script responder.
 - O widget recebe a altura da barra (ou a largura, numa vertical); peça largura com `min-width`/`preferred-width`. Para sumir, `visible: false` e largura 0 (veja `now-playing`).
 - `vertical_component` (opcional) é usado em barras verticais.

@@ -19,7 +19,9 @@ namespace
 using slint::interpreter::Value;
 using namespace std::chrono_literals;
 
-constexpr int kIconSize = 32;  // drawn at 20 logical px: sharp up to 160% DPI
+constexpr int kIconSize = 32;    // a window's own icon: drawn at 22 logical px
+constexpr int kAppIconSize = 48; // the app's, from the Shell: sharp up to 200% DPI
+constexpr std::size_t kAppIconsKept = 256;
 constexpr auto kSettle = 60ms; // events come in bursts: look once they stop
 constexpr UINT kIconTimeoutMs = 50;
 // Asking windows for their icons costs up to 3 x 50 ms each: at most this much per pass (the UI
@@ -171,6 +173,28 @@ void WindowTracker::schedule()
     });
 }
 
+slint::Image WindowTracker::iconFor(void* window)
+{
+    const std::wstring identity = providers::appIdentity(window);
+    if (!identity.empty())
+    {
+        if (const auto cached = m_appIcons.find(identity); cached != m_appIcons.end())
+        {
+            return cached->second;
+        }
+        const auto pixels = providers::appIconPixels(identity, kAppIconSize);
+        if (!pixels.empty())
+        {
+            if (m_appIcons.size() >= kAppIconsKept)
+            {
+                m_appIcons.clear();
+            }
+            return m_appIcons.emplace(identity, imageFromPixels(pixels)).first->second;
+        }
+    }
+    return imageOf(iconHandle(static_cast<HWND>(window)));
+}
+
 void WindowTracker::refresh()
 {
     const std::vector<void*> current = providers::taskbarWindows();
@@ -215,7 +239,7 @@ void WindowTracker::refresh()
             iconsLeft = true;
             continue;
         }
-        entry.icon = imageOf(iconHandle(static_cast<HWND>(entry.window)));
+        entry.icon = iconFor(entry.window);
         entry.iconLoaded = true;
         changed = true;
     }

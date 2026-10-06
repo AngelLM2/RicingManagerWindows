@@ -1,12 +1,79 @@
 import { Button, ScrollView, Palette } from "std-widgets.slint";
 import { Api, Page } from "../api.slint";
-import { Card, Hint, PageHeader, SettingRow, Chip, Problem } from "../common.slint";
+import { Card, Hint, PageHeader, SettingRow, Chip, Problem, Metrics } from "../common.slint";
 import { Words } from "../words.slint";
+
+// A small card of the library: its picture and name; a click applies it.
+component MiniRice inherits Rectangle {
+    in property <string> name;
+    in property <string> folder;
+    in property <image> preview;
+    in property <bool> has-preview;
+    in property <bool> active;
+    width: 196px;
+    height: 150px;
+    border-radius: 10px;
+    clip: true;
+    background: Palette.alternate-background;
+    border-width: root.active ? 2px : 1px;
+    border-color: root.active ? Palette.accent-background : touch.has-hover ? Palette.foreground.transparentize(70%) : Palette.border;
+    animate border-color { duration: 150ms; }
+    accessible-role: AccessibleRole.button;
+    accessible-label: @tr("Apply {}", root.name);
+    accessible-action-default => {
+        Api.apply-rice(root.folder);
+    }
+
+    touch := TouchArea {
+        enabled: !Api.busy && !root.active;
+        clicked => {
+            Api.apply-rice(root.folder);
+        }
+    }
+
+    VerticalLayout {
+        Rectangle {
+            height: 110px;
+            clip: true;
+            background: Palette.foreground.transparentize(90%);
+            if root.has-preview: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.preview;
+                image-fit: cover;
+            }
+        }
+
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 6px;
+
+            Text {
+                text: root.name;
+                font-size: 13px;
+                font-weight: 600;
+                color: Palette.foreground;
+                overflow: elide;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            if root.active: Text {
+                text: "\u{E73E}";
+                font-family: "Segoe Fluent Icons";
+                font-size: 13px;
+                color: Palette.accent-background;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
 
 export component HomePage inherits ScrollView {
     VerticalLayout {
         padding: 28px;
-        spacing: 14px;
+        spacing: 16px;
         alignment: start;
 
         PageHeader {
@@ -19,34 +86,124 @@ export component HomePage inherits ScrollView {
             text: @tr("Safe mode: Ricing Manager stopped unexpectedly when starting, so nothing runs by itself. Restoring still works.");
         }
 
-        Card {
-            title: Api.active-name != "" ? Api.active-name : @tr("No rice applied");
-            subtitle: Api.active-name != "" ? Api.active-folder : @tr("Pick one in Rices, or start your own.");
-
-            if Api.managed.length > 0: HorizontalLayout {
-                spacing: 6px;
-                alignment: start;
-                for name in Api.managed: Chip {
-                    text: Words.module(name);
-                }
-            }
+        // The applied rice, large.
+        Rectangle {
+            background: Palette.alternate-background;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Palette.border;
+            clip: true;
 
             HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
+                padding: 16px;
+                spacing: 18px;
 
-                Button {
-                    text: @tr("Edit this rice");
-                    enabled: Api.active-folder != "" && !Api.busy;
-                    clicked => {
-                        Api.edit-active-rice();
+                Rectangle {
+                    width: 320px;
+                    height: 180px;
+                    border-radius: 8px;
+                    clip: true;
+                    background: Palette.foreground.transparentize(90%);
+
+                    for rice in Api.rices: Rectangle {
+                        if rice.active && rice.has-preview: Image {
+                            width: 320px;
+                            height: 180px;
+                            source: rice.preview;
+                            image-fit: cover;
+                        }
+                    }
+
+                    if Api.active-name == "": Text {
+                        text: "\u{E790}";
+                        font-family: "Segoe Fluent Icons";
+                        font-size: 40px;
+                        color: Palette.foreground.transparentize(55%);
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
                     }
                 }
 
-                Button {
-                    text: @tr("Rices");
-                    clicked => {
-                        Api.page = Page.rices;
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: center;
+                    horizontal-stretch: 1;
+
+                    Hint {
+                        text: Api.active-name != "" ? @tr("Applied now") : @tr("Windows as it came");
+                    }
+
+                    Text {
+                        text: Api.active-name != "" ? Api.active-name : @tr("No rice applied");
+                        font-size: 24px;
+                        font-weight: 600;
+                        color: Palette.foreground;
+                        overflow: elide;
+                    }
+
+                    if Api.managed.length > 0: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for name in Api.managed: Chip {
+                            text: Words.module(name);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+
+                        Button {
+                            text: Api.active-name != "" ? @tr("Customize") : @tr("Customize my Windows");
+                            primary: true;
+                            enabled: !Api.busy;
+                            clicked => {
+                                Api.page = Page.appearance;
+                                Api.page-shown(Page.appearance);
+                            }
+                        }
+
+                        Button {
+                            text: @tr("Change the rice");
+                            clicked => {
+                                Api.page = Page.rices;
+                                Api.page-shown(Page.rices);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The library, to switch with one click.
+        if Api.rices.length > 0: VerticalLayout {
+            spacing: 8px;
+
+            HorizontalLayout {
+                Text {
+                    text: @tr("Your rices");
+                    font-size: Metrics.card-title-text;
+                    font-weight: 600;
+                    color: Palette.foreground;
+                    horizontal-stretch: 1;
+                }
+                Hint {
+                    text: @tr("Click one to apply it");
+                    vertical-alignment: center;
+                }
+            }
+
+            Flickable {
+                height: 156px;
+                content-width: strip.preferred-width;
+                strip := HorizontalLayout {
+                    spacing: 12px;
+                    for rice in Api.rices: MiniRice {
+                        name: rice.name;
+                        folder: rice.folder;
+                        preview: rice.preview;
+                        has-preview: rice.has-preview;
+                        active: rice.active;
                     }
                 }
             }

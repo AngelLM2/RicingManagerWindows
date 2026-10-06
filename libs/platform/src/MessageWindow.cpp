@@ -267,9 +267,20 @@ std::intptr_t MessageWindow::handle(unsigned message, std::uintptr_t wParam, std
         emit({SystemEventKind::TrayCommand, LOWORD(wParam)});
         return 0;
     case kTrayCallback:
-        // NOTIFYICON_VERSION_4: the event is in LOWORD(lParam).
-        if (LOWORD(lParam) == WM_CONTEXTMENU || LOWORD(lParam) == WM_RBUTTONUP ||
-            LOWORD(lParam) == NIN_SELECT || LOWORD(lParam) == NIN_KEYSELECT)
+        // NOTIFYICON_VERSION_4: the event is in LOWORD(lParam). A left click (or Enter) runs the
+        // default item, like other apps' icons; a right click shows the menu.
+        if (LOWORD(lParam) == NIN_SELECT || LOWORD(lParam) == NIN_KEYSELECT)
+        {
+            const auto first =
+                std::ranges::find_if(m_menu, [](const TrayItem& item) { return item.isDefault; });
+            if (first != m_menu.end() && first->enabled)
+            {
+                emit({SystemEventKind::TrayCommand, first->id});
+                return 0;
+            }
+            showMenu();
+        }
+        else if (LOWORD(lParam) == WM_CONTEXTMENU || LOWORD(lParam) == WM_RBUTTONUP)
         {
             showMenu();
         }
@@ -398,6 +409,10 @@ void MessageWindow::showMenu()
         }
         const UINT flags = MF_STRING | (item.checked ? MF_CHECKED : 0) | (item.enabled ? 0 : MF_GRAYED);
         AppendMenuW(menu, flags, item.id, item.label.c_str());
+        if (item.isDefault)
+        {
+            SetMenuDefaultItem(menu, item.id, FALSE);
+        }
     }
     POINT cursor{};
     GetCursorPos(&cursor);
