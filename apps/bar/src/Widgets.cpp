@@ -1,5 +1,6 @@
 #include "Widgets.hpp"
 
+#include "DockWidget.hpp"
 #include "MediaWidget.hpp"
 #include "SystemWidgets.hpp"
 #include "TrayWidget.hpp"
@@ -7,6 +8,7 @@
 
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
+#include "rmw/platform/Apps.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
 
 #include <windows.h>
@@ -583,6 +585,193 @@ export component RmwClock inherits Rectangle {
         clicked => { root.clicked(); }
     }
 }
+// ---- M10: room, a line, and a text or icon of the rice's own -----------------------------------
+
+export component RmwSpacer inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <length> item-radius;
+    in property <color> accent;
+    min-width: 8px;
+    min-height: 8px;
+    preferred-width: 16px;
+    preferred-height: 16px;
+}
+
+export component RmwSeparator inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <length> item-radius;
+    in property <color> accent;
+    preferred-width: root.vertical ? 24px : 9px;
+    preferred-height: root.vertical ? 9px : 24px;
+    Rectangle {
+        width: root.vertical ? parent.width * 0.6 : 1px;
+        height: root.vertical ? 1px : parent.height * 0.55;
+        background: root.foreground.transparentize(70%);
+    }
+}
+
+export component RmwText inherits Rectangle {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent;
+    in property <string> text;
+    in property <string> glyph;
+    in property <color> tint;
+    in property <bool> tinted;
+    in property <bool> clickable;
+    callback clicked();
+    min-height: 24px;
+    preferred-width: row.preferred-width;
+    preferred-height: 32px;
+    RmwHighlight {
+        visible: root.clickable;
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
+    row := HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        padding-left: 6px;
+        padding-right: 6px;
+        if root.glyph != "": Text {
+            text: root.glyph;
+            font-family: "Segoe Fluent Icons";
+            font-size: 16px;
+            color: root.tinted ? root.tint : root.foreground;
+            vertical-alignment: center;
+        }
+        if root.text != "" && !root.vertical: Text {
+            text: root.text;
+            font-size: 13px;
+            color: root.tinted ? root.tint : root.foreground;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.clickable;
+        clicked => { root.clicked(); }
+    }
+}
+// ---- M10: the dock: pinned and open apps, icons that grow under the mouse --------------------
+
+export struct RmwDockItem {
+    id: int,
+    title: string,
+    icon: image,
+    running: bool,
+    active: bool,
+    count: int,
+}
+
+component RmwDockIcon inherits Rectangle {
+    in property <RmwDockItem> item;
+    in property <color> foreground;
+    in property <length> item-radius;
+    in property <color> accent;
+    in property <bool> vertical;
+    in property <float> grow: 1.0; // 1 .. 1.4: the mouse is on it, or beside it
+    out property <bool> hovering: touch.has-hover;
+    callback open(int);
+    callback hover(bool);
+    changed hovering => { root.hover(root.hovering); }
+    min-width: 44px;
+    min-height: 44px;
+    preferred-width: 50px;
+    preferred-height: 50px;
+    accessible-role: button;
+    accessible-label: root.item.title;
+    accessible-action-default => { root.open(root.item.id); }
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: false;
+        pressed: touch.pressed;
+    }
+    // It grows from the bottom of where it rests (from its side, in a vertical dock), not past the bar.
+    Image {
+        source: root.item.icon;
+        width: min(32px * root.grow, (root.vertical ? parent.width : parent.height) - 6px);
+        height: self.width;
+        x: root.vertical ? (parent.width + 32px) / 2 - self.width : (parent.width - self.width) / 2;
+        y: root.vertical ? (parent.height - self.height) / 2 : (parent.height + 32px) / 2 - self.height;
+        image-fit: contain;
+        image-rendering: smooth;
+        animate width { duration: 140ms; easing: ease-out; }
+    }
+    // Running: a dot; a wider one for several windows; the accent for the one in front.
+    Rectangle {
+        visible: root.item.running;
+        width: root.vertical ? 4px : root.item.active ? 14px : root.item.count > 1 ? 9px : 5px;
+        height: root.vertical ? (root.item.active ? 14px : root.item.count > 1 ? 9px : 5px) : 4px;
+        x: root.vertical ? 1px : (parent.width - self.width) / 2;
+        y: root.vertical ? (parent.height - self.height) / 2 : parent.height - 5px;
+        border-radius: 2px;
+        background: root.item.active ? root.accent : root.foreground.transparentize(40%);
+        animate width, height, background { duration: 160ms; easing: ease-out; }
+    }
+    touch := TouchArea {
+        clicked => { root.open(root.item.id); }
+    }
+}
+
+export component RmwDock inherits HorizontalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
+    in property <[RmwDockItem]> apps;
+    callback open(int);
+    property <int> hovered: -1;
+    spacing: 2px;
+    for app[i] in root.apps: RmwDockIcon {
+        item: app;
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        accent: root.accent;
+        vertical: false;
+        grow: root.hovered < 0 ? 1.0 : i == root.hovered ? 1.4 : abs(i - root.hovered) == 1 ? 1.18 : 1.0;
+        open(id) => { root.open(id); }
+        hover(on) => {
+            if (on) {
+                root.hovered = i;
+            } else if (root.hovered == i) {
+                root.hovered = -1;
+            }
+        }
+    }
+}
+
+export component RmwDockColumn inherits VerticalLayout {
+    in property <color> foreground;
+    in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
+    in property <[RmwDockItem]> apps;
+    callback open(int);
+    property <int> hovered: -1;
+    spacing: 2px;
+    for app[i] in root.apps: RmwDockIcon {
+        item: app;
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        accent: root.accent;
+        vertical: true;
+        grow: root.hovered < 0 ? 1.0 : i == root.hovered ? 1.4 : abs(i - root.hovered) == 1 ? 1.18 : 1.0;
+        open(id) => { root.open(id); }
+        hover(on) => {
+            if (on) {
+                root.hovered = i;
+            } else if (root.hovered == i) {
+                root.hovered = -1;
+            }
+        }
+    }
+}
 )slint";
 
 constexpr std::array<bar::WidgetProperty, 2> kClockProperties = {{{"text", "string"}, {"date", "string"}}};
@@ -601,6 +790,10 @@ constexpr std::array<std::string_view, 3> kMediaCallbacks = {"toggle", "next", "
 constexpr std::array<bar::WidgetProperty, 3> kTrayProperties = {
     {{"icons", "[RmwTrayItem]"}, {"hidden-count", "int"}, {"expanded", "bool"}}};
 constexpr std::array<std::string_view, 2> kTrayCallbacks = {"act(int, int)", "toggle"};
+constexpr std::array<bar::WidgetProperty, 1> kDockProperties = {{{"apps", "[RmwDockItem]"}}};
+constexpr std::array<std::string_view, 1> kOpen = {"open(int)"};
+constexpr std::array<bar::WidgetProperty, 5> kTextProperties = {
+    {{"text", "string"}, {"glyph", "string"}, {"tint", "color"}, {"tinted", "bool"}, {"clickable", "bool"}}};
 
 // A built-in widget: it takes everything the bar hands out.
 constexpr bar::WidgetKind builtin(std::string_view id, std::string_view component,
@@ -618,7 +811,7 @@ constexpr bar::WidgetKind builtin(std::string_view id, std::string_view componen
             .takesAccent = true};
 }
 
-constexpr std::array<bar::WidgetKind, 12> kKinds = {
+constexpr std::array<bar::WidgetKind, 16> kKinds = {
     builtin("tray", "RmwTray", kTrayProperties, kTrayCallbacks, "RmwTrayColumn"),
     builtin("media", "RmwMedia", kMediaProperties, kMediaCallbacks),
     builtin("start", "RmwStart", {}, kClicked),
@@ -631,6 +824,70 @@ constexpr std::array<bar::WidgetKind, 12> kKinds = {
     builtin("volume", "RmwStatus", kStatusProperties, kStatusCallbacks),
     builtin("notifications", "RmwBell", {}, kClicked),
     builtin("desktops", "RmwDesktops", kDesktopsProperties, kSelect, "RmwDesktopsColumn"),
+    builtin("spacer", "RmwSpacer", {}, {}),
+    builtin("separator", "RmwSeparator", {}, {}),
+    builtin("text", "RmwText", kTextProperties, kClicked),
+    builtin("dock", "RmwDock", kDockProperties, kOpen, "RmwDockColumn"),
+};
+
+constexpr std::size_t kMaxText = 64;
+
+// "E8D6" (a code point of Segoe Fluent Icons) as the character; anything else as written, short.
+std::string glyphOf(std::string_view text)
+{
+    if (text.size() >= 4 && text.size() <= 5 && std::ranges::all_of(text, [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        }))
+    {
+        const auto code = static_cast<std::uint32_t>(std::stoul(std::string(text), nullptr, 16));
+        std::string out;
+        if (code < 0x10000)
+        {
+            out += static_cast<char>(0xE0U | (code >> 12U));
+            out += static_cast<char>(0x80U | ((code >> 6U) & 0x3FU));
+            out += static_cast<char>(0x80U | (code & 0x3FU));
+        }
+        else
+        {
+            out += static_cast<char>(0xF0U | (code >> 18U));
+            out += static_cast<char>(0x80U | ((code >> 12U) & 0x3FU));
+            out += static_cast<char>(0x80U | ((code >> 6U) & 0x3FU));
+            out += static_cast<char>(0x80U | (code & 0x3FU));
+        }
+        return code >= 0x1000 && code <= 0x10FFFF && (code < 0xD800 || code > 0xDFFF) ? out : std::string();
+    }
+    return std::string(text.substr(0, 16));
+}
+
+class TextProvider final : public Provider
+{
+public:
+    TextProvider(const bar::Slot& slot, const Instance& instance)
+        : m_opens(settingString(*slot.item, "opens", "").substr(0, kMaxText * 4))
+    {
+        const std::string text = settingString(*slot.item, "text", "").substr(0, kMaxText);
+        instance->set_property(slot.prefix + "-text", Value(slint::SharedString(text)));
+        instance->set_property(slot.prefix + "-glyph",
+                               Value(slint::SharedString(glyphOf(settingString(*slot.item, "glyph", "")))));
+        if (auto color = domain::Color::parse(settingString(*slot.item, "color", "")))
+        {
+            instance->set_property(slot.prefix + "-tint", Value(slint::Color::from_argb_uint8(
+                                                             color->a, color->r, color->g, color->b)));
+            instance->set_property(slot.prefix + "-tinted", Value(true));
+        }
+        instance->set_property(slot.prefix + "-clickable", Value(!m_opens.empty()));
+        instance->set_callback(slot.prefix + "-clicked", [this](std::span<const Value>) {
+            // Only an app the Start menu lists (the rice is not trusted to run anything else).
+            if (auto launched = platform::launchApp(m_opens); !launched)
+            {
+                log::warn("bar: text: {}", launched.error().toString());
+            }
+            return Value();
+        });
+    }
+
+private:
+    std::string m_opens;
 };
 
 constexpr std::size_t kMaxClockFormat = 64;
@@ -777,6 +1034,14 @@ std::unique_ptr<Provider> makeProvider(const bar::Slot& slot, const Instance& in
     if (slot.kind->id == "tray")
     {
         return makeTrayProvider(slot, instance);
+    }
+    if (slot.kind->id == "text")
+    {
+        return std::make_unique<TextProvider>(slot, instance);
+    }
+    if (slot.kind->id == "dock")
+    {
+        return makeDockProvider(slot, instance);
     }
     return nullptr;
 }

@@ -131,6 +131,7 @@ void writeMeta(Writer& w, const RiceMeta& meta)
     {
         w.string("min_app", meta.minApp->toString());
     }
+    w.optional("shareable", meta.shareable);
 }
 
 void writeAppearance(Writer& w, const AppearanceConfig& appearance)
@@ -152,6 +153,79 @@ void writeAppearance(Writer& w, const AppearanceConfig& appearance)
         w.string("light_at", timeOfDay(appearance.schedule->lightAt));
         w.string("dark_at", timeOfDay(appearance.schedule->darkAt));
     }
+}
+
+// `{ a = 1.0, b = true }`: the fields that have a value, in order.
+class InlineTable
+{
+public:
+    void add(std::string_view name, std::string_view value)
+    {
+        m_text += m_text.empty() ? "{ " : ", ";
+        m_text += std::format("{} = {}", tomlKey(name), value);
+    }
+    void add(std::string_view name, const std::optional<double>& value)
+    {
+        if (value)
+        {
+            add(name, number(*value));
+        }
+    }
+    bool empty() const noexcept { return m_text.empty(); }
+    std::string take() { return m_text.empty() ? "{}" : std::move(m_text) + " }"; }
+
+private:
+    std::string m_text;
+};
+
+void writeEffects(Writer& w, const WallpaperEffects& effects)
+{
+    if (effects.empty())
+    {
+        return;
+    }
+    InlineTable table;
+    table.add("brightness", effects.brightness);
+    table.add("contrast", effects.contrast);
+    table.add("saturation", effects.saturation);
+    table.add("hue", effects.hue);
+    table.add("speed", effects.speed);
+    table.add("blur", effects.blur);
+    table.add("parallax", effects.parallax);
+    table.add("zoom", effects.zoom);
+    table.add("vignette", effects.vignette);
+    w.key("effects", table.take());
+}
+
+void writeParticles(Writer& w, const std::vector<ParticleLayer>& particles)
+{
+    if (particles.empty())
+    {
+        return;
+    }
+    w.line("particles = [");
+    for (const auto& layer : particles)
+    {
+        InlineTable table;
+        table.add("kind", tomlQuote(enumToName<ParticleKind>(kParticleKindNames, layer.kind)));
+        if (layer.color)
+        {
+            table.add("color", tomlQuote(layer.color->toString()));
+        }
+        if (layer.count)
+        {
+            table.add("count", std::to_string(*layer.count));
+        }
+        table.add("size", layer.size);
+        table.add("speed", layer.speed);
+        table.add("direction", layer.direction);
+        if (layer.glow)
+        {
+            table.add("glow", *layer.glow ? "true" : "false");
+        }
+        w.line(std::format("    {},", table.take()));
+    }
+    w.line("]");
 }
 
 void writeWallpaper(Writer& w, const WallpaperConfig& wallpaper)
@@ -192,10 +266,12 @@ void writeWallpaper(Writer& w, const WallpaperConfig& wallpaper)
             {
                 w.string("color", rule.color->toHex());
             }
-            continue;
         }
-        w.string("source", rule.source);
-        w.string("fit", enumToName<WallpaperFit>(kWallpaperFitNames, rule.fit));
+        else
+        {
+            w.string("source", rule.source);
+            w.string("fit", enumToName<WallpaperFit>(kWallpaperFitNames, rule.fit));
+        }
         if (rule.kind == WallpaperKind::Video && !rule.fallbackImage.empty())
         {
             w.string("fallback_image", rule.fallbackImage);
@@ -204,7 +280,10 @@ void writeWallpaper(Writer& w, const WallpaperConfig& wallpaper)
         {
             w.optional("interval", rule.intervalSeconds);
             w.optional("shuffle", rule.shuffle);
+            continue;
         }
+        writeEffects(w, rule.effects);
+        writeParticles(w, rule.particles);
     }
 }
 
@@ -236,6 +315,29 @@ void writeTaskbar(Writer& w, const TaskbarConfig& taskbar)
     {
         w.string("search", enumToName<TaskbarSearch>(kTaskbarSearchNames, *taskbar.search));
     }
+}
+
+void writeStart(Writer& w, const StartConfig& start)
+{
+    w.header("start");
+    if (start.menu)
+    {
+        w.string("menu", enumToName<StartMenuKind>(kStartMenuNames, *start.menu));
+    }
+    if (!start.pinned.empty())
+    {
+        std::string list;
+        for (const auto& id : start.pinned)
+        {
+            list += (list.empty() ? "" : ", ") + tomlQuote(id);
+        }
+        w.key("pinned", "[" + list + "]");
+    }
+    if (start.layout)
+    {
+        w.string("layout", enumToName<StartLayout>(kStartLayoutNames, *start.layout));
+    }
+    w.optional("recommendations", start.recommendations);
 }
 
 void writePlugins(Writer& w, const Rice& rice)
@@ -306,8 +408,12 @@ void writeBar(Writer& w, const BarConfig& bar)
     {
         w.string("skin", bar.skin);
     }
+    if (bar.style)
+    {
+        w.string("style", enumToName<BarStyle>(kBarStyleNames, *bar.style));
+    }
     // What the bar itself sets: the keys it was read with; a new bar without a skin sets them all.
-    const bool all = bar.keys.empty() && bar.skin.empty();
+    const bool all = bar.keys.empty() && bar.skin.empty() && !bar.style;
     const auto has = [&](std::string_view key) { return all || std::ranges::contains(bar.keys, key); };
     if (has("position"))
     {
@@ -323,7 +429,11 @@ void writeBar(Writer& w, const BarConfig& bar)
     }
     if (has("length"))
     {
-        if (bar.length.percent)
+        if (bar.length.fit)
+        {
+            w.string("length", "auto");
+        }
+        else if (bar.length.percent)
         {
             w.string("length", std::format("{}%", bar.length.value));
         }
@@ -498,6 +608,10 @@ std::string writeRice(const Rice& rice)
     if (rice.taskbar)
     {
         writeTaskbar(w, *rice.taskbar);
+    }
+    if (rice.start)
+    {
+        writeStart(w, *rice.start);
     }
     writePlugins(w, rice);
     for (const auto& bar : rice.bars)

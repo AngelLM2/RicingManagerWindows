@@ -14,10 +14,14 @@ namespace
 constexpr std::string_view kAdvanced = R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced)";
 constexpr std::string_view kSearch = R"(Software\Microsoft\Windows\CurrentVersion\Search)";
 
-constexpr std::array<DwordField, 3> kFields = {{
+constexpr std::array<DwordField, 6> kFields = {{
     {"alignment", kAdvanced, "TaskbarAl"},
     {"taskView", kAdvanced, "ShowTaskViewButton"},
     {"search", kSearch, "SearchboxTaskbarMode"},
+    // Windows' own Start (M11): its layout, and what "Recommended" shows.
+    {"startLayout", kAdvanced, "Start_Layout"},
+    {"startRecentFiles", kAdvanced, "Start_TrackDocs"},
+    {"startTips", kAdvanced, "Start_IrisRecommendations"},
 }};
 
 std::uint32_t searchMode(domain::TaskbarSearch search) noexcept
@@ -44,10 +48,24 @@ Result<engine::Json> TaskbarLogic::desiredFromRice(const domain::Rice& rice,
     engine::Json desired = engine::Json::object();
     // A bar that replaces the native taskbar needs its space: auto-hide gives it back (ADR-0003),
     // and as a field of this module it is undone like any other change.
-    const bool replaced = std::ranges::any_of(rice.bars, &domain::BarConfig::hideNativeTaskbar);
+    const bool replaced = std::ranges::any_of(
+        rice.bars, [](const domain::BarConfig& bar) { return domain::withStyle(bar).hideNativeTaskbar; });
     if (replaced)
     {
         desired["autohide"] = true;
+    }
+    // Windows' own Start (M11): what its settings allow.
+    if (rice.start && rice.start->layout)
+    {
+        desired["startLayout"] = *rice.start->layout == domain::StartLayout::MorePins             ? 1
+                                 : *rice.start->layout == domain::StartLayout::MoreRecommendations ? 2
+                                                                                                   : 0;
+    }
+    if (rice.start && rice.start->recommendations)
+    {
+        const int shown = *rice.start->recommendations ? 1 : 0;
+        desired["startRecentFiles"] = shown;
+        desired["startTips"] = shown;
     }
     if (!rice.taskbar)
     {

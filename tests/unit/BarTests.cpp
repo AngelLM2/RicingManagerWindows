@@ -2,9 +2,11 @@
 #include "rmw/bar/Plan.hpp"
 #include "rmw/bar/Source.hpp"
 #include "rmw/domain/RiceParser.hpp"
+#include "rmw/domain/RiceWriter.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 
 namespace
@@ -71,6 +73,76 @@ TEST(BarGeometry, VerticalAndTopBars)
     // Floating: placed inside the work area, nothing reserved.
     const Rect work{0, 0, 1920, 1032};
     EXPECT_EQ(windowRect(top, work, 1.0), (Rect{0, 12, 1920, 52}));
+}
+
+TEST(BarGeometry, AutoLengthIsWhatTheBarShows)
+{
+    BarConfig bar = bottomBar();
+    bar.mode = rmw::domain::BarMode::Float;
+    bar.length = {true, 100.0, true};
+    bar.margin = {0, 0, 10, 0};
+    const Rect work{0, 0, 1920, 1040};
+    EXPECT_EQ(windowRect(bar, work, 1.0, 400.0), (Rect{760, 990, 1160, 1030})); // centered
+    EXPECT_EQ(windowRect(bar, work, 1.5, 400.0).width(), 600);
+    EXPECT_EQ(windowRect(bar, work, 1.0, 0.0).width(), 40);      // not yet known: as wide as thick
+    EXPECT_EQ(windowRect(bar, work, 1.0, 5000.0).width(), 1920); // never past the edge
+}
+
+TEST(BarStyles, FillWhatTheBarAndItsSkinLeaveOut)
+{
+    rmw::domain::Diagnostics diagnostics;
+    const auto rice = rmw::domain::parseRice(R"toml(
+schema = 1
+[meta]
+name = "Styles"
+[[bar]]
+style     = "dock"
+thickness = 70
+[[bar]]
+style = "status"
+[[bar]]
+length = "auto"
+)toml",
+                                             diagnostics);
+    ASSERT_TRUE(rice.has_value()) << rice.error().message();
+    ASSERT_EQ(rice->bars.size(), 3u);
+    EXPECT_EQ(rice->bars[0].style, rmw::domain::BarStyle::Dock);
+    EXPECT_TRUE(rice->bars[2].length.fit);
+
+    const auto plan = planFromRice(*rice);
+    ASSERT_TRUE(plan.has_value());
+    const BarConfig& dock = plan->bars[0];
+    EXPECT_EQ(dock.thickness, 70u); // the bar's own wins
+    EXPECT_EQ(dock.position, BarPosition::Bottom);
+    EXPECT_EQ(dock.mode, rmw::domain::BarMode::Float);
+    EXPECT_TRUE(dock.length.fit);
+    EXPECT_TRUE(std::ranges::any_of(dock.center, [](const auto& item) { return item.id == "dock"; }));
+    EXPECT_EQ(plan->bars[1].position, BarPosition::Top);
+    EXPECT_EQ(plan->bars[1].thickness, 28u);
+    // Through the worker's JSON, "auto" stays.
+    const auto again = planFromJson(toJson(*plan));
+    ASSERT_TRUE(again.has_value()) << again.error().message();
+    EXPECT_TRUE(again->bars[0].length.fit);
+    EXPECT_TRUE(again->bars[2].length.fit);
+
+    // Written back as the rice said it: the style, the bar's own key, nothing else.
+    const std::string written = rmw::domain::writeRice(*rice);
+    EXPECT_NE(written.find("style = \"dock\"\nthickness = 70\n"), std::string::npos) << written;
+    EXPECT_NE(written.find("length = \"auto\""), std::string::npos) << written;
+    EXPECT_EQ(written.find("position = \"bottom\""), std::string::npos) << written;
+
+    // Every style is a whole bar.
+    for (const auto style : {rmw::domain::BarStyle::Windows, rmw::domain::BarStyle::Dock,
+                             rmw::domain::BarStyle::Island, rmw::domain::BarStyle::Status,
+                             rmw::domain::BarStyle::Side})
+    {
+        const BarConfig preset = rmw::domain::barStyle(style);
+        EXPECT_GE(preset.left.size() + preset.center.size() + preset.right.size(), 4u) << toString(style);
+        EXPECT_TRUE(preset.hideNativeTaskbar);
+        EXPECT_GE(preset.keys.size(), 10u);
+    }
+    EXPECT_FALSE(rmw::domain::parseRice("schema = 1\n[meta]\nname = \"x\"\n[[bar]]\nstyle = \"neon\"\n", diagnostics)
+                     .has_value());
 }
 
 TEST(BarPlan, RoundTripsThroughJsonWithColorsResolved)

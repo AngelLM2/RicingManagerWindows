@@ -3,6 +3,7 @@
 
 #include "rmw/bar/Plan.hpp"
 #include "rmw/plugins/HostPlan.hpp"
+#include "rmw/video/Particles.hpp"
 #include "rmw/video/Plan.hpp"
 
 #include <cstddef>
@@ -33,6 +34,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         if (auto plan = rmw::video::planFromJson(text))
         {
             [[maybe_unused]] const auto again = rmw::video::planFromJson(rmw::video::toJson(*plan));
+            // What the worker does with the particles it was given (M12): a small monitor, a few frames.
+            for (const auto& entry : plan->entries)
+            {
+                [[maybe_unused]] const auto matrix = rmw::video::colorMatrix(entry.effects);
+                for (const auto& layer : entry.particles)
+                {
+                    rmw::video::ParticleField field(layer, 64, 36, 1);
+                    field.step(0.05);
+                    field.step(1.0);
+                }
+            }
         }
         break;
     }

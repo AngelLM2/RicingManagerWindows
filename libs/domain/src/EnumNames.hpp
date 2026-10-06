@@ -88,6 +88,19 @@ inline constexpr auto kWallpaperFitNames = std::to_array<EnumName<WallpaperFit>>
     {WallpaperFit::Tile, "tile"},
 });
 
+inline constexpr auto kParticleKindNames = std::to_array<EnumName<ParticleKind>>({
+    {ParticleKind::Sparkles, "sparkles"},
+    {ParticleKind::Stars, "stars"},
+    {ParticleKind::Snow, "snow"},
+    {ParticleKind::Rain, "rain"},
+    {ParticleKind::Petals, "petals"},
+    {ParticleKind::Fireflies, "fireflies"},
+    {ParticleKind::Magic, "magic"},
+    {ParticleKind::Notes, "notes"},
+    {ParticleKind::Hearts, "hearts"},
+    {ParticleKind::Bubbles, "bubbles"},
+});
+
 inline constexpr auto kTaskbarAlignmentNames = std::to_array<EnumName<TaskbarAlignment>>({
     {TaskbarAlignment::Left, "left"},
     {TaskbarAlignment::Center, "center"},
@@ -105,6 +118,25 @@ inline constexpr auto kBarPositionNames = std::to_array<EnumName<BarPosition>>({
     {BarPosition::Bottom, "bottom"},
     {BarPosition::Left, "left"},
     {BarPosition::Right, "right"},
+});
+
+inline constexpr auto kStartMenuNames = std::to_array<EnumName<StartMenuKind>>({
+    {StartMenuKind::Windows, "windows"},
+    {StartMenuKind::Ours, "ours"},
+});
+
+inline constexpr auto kStartLayoutNames = std::to_array<EnumName<StartLayout>>({
+    {StartLayout::Default, "default"},
+    {StartLayout::MorePins, "more-pins"},
+    {StartLayout::MoreRecommendations, "more-recommendations"},
+});
+
+inline constexpr auto kBarStyleNames = std::to_array<EnumName<BarStyle>>({
+    {BarStyle::Windows, "windows"},
+    {BarStyle::Dock, "dock"},
+    {BarStyle::Island, "island"},
+    {BarStyle::Status, "status"},
+    {BarStyle::Side, "side"},
 });
 
 inline constexpr auto kBarModeNames = std::to_array<EnumName<BarMode>>({

@@ -976,7 +976,7 @@ int run(std::span<const std::string> args)
             {
                 state += ", on " + adapter;
             }
-            out("Video wallpaper: " + state);
+            out("Live wallpaper: " + state);
             if (const auto error = json::stringOr(videoStatus, "error", ""); !error.empty())
             {
                 out("  " + error + " (the rice's fallback image shows)");

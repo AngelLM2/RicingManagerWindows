@@ -187,6 +187,20 @@ TEST_F(PackageTest, PackedRiceComesBackTheSame)
     EXPECT_FALSE(rmw::package::pack(rice, Kind::Rice, again));
 }
 
+TEST_F(PackageTest, PrivateRicesStayHome)
+{
+    // A rice with Wallpaper Engine's files in it is for this computer only.
+    const fs::path rice = m_dir.path() / "Engine";
+    const fs::path archive = m_dir.path() / "engine.rice";
+    write("Engine/rice.toml", bytesOf("schema = 1\n[meta]\nname = \"Mine\"\nshareable = false\n"));
+    const auto refused = rmw::package::pack(rice, Kind::Rice, archive);
+    ASSERT_FALSE(refused);
+    EXPECT_NE(refused.error().message().find("Wallpaper Engine"), std::string::npos);
+    EXPECT_FALSE(fs::exists(archive));
+    write("Engine/rice.toml", bytesOf("schema = 1\n[meta]\nname = \"Mine\"\nshareable = true\n"));
+    EXPECT_TRUE(rmw::package::pack(rice, Kind::Rice, archive));
+}
+
 TEST_F(PackageTest, CheckOnlyWritesNothing)
 {
     const auto zip = rawZip({manifest(), {"a.png", png()}});
@@ -284,6 +298,10 @@ TEST_F(PackageTest, ContentMustMatchTheName)
     EXPECT_TRUE(refused({"a.cur", bytesOf("not a cursor at all")}));
     EXPECT_TRUE(refused({"a.ani", rmw::test::cursorFile()}));
     EXPECT_TRUE(refused({"a.mp4", bytesOf(std::string(100, 'x'))}));
+    EXPECT_TRUE(refused({"a.webm", mp4()}));
+    std::vector<std::byte> webm = {std::byte{0x1A}, std::byte{0x45}, std::byte{0xDF}, std::byte{0xA3}};
+    webm.resize(4096, std::byte{0});
+    EXPECT_FALSE(refused({"a.webm", webm}));
     EXPECT_TRUE(refused({"notes.md", bytesOf("bad \xFF utf-8")}));
     EXPECT_TRUE(refused({"rice2.toml", std::vector<std::byte>((64U << 10U) + 1, std::byte{'#'})}));
 }

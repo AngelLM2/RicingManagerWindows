@@ -7,6 +7,7 @@
 #include "rmw/client/CoreClient.hpp"
 #include "rmw/ipc/JsonRpc.hpp"
 #include "rmw/settings/Model.hpp"
+#include "rmw/settings/WallpaperEngine.hpp"
 
 #include <app.h>
 
@@ -95,6 +96,7 @@ private:
     void pluginConfig();
     [[nodiscard]] std::string pluginName(std::string_view id) const;
     void rememberFolder(const std::filesystem::path& folder);
+    void engineScan(); // looks for Wallpaper Engine's wallpapers, then lists them
     [[nodiscard]] std::vector<std::filesystem::path> rememberedFolders() const;
 
     struct Edit
@@ -115,6 +117,10 @@ private:
     ipc::Json m_monitors = ipc::Json::array();
     std::vector<std::string> m_actionNames;
     std::vector<std::string> m_matchChoices;
+    // Wallpaper Engine (M12): what was found, the folders the user pointed at, the rule it is for.
+    std::vector<settings::EngineWallpaper> m_engine;
+    std::vector<std::filesystem::path> m_engineFolders;
+    int m_engineRule = -1;
     ipc::Json m_apps = ipc::Json::array();       // apps.list, once asked
     std::optional<std::pair<int, int>> m_appFor; // the hotkey (0) or rule (1) picking an app
     int m_operations = 0;                        // running changes (the busy state)

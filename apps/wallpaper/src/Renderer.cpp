@@ -1,20 +1,15 @@
 #include "Renderer.hpp"
 
+#include "Composer.hpp"
+#include "GraphicsParts.hpp"
+
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/platform/WinError.hpp"
 #include "rmw/video/Playback.hpp"
 
-#include <windows.h>
-
-#include <d3d11_1.h>
-#include <dcomp.h>
-#include <dxgi1_3.h>
-#include <mfapi.h>
 #include <mferror.h>
-#include <mfidl.h>
 #include <mfreadwrite.h>
-#include <wil/com.h>
 
 #include <algorithm>
 #include <array>
@@ -39,6 +34,7 @@ constexpr DWORD kVideoStream = static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_S
 // Frames the decoder may hold for us beyond its references: few, to keep the memory down
 // (ADR-0006: the pipeline was most of the cost).
 constexpr UINT32 kDecoderExtraFrames = 2;
+constexpr std::uint32_t kDrawingFps = 60; // what we draw when the rice sets no limit
 
 Result<void> check(HRESULT hr, std::string_view what)
 {
@@ -71,21 +67,31 @@ std::string missingDecoder(const GUID& codec)
     return "Windows has no decoder for this video's format; H.264 always plays";
 }
 
-} // namespace
-
-struct Graphics::Parts
+// COM on the renderer's thread (WIC decodes the pictures), for as long as it lives.
+class ComThread
 {
-    wil::com_ptr_nothrow<ID3D11Device> device;
-    wil::com_ptr_nothrow<ID3D11DeviceContext> context;
-    wil::com_ptr_nothrow<ID3D11VideoDevice> videoDevice;
-    wil::com_ptr_nothrow<ID3D11VideoContext> videoContext;
-    wil::com_ptr_nothrow<IMFDXGIDeviceManager> manager;
-    UINT resetToken = 0;
-    wil::com_ptr_nothrow<IDXGIFactory2> factory;
-    wil::com_ptr_nothrow<IDCompositionDevice> composition;
-    std::string adapter;
-    mutable std::mutex compositionLock; // DirectComposition calls, from the renderers' threads
+public:
+    ComThread() noexcept
+        : m_initialized(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)))
+    {
+    }
+    ~ComThread()
+    {
+        if (m_initialized)
+        {
+            CoUninitialize();
+        }
+    }
+    ComThread(const ComThread&) = delete;
+    ComThread& operator=(const ComThread&) = delete;
+    ComThread(ComThread&&) = delete;
+    ComThread& operator=(ComThread&&) = delete;
+
+private:
+    bool m_initialized;
 };
+
+} // namespace
 
 Graphics::Graphics()
     : m_parts(std::make_unique<Parts>())
@@ -154,6 +160,20 @@ Result<std::shared_ptr<Graphics>> Graphics::create()
     {
         return std::unexpected(std::move(composition.error()));
     }
+    // Direct2D on the same device: every renderer draws with its own context, on its own thread.
+    const D2D1_FACTORY_OPTIONS options{};
+    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, __uuidof(ID2D1Factory1), &options,
+                                 p.d2dFactory.put_void())) ||
+        FAILED(p.d2dFactory->CreateDevice(dxgiDevice.get(), p.d2dDevice.put())))
+    {
+        log::warn("wallpaper: no Direct2D on {}: only plain videos play", p.adapter);
+        p.d2dFactory.reset();
+        p.d2dDevice.reset();
+    }
+    else
+    {
+        p.d2dLock = p.d2dFactory.try_query<ID2D1Multithread>();
+    }
     return graphics;
 }
 
@@ -162,6 +182,7 @@ struct Renderer::Pipeline
     wil::com_ptr_nothrow<IDXGISwapChain1> swapChain;
     wil::com_ptr_nothrow<IDCompositionTarget> target;
     wil::com_ptr_nothrow<IDCompositionVisual> visual;
+    std::unique_ptr<Composer> composer; // effects and particles (M12); a picture or a color
     wil::com_ptr_nothrow<IMFSourceReader> reader;
     wil::com_ptr_nothrow<ID3D11VideoProcessorEnumerator> enumerator;
     wil::com_ptr_nothrow<ID3D11VideoProcessor> processor;
@@ -198,10 +219,17 @@ Renderer::~Renderer()
 
 std::string Renderer::describe() const
 {
-    return std::format("{}x{} at {:.0f} fps, {} decoding, into {}x{}{}", m_pipeline->videoWidth,
-                       m_pipeline->videoHeight, m_pipeline->fps,
-                       m_pipeline->gpuFrames ? "hardware" : "software", m_options.width, m_options.height,
-                       m_pipeline->composed ? "" : " (window swap chain)");
+    const Pipeline& p = *m_pipeline;
+    if (m_options.source != video::Source::Video)
+    {
+        return std::format("{}, into {}x{}{}", p.composer ? p.composer->describe() : std::string("nothing"),
+                           m_options.width, m_options.height, p.composed ? "" : " (window swap chain)");
+    }
+    return std::format("{}x{} at {:.0f} fps{}, {} decoding, into {}x{}{}{}", p.videoWidth, p.videoHeight, p.fps,
+                       m_options.effects.speed != 1.0 ? std::format(" (speed {})", m_options.effects.speed) : "",
+                       p.gpuFrames ? "hardware" : "software", m_options.width, m_options.height,
+                       p.composed ? "" : " (window swap chain)",
+                       p.composer ? std::format(" ({})", p.composer->describe()) : "");
 }
 
 std::string Renderer::failure() const
@@ -270,6 +298,23 @@ Result<void> Renderer::build()
         }
         p.composed = false;
     }
+
+    if (m_options.composed())
+    {
+        p.composer = std::make_unique<Composer>(m_graphics, m_options);
+        const D2DLock lock(g);
+        if (auto built = p.composer->build(); !built)
+        {
+            return built;
+        }
+    }
+    return m_options.source == video::Source::Video ? buildVideo() : Result<void>{};
+}
+
+Result<void> Renderer::buildVideo()
+{
+    const Graphics::Parts& g = m_graphics->parts();
+    Pipeline& p = *m_pipeline;
 
     // The decoder: DXVA when the GPU can, the device shared with it. The plain "video processing"
     // attribute refuses a D3D manager (E_INVALIDARG); the advanced one converts on the GPU.
@@ -379,15 +424,18 @@ Result<void> Renderer::build()
         p.reader->SetCurrentPosition(GUID_NULL, start);
     }
 
-    // The video processor: scales (and converts NV12) straight into the swap chain.
+    // The video processor: scales (and converts NV12) straight into the swap chain, or into the
+    // Composer's frames (a little larger than the monitor when the picture moves).
+    const int outputWidth = p.composer ? p.composer->frameWidth() : m_options.width;
+    const int outputHeight = p.composer ? p.composer->frameHeight() : m_options.height;
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC content{};
     content.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
     content.InputFrameRate = {static_cast<UINT>(std::lround(p.fps)), 1};
     content.InputWidth = static_cast<UINT>(p.videoWidth);
     content.InputHeight = static_cast<UINT>(p.videoHeight);
     content.OutputFrameRate = content.InputFrameRate;
-    content.OutputWidth = static_cast<UINT>(m_options.width);
-    content.OutputHeight = static_cast<UINT>(m_options.height);
+    content.OutputWidth = static_cast<UINT>(outputWidth);
+    content.OutputHeight = static_cast<UINT>(outputHeight);
     content.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
     if (auto made = check(g.videoDevice->CreateVideoProcessorEnumerator(&content, p.enumerator.put()),
                           "describe the video processing");
@@ -401,20 +449,31 @@ Result<void> Renderer::build()
     {
         return made;
     }
-    p.placement = video::place(m_options.fit, p.videoWidth, p.videoHeight, m_options.width, m_options.height);
+    if (p.composer)
+    {
+        const D2DLock lock(g);
+        if (auto frames = p.composer->frames(); !frames)
+        {
+            return std::unexpected(std::move(frames.error()));
+        }
+    }
+    p.placement = video::place(m_options.fit, p.videoWidth, p.videoHeight, outputWidth, outputHeight);
     const RECT source{p.placement.source.left, p.placement.source.top, p.placement.source.right,
                       p.placement.source.bottom};
     const RECT target{p.placement.target.left, p.placement.target.top, p.placement.target.right,
                       p.placement.target.bottom};
-    const RECT whole{0, 0, m_options.width, m_options.height};
+    const RECT whole{0, 0, outputWidth, outputHeight};
     g.videoContext->VideoProcessorSetStreamFrameFormat(p.processor.get(), 0,
                                                        D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
     g.videoContext->VideoProcessorSetStreamAutoProcessingMode(p.processor.get(), 0, FALSE);
     g.videoContext->VideoProcessorSetStreamSourceRect(p.processor.get(), 0, TRUE, &source);
     g.videoContext->VideoProcessorSetStreamDestRect(p.processor.get(), 0, TRUE, &target);
     g.videoContext->VideoProcessorSetOutputTargetRect(p.processor.get(), TRUE, &whole);
-    const D3D11_VIDEO_COLOR black{.RGBA = {0.0F, 0.0F, 0.0F, 1.0F}};
-    g.videoContext->VideoProcessorSetOutputBackgroundColor(p.processor.get(), FALSE, &black);
+    const auto& background = m_options.background;
+    const D3D11_VIDEO_COLOR around{.RGBA = {static_cast<float>(background.r) / 255.0F,
+                                            static_cast<float>(background.g) / 255.0F,
+                                            static_cast<float>(background.b) / 255.0F, 1.0F}};
+    g.videoContext->VideoProcessorSetOutputBackgroundColor(p.processor.get(), FALSE, &around);
     return {};
 }
 
@@ -427,10 +486,26 @@ void Renderer::setPaused(bool paused)
     m_wake.notify_all();
 }
 
+void Renderer::lose(long hr, std::string_view what)
+{
+    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == D2DERR_RECREATE_TARGET ||
+        hr == MF_E_DXGI_DEVICE_NOT_INITIALIZED || hr == MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED)
+    {
+        m_deviceLost = true;
+    }
+    const auto error = hresultError(hr, what).toString();
+    log::warn("wallpaper: {}: {}", what, error);
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_failure = error;
+    }
+    m_failed = true;
+}
+
 void Renderer::run(const std::stop_token& stop)
 {
+    const ComThread com;
     const Graphics::Parts& g = m_graphics->parts();
-    Pipeline& p = *m_pipeline;
     if (auto built = build(); !built)
     {
         {
@@ -442,31 +517,36 @@ void Renderer::run(const std::stop_token& stop)
         return;
     }
     m_ready = true;
+    if (m_options.source == video::Source::Video)
+    {
+        runVideo(stop);
+    }
+    else
+    {
+        runDrawing(stop);
+    }
+    m_pipeline->composer.reset(); // on this thread, before COM goes
+}
+
+void Renderer::runVideo(const std::stop_token& stop)
+{
+    const Graphics::Parts& g = m_graphics->parts();
+    Pipeline& p = *m_pipeline;
     video::FramePacer pacer(m_options.fpsLimit);
     Clock::time_point origin = Clock::now(); // when the frame stamped `base` is due
     LONGLONG base = -1;
     wil::com_ptr_nothrow<IMFSample> pending;
     LONGLONG pendingTime = 0;
+    // Faster or slower than it was made: its timestamps, stretched.
+    const double speed = std::clamp(m_options.effects.speed, 0.25, 4.0);
+    Clock::time_point lastShown = Clock::now();
 
-    const auto lose = [&](HRESULT hr, std::string_view what) {
-        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET ||
-            hr == MF_E_DXGI_DEVICE_NOT_INITIALIZED || hr == MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED)
-        {
-            m_deviceLost = true;
-        }
-        const auto error = hresultError(hr, what).toString();
-        log::warn("wallpaper: {}: {}", what, error);
-        {
-            const std::scoped_lock lock(m_mutex);
-            m_failure = error;
-        }
-        m_failed = true;
-    };
-
-    // One frame: into the swap chain's back buffer, then shown at the next vertical blank.
+    // One frame: into the swap chain's back buffer (through the Composer when it has effects or
+    // particles), then shown at the next vertical blank.
     const auto present = [&](IMFSample& sample) -> HRESULT {
         wil::com_ptr_nothrow<IMFMediaBuffer> buffer;
         RETURN_IF_FAILED(sample.GetBufferByIndex(0, buffer.put()));
+        const D2DLock lock(g);
         ID3D11VideoProcessorInputView* input = nullptr;
         if (auto dxgi = buffer.try_query<IMFDXGIBuffer>())
         {
@@ -542,19 +622,36 @@ void Renderer::run(const std::stop_token& stop)
         }
         wil::com_ptr_nothrow<ID3D11Texture2D> back;
         RETURN_IF_FAILED(p.swapChain->GetBuffer(0, IID_PPV_ARGS(back.put())));
-        auto& output = p.outputs[back.get()];
-        if (!output)
+        ID3D11Texture2D* output = back.get();
+        if (p.composer)
+        {
+            auto frames = p.composer->frames();
+            if (!frames)
+            {
+                return E_UNEXPECTED;
+            }
+            output = *frames;
+        }
+        auto& view = p.outputs[output];
+        if (!view)
         {
             D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC desc{};
             desc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
-            RETURN_IF_FAILED(g.videoDevice->CreateVideoProcessorOutputView(back.get(), p.enumerator.get(),
-                                                                           &desc, output.put()));
+            RETURN_IF_FAILED(
+                g.videoDevice->CreateVideoProcessorOutputView(output, p.enumerator.get(), &desc, view.put()));
         }
         D3D11_VIDEO_PROCESSOR_STREAM stream{};
         stream.Enable = TRUE;
         stream.pInputSurface = input;
-        RETURN_IF_FAILED(g.videoContext->VideoProcessorBlt(p.processor.get(), output.get(), 0, 1, &stream));
-        return p.swapChain->Present(1, 0);
+        RETURN_IF_FAILED(g.videoContext->VideoProcessorBlt(p.processor.get(), view.get(), 0, 1, &stream));
+        if (p.composer)
+        {
+            const auto now = Clock::now();
+            p.composer->advance(std::chrono::duration<double>(now - lastShown).count());
+            lastShown = now;
+            RETURN_IF_FAILED(p.composer->draw(back.get()));
+        }
+        return S_OK;
     };
 
     while (!stop.stop_requested())
@@ -566,6 +663,7 @@ void Renderer::run(const std::stop_token& stop)
                 const auto pausedAt = Clock::now();
                 m_wake.wait(lock, stop, [this] { return !m_paused; });
                 origin += Clock::now() - pausedAt; // on from where it stopped
+                lastShown = Clock::now();
                 pacer.reset();
                 continue;
             }
@@ -603,8 +701,8 @@ void Renderer::run(const std::stop_token& stop)
                 origin = Clock::now();
             }
         }
-        const auto due = origin + std::chrono::duration_cast<Clock::duration>(
-                                      std::chrono::nanoseconds((pendingTime - base) * 100));
+        const auto due = origin + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(
+                                      static_cast<double>(pendingTime - base) * 100e-9 / speed));
         const auto now = Clock::now();
         if (now < due)
         {
@@ -614,7 +712,12 @@ void Renderer::run(const std::stop_token& stop)
         }
         if (pacer.due(now))
         {
-            if (const HRESULT hr = present(*pending); FAILED(hr))
+            HRESULT hr = present(*pending);
+            if (SUCCEEDED(hr))
+            {
+                hr = p.swapChain->Present(1, 0);
+            }
+            if (FAILED(hr))
             {
                 lose(hr, "show a frame");
                 return;
@@ -622,6 +725,71 @@ void Renderer::run(const std::stop_token& stop)
             ++m_presented;
         }
         pending.reset();
+    }
+}
+
+void Renderer::runDrawing(const std::stop_token& stop)
+{
+    const Graphics::Parts& g = m_graphics->parts();
+    const Pipeline& p = *m_pipeline;
+    const std::uint32_t fps = m_options.fpsLimit == 0 ? kDrawingFps : m_options.fpsLimit;
+    const auto period = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / fps));
+    auto last = Clock::now();
+    auto next = last;
+    bool drawn = false;
+    while (!stop.stop_requested())
+    {
+        {
+            std::unique_lock lock(m_mutex);
+            if (m_paused)
+            {
+                m_wake.wait(lock, stop, [this] { return !m_paused; });
+                last = Clock::now(); // nothing jumps after a pause
+                next = last;
+                continue;
+            }
+            if (drawn && !p.composer->animated())
+            {
+                // A still picture: drawn once, nothing to do until the end.
+                m_wake.wait(lock, stop, [] { return false; });
+                continue;
+            }
+        }
+        const auto now = Clock::now();
+        if (now < next)
+        {
+            std::unique_lock lock(m_mutex);
+            m_wake.wait_until(lock, stop, next, [this] { return m_paused; });
+            continue;
+        }
+        next = std::max(next + period, now);
+        p.composer->advance(std::chrono::duration<double>(now - last).count());
+        last = now;
+        if (drawn && p.composer->settled())
+        {
+            continue; // the same frame again: not shown
+        }
+        HRESULT hr = S_OK;
+        {
+            const D2DLock lock(g);
+            wil::com_ptr_nothrow<ID3D11Texture2D> back;
+            hr = p.swapChain->GetBuffer(0, IID_PPV_ARGS(back.put()));
+            if (SUCCEEDED(hr))
+            {
+                hr = p.composer->draw(back.get());
+            }
+        }
+        if (SUCCEEDED(hr))
+        {
+            hr = p.swapChain->Present(1, 0);
+        }
+        if (FAILED(hr))
+        {
+            lose(hr, "draw the wallpaper");
+            return;
+        }
+        drawn = true;
+        ++m_presented;
     }
 }
 

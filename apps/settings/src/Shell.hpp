@@ -30,6 +30,10 @@ struct FileFilter
 [[nodiscard]] std::optional<std::filesystem::path> pickSaveFile(void* owner, const FileFilter& filter,
                                                                 const std::wstring& name);
 
+// The first frame of a picture (a GIF preview) as a PNG file: the rice's wallpapers are PNG, JPEG
+// or BMP.
+[[nodiscard]] Result<void> savePng(const std::filesystem::path& picture, const std::filesystem::path& png);
+
 // A folder in Explorer, when the user asks for it.
 void openFolder(const std::filesystem::path& folder);
 

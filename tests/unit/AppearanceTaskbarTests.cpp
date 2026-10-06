@@ -179,6 +179,26 @@ TEST(Taskbar, ABarThatReplacesItFreesItsSpace)
     rice.taskbar = rmw::domain::TaskbarConfig{};
     rice.taskbar->autohide = false;
     EXPECT_EQ(TaskbarLogic().desiredFromRice(rice, assets).value(), (Json{{"autohide", true}}));
+
+    // A style that replaces it does the same (M10: its own keys say nothing about it).
+    rmw::domain::Rice styled;
+    styled.bars.emplace_back().style = rmw::domain::BarStyle::Dock;
+    EXPECT_EQ(TaskbarLogic().desiredFromRice(styled, assets).value(), (Json{{"autohide", true}}));
+}
+
+TEST(Taskbar, WindowsOwnStartTakesTheRicesChoices)
+{
+    rmw::domain::Rice rice;
+    rice.start = rmw::domain::StartConfig{};
+    rice.start->layout = rmw::domain::StartLayout::MoreRecommendations;
+    rice.start->recommendations = false;
+    NoAssets assets;
+    EXPECT_EQ(TaskbarLogic().desiredFromRice(rice, assets).value(),
+              (Json{{"startLayout", 2}, {"startRecentFiles", 0}, {"startTips", 0}}));
+    // Our own menu alone changes nothing of Windows'.
+    rice.start = rmw::domain::StartConfig{};
+    rice.start->menu = rmw::domain::StartMenuKind::Ours;
+    EXPECT_TRUE(TaskbarLogic().desiredFromRice(rice, assets)->empty());
 }
 
 TEST(Taskbar, AbsentValuesAreCapturedAsNullAndRestoredByDeleting)
@@ -190,8 +210,13 @@ TEST(Taskbar, AbsentValuesAreCapturedAsNullAndRestoredByDeleting)
 
     const auto before = system.capture();
     ASSERT_TRUE(before.has_value());
-    EXPECT_EQ(before->state,
-              (Json{{"alignment", 1}, {"taskView", nullptr}, {"search", nullptr}, {"autohide", false}}));
+    EXPECT_EQ(before->state, (Json{{"alignment", 1},
+                                   {"taskView", nullptr},
+                                   {"search", nullptr},
+                                   {"startLayout", nullptr},
+                                   {"startRecentFiles", nullptr},
+                                   {"startTips", nullptr},
+                                   {"autohide", false}}));
 
     ASSERT_TRUE(system.apply({{"taskView", 0}, {"search", 3}, {"autohide", true}}));
     EXPECT_EQ(registry.dword(kAdvanced, "ShowTaskViewButton"), 0u);

@@ -125,7 +125,7 @@ component RiceCard inherits Rectangle {
                     }
                 }
 
-                IconButton {
+                if root.rice.shareable: IconButton {
                     glyph: "\u{E72D}";
                     label: @tr("Share {} as a .rice file", root.rice.name);
                     enabled: root.rice.problem == "" && !Api.busy;

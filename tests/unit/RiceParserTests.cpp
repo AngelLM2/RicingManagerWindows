@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <format>
 #include <string>
 
 namespace
@@ -292,6 +293,81 @@ TEST(RiceParser, WallpaperKindsCheckTheirOwnFields)
         rice("[[wallpaper.monitor]]\nkind = \"slideshow\"\nsource = \"assets/pics\"\ninterval = 600\n"));
     ASSERT_TRUE(slideshow.rice.has_value()) << dump(slideshow.diagnostics);
     EXPECT_EQ(slideshow.rice->wallpaper->monitors[0].intervalSeconds, 600u);
+}
+
+TEST(RiceParser, WallpaperEffectsAndParticles)
+{
+    const auto live = parse(rice("[[wallpaper.monitor]]\nsource = \"a.png\"\n"
+                                 "effects = { brightness = -0.2, blur = 8, parallax = 0.5, zoom = 0.3 }\n"
+                                 "particles = [{ kind = \"magic\", count = 120, color = \"#ffd1f0\" }]\n"));
+    ASSERT_TRUE(live.rice.has_value()) << dump(live.diagnostics);
+    const auto& rule = live.rice->wallpaper->monitors[0];
+    EXPECT_EQ(rule.effects.brightness, -0.2);
+    EXPECT_EQ(rule.effects.blur, 8.0);
+    EXPECT_FALSE(rule.effects.contrast.has_value());
+    ASSERT_EQ(rule.particles.size(), 1u);
+    EXPECT_EQ(rule.particles[0].kind, ParticleKind::Magic);
+    EXPECT_EQ(rule.particles[0].count, 120u);
+    EXPECT_TRUE(rule.live());
+    EXPECT_TRUE(live.diagnostics.all().empty()) << dump(live.diagnostics);
+
+    // Out of range, an unknown kind, no kind, a layer that is not a table, too many: errors.
+    const auto fails = [](std::string_view body) { return !parse(rice(body)).rice.has_value(); };
+    EXPECT_TRUE(fails("[[wallpaper.monitor]]\nsource = \"a.png\"\neffects = { contrast = 3 }\n"));
+    EXPECT_TRUE(fails("[[wallpaper.monitor]]\nsource = \"a.png\"\nparticles = [{ kind = \"fire\" }]\n"));
+    EXPECT_TRUE(fails("[[wallpaper.monitor]]\nsource = \"a.png\"\nparticles = [{ count = 5 }]\n"));
+    EXPECT_TRUE(fails("[[wallpaper.monitor]]\nsource = \"a.png\"\nparticles = [\"snow\"]\n"));
+    EXPECT_TRUE(fails("[[wallpaper.monitor]]\nsource = \"a.png\"\nparticles = [{ kind = \"snow\", count = 5000 }]\n"));
+    std::string many = "[[wallpaper.monitor]]\nsource = \"a.png\"\nparticles = [";
+    for (std::size_t i = 0; i <= rmw::limits::kWallpaperMaxParticleLayers; ++i)
+    {
+        many += "{ kind = \"snow\" },";
+    }
+    EXPECT_TRUE(fails(many + "]\n"));
+
+    // What does not apply is a warning: speed on a picture, blur on a color, particles on a slideshow.
+    const auto picture = parse(rice("[[wallpaper.monitor]]\nsource = \"a.png\"\neffects = { speed = 2, typo = 1 }\n"));
+    ASSERT_TRUE(picture.rice.has_value()) << dump(picture.diagnostics);
+    EXPECT_FALSE(picture.rice->wallpaper->monitors[0].effects.speed.has_value());
+    EXPECT_NE(find(picture.diagnostics, "wallpaper.monitor[0].effects.speed"), nullptr) << dump(picture.diagnostics);
+    EXPECT_NE(find(picture.diagnostics, "wallpaper.monitor[0].effects.typo"), nullptr) << dump(picture.diagnostics);
+    const auto color =
+        parse(rice("[[wallpaper.monitor]]\nkind = \"color\"\ncolor = \"#102030\"\neffects = { blur = 4 }\n"));
+    ASSERT_TRUE(color.rice.has_value()) << dump(color.diagnostics);
+    EXPECT_TRUE(color.rice->wallpaper->monitors[0].effects.empty());
+    EXPECT_FALSE(color.rice->wallpaper->monitors[0].live());
+    const auto slideshow = parse(rice("[[wallpaper.monitor]]\nkind = \"slideshow\"\nsource = \"pics\"\n"
+                                      "particles = [{ kind = \"snow\" }]\n"));
+    ASSERT_TRUE(slideshow.rice.has_value()) << dump(slideshow.diagnostics);
+    EXPECT_TRUE(slideshow.rice->wallpaper->monitors[0].particles.empty());
+    EXPECT_NE(find(slideshow.diagnostics, "wallpaper.monitor[0].particles"), nullptr) << dump(slideshow.diagnostics);
+
+    // A palette color, and one the palette does not have.
+    const auto palette = parse(rice("[palette]\nglow = \"#ffeeaa\"\n[[wallpaper.monitor]]\nsource = \"a.png\"\n"
+                                    "particles = [{ kind = \"fireflies\", color = \"palette.glow\" }]\n"));
+    ASSERT_TRUE(palette.rice.has_value()) << dump(palette.diagnostics);
+    EXPECT_TRUE(palette.rice->wallpaper->monitors[0].particles[0].color->isPalette());
+    EXPECT_TRUE(fails("[[wallpaper.monitor]]\nsource = \"a.png\"\n"
+                      "particles = [{ kind = \"fireflies\", color = \"palette.nope\" }]\n"));
+}
+
+TEST(RiceParser, StartSection)
+{
+    const auto parsed = parse(rice("[start]\nmenu = \"ours\"\npinned = [\"a!App\", \"a!App\", \"b\"]\n"));
+    ASSERT_TRUE(parsed.rice.has_value()) << dump(parsed.diagnostics);
+    EXPECT_EQ(parsed.rice->start->menu, StartMenuKind::Ours);
+    EXPECT_EQ(parsed.rice->start->pinned, (std::vector<std::string>{"a!App", "b"})); // each once
+    const auto fails = [](std::string_view body) { return !parse(rice(body)).rice.has_value(); };
+    EXPECT_TRUE(fails("[start]\nmenu = \"mine\"\n"));
+    EXPECT_TRUE(fails("[start]\npinned = [1]\n"));
+    EXPECT_TRUE(fails("[start]\npinned = [\"\"]\n"));
+    EXPECT_TRUE(fails("[start]\nlayout = \"huge\"\n"));
+    std::string many = "[start]\npinned = [";
+    for (std::size_t i = 0; i <= rmw::limits::kStartMaxPinned; ++i)
+    {
+        many += std::format("\"app{}\",", i);
+    }
+    EXPECT_TRUE(fails(many + "]\n"));
 }
 
 TEST(RiceParser, SpanAndMonitorRulesDoNotMix)
