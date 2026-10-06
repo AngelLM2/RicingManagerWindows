@@ -16,7 +16,8 @@
 //                               that changes the look, "ricing-manager" (ours). A restore applies the
 //                               user's theme file again, so Settings shows their theme selected, with
 //                               what it sets that the other fields do not (the accent palette, an
-//                               accent taken from the wallpaper...).
+//                               accent taken from the wallpaper...). "windows": the theme Windows ships
+//                               for the mode (an original whose theme was ours, or one that is gone).
 namespace rmw::modules
 {
 
@@ -32,6 +33,7 @@ public:
                                                        engine::IAssetSink& assets) const override;
     [[nodiscard]] bool fieldEquivalent(std::string_view field, const engine::Json& a,
                                        const engine::Json& b) const override;
+    void forOriginal(engine::Json& state) const override;
 
 private:
     std::function<domain::TimeOfDay()> m_now;

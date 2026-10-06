@@ -31,10 +31,16 @@ inline ipc::Json reportJson(const engine::OperationReport& report)
     {
         skipped.push_back({{"module", s.module}, {"field", s.field}, {"reason", s.reason}});
     }
+    ipc::Json failed = ipc::Json::array();
+    for (const auto& f : report.failed)
+    {
+        failed.push_back({{"module", f.module}, {"reason", f.reason}});
+    }
     return ipc::Json{{"historyId", report.historyId},
                      {"modules", report.modules},
                      {"skipped", std::move(skipped)},
-                     {"warnings", report.warnings}};
+                     {"warnings", report.warnings},
+                     {"failed", std::move(failed)}};
 }
 
 } // namespace rmw::core

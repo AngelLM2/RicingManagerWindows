@@ -58,7 +58,7 @@ person      = "person.cur"
 [[bar]]
 monitor             = "all"
 position            = "bottom"
-mode                = "float"
+mode                = "reserve" # maximized windows end above it
 thickness           = 38
 length              = "56%"
 margin              = [0, 0, 12, 0]

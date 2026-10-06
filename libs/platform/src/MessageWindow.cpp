@@ -417,9 +417,13 @@ void MessageWindow::showMenu()
     POINT cursor{};
     GetCursorPos(&cursor);
     // Required for the menu to close when the user clicks elsewhere.
-    SetForegroundWindow(static_cast<HWND>(m_window));
-    TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, cursor.x, cursor.y, static_cast<HWND>(m_window),
-                     nullptr);
+    const bool front = SetForegroundWindow(static_cast<HWND>(m_window)) != FALSE;
+    log::info("tray: menu at {},{} (in front: {})", cursor.x, cursor.y, front);
+    if (TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, cursor.x, cursor.y, static_cast<HWND>(m_window),
+                         nullptr) == FALSE)
+    {
+        log::warn("tray: the menu did not open ({})", GetLastError());
+    }
     DestroyMenu(menu);
 }
 

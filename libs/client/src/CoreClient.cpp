@@ -30,8 +30,9 @@ void CoreClient::disconnect() noexcept
     m_connection.reset();
 }
 
-Result<void> CoreClient::connect()
+Result<void> CoreClient::connect(bool startIfNeeded)
 {
+    m_startIfNeeded = startIfNeeded;
     auto self = platform::currentExecutable();
     auto name = platform::corePipeName();
     if (!self || !name)
@@ -139,7 +140,7 @@ Result<void> CoreClient::checkDataDirectory(const Json& hello) const
 Result<void> CoreClient::connectOrStart()
 {
     auto connection = platform::connectPipe(m_pipe, 2s, m_coreExe);
-    if (!connection && connection.error().code() == ErrorCode::NotFound)
+    if (!connection && connection.error().code() == ErrorCode::NotFound && m_startIfNeeded)
     {
         std::wstring arguments;
         if (!m_dataDirectory.empty())

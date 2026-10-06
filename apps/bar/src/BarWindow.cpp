@@ -10,6 +10,7 @@
 #include <shellscalingapi.h>
 #include <windowsx.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace rmw::barapp
@@ -175,6 +176,19 @@ BarWindow::~BarWindow()
         data.hWnd = hwnd;
         SHAppBarMessage(ABM_REMOVE, &data); // gives the reserved space back
     }
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (m_claimed && GetMonitorInfoW(static_cast<HMONITOR>(m_monitor), &info) != FALSE)
+    {
+        // The strip we set aside ourselves goes back too; announced, so Explorer works the area out
+        // again its own way.
+        RECT area = info.rcWork;
+        area.left = std::min(area.left, static_cast<LONG>(m_reserved.left));
+        area.top = std::min(area.top, static_cast<LONG>(m_reserved.top));
+        area.right = std::max(area.right, static_cast<LONG>(m_reserved.right));
+        area.bottom = std::max(area.bottom, static_cast<LONG>(m_reserved.bottom));
+        SystemParametersInfoW(SPI_SETWORKAREA, 0, &area, SPIF_SENDCHANGE);
+    }
     releaseTarget();
     if (hwnd != nullptr)
     {
@@ -185,8 +199,9 @@ BarWindow::~BarWindow()
 
 slint::PhysicalSize BarWindow::size()
 {
-    return slint::PhysicalSize(
-        {static_cast<std::uint32_t>(m_rect.width()), static_cast<std::uint32_t>(m_rect.height())});
+    // What Slint draws: the window's pixels, supersampled.
+    return slint::PhysicalSize({static_cast<std::uint32_t>(m_rect.width()) * m_factor,
+                                static_cast<std::uint32_t>(m_rect.height()) * m_factor});
 }
 
 void BarWindow::set_visible(bool visible)
@@ -255,6 +270,7 @@ void BarWindow::place()
         return; // the monitor is gone: the app rebuilds its bars
     }
     m_scale = scaleOf(monitor);
+    m_factor = m_scale < 1.75 ? 2 : 1; // from 175% on, the pixels are small enough as they are
 
     // Every bar is an app bar, so it hears about fullscreen apps; only Reserve bars take space.
     registerAppBar();
@@ -305,7 +321,8 @@ void BarWindow::place()
     {
         return;
     }
-    if (rect.width() != m_rect.width() || rect.height() != m_rect.height() || m_dc == nullptr)
+    if (rect.width() != m_rect.width() || rect.height() != m_rect.height() || m_dc == nullptr ||
+        m_surface.factor() != m_factor)
     {
         resizeTarget(rect.width(), rect.height());
     }
@@ -317,7 +334,7 @@ void BarWindow::place()
     {
         SetTimer(hwnd, kTuckTimer, kTuckDelayMs * 2, nullptr); // seen once, then out of the way
     }
-    window().dispatch_scale_factor_change_event(static_cast<float>(m_scale));
+    window().dispatch_scale_factor_change_event(static_cast<float>(m_scale * m_factor));
     window().dispatch_resize_event(slint::LogicalSize(
         {static_cast<float>(rect.width() / m_scale), static_cast<float>(rect.height() / m_scale)}));
     request_redraw();
@@ -336,15 +353,98 @@ void BarWindow::checkStrip()
     if (work.left < m_reserved.right && m_reserved.left < work.right && work.top < m_reserved.bottom &&
         m_reserved.top < work.bottom)
     {
-        // Seen in the Sandbox, not explained: right after Windows' taskbar went in or out of
-        // auto-hide, Explorer may leave a strip it granted in the work area for a while. Asking
-        // again, the bar leaving and coming back, Explorer's own taskbar state set again and even
-        // setting the work area aside (Explorer puts its own back at once) changed nothing; its
-        // next recount does. Said here for the logs of a real PC.
+        // Seen in the Sandbox and on the owner's PC (v1.6, at every apply): right after Windows'
+        // taskbar went in or out of auto-hide, Explorer may leave a strip it granted in the work area.
+        // Asking again, or the bar leaving and coming back, changed nothing; the work area set and
+        // announced is put back by Explorer at once. Set without the announcement, it stays.
         log::warn("bar: Windows still counts the strip {},{} {}x{} in the work area ({},{} {}x{})", m_reserved.left,
                   m_reserved.top, m_reserved.width(), m_reserved.height(), work.left, work.top, work.width(),
                   work.height());
+        claimWorkArea(work);
     }
+}
+
+void BarWindow::claimWorkArea(const bar::Rect& work)
+{
+    constexpr int kMaxClaimsPerMinute = 6;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - m_claimsSince > std::chrono::minutes(1))
+    {
+        m_claimsSince = now;
+        m_claims = 0;
+    }
+    if (++m_claims > kMaxClaimsPerMinute)
+    {
+        if (m_claims == kMaxClaimsPerMinute + 1)
+        {
+            log::warn("bar: Explorer keeps taking the strip back; left to it for a minute");
+        }
+        return;
+    }
+    RECT area{work.left, work.top, work.right, work.bottom};
+    switch (edgeOf(m_config.position))
+    {
+    case ABE_TOP:
+        area.top = std::max(area.top, static_cast<LONG>(m_reserved.bottom));
+        break;
+    case ABE_BOTTOM:
+        area.bottom = std::min(area.bottom, static_cast<LONG>(m_reserved.top));
+        break;
+    case ABE_LEFT:
+        area.left = std::max(area.left, static_cast<LONG>(m_reserved.right));
+        break;
+    default:
+        area.right = std::min(area.right, static_cast<LONG>(m_reserved.left));
+        break;
+    }
+    if (area.right <= area.left || area.bottom <= area.top)
+    {
+        return;
+    }
+    if (SystemParametersInfoW(SPI_SETWORKAREA, 0, &area, 0) == FALSE)
+    {
+        log::warn("bar: cannot set the work area aside ({})", GetLastError());
+        return;
+    }
+    m_claimed = true;
+    log::info("bar: the work area is now {},{} {}x{}, set by the bar", area.left, area.top, area.right - area.left,
+              area.bottom - area.top);
+    refitMaximized(work, fromRect(area));
+}
+
+void BarWindow::refitMaximized(const bar::Rect& before, const bar::Rect& after) const
+{
+    struct Context
+    {
+        HMONITOR monitor = nullptr;
+        bar::Rect before;
+        bar::Rect after;
+        DWORD self = 0;
+    };
+    Context context{static_cast<HMONITOR>(m_monitor), before, after, GetCurrentProcessId()};
+    // A maximized window keeps its borders past the work area's edges (DWM's invisible frame): each
+    // edge moves by as much as the work area's did.
+    EnumWindows(
+        [](HWND window, LPARAM parameter) -> BOOL {
+            // NOLINTNEXTLINE(performance-no-int-to-ptr): EnumWindows hands its context back as an LPARAM
+            const auto& c = *reinterpret_cast<const Context*>(parameter);
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            RECT rect{};
+            if (pid == c.self || IsWindowVisible(window) == FALSE || IsZoomed(window) == FALSE ||
+                MonitorFromWindow(window, MONITOR_DEFAULTTONULL) != c.monitor || GetWindowRect(window, &rect) == FALSE)
+            {
+                return TRUE;
+            }
+            rect.left += c.after.left - c.before.left;
+            rect.top += c.after.top - c.before.top;
+            rect.right += c.after.right - c.before.right;
+            rect.bottom += c.after.bottom - c.before.bottom;
+            SetWindowPos(window, nullptr, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&context));
 }
 
 bar::Rect BarWindow::tuckedRect() const noexcept
@@ -477,7 +577,7 @@ void BarWindow::resizeTarget(std::int32_t width, std::int32_t height)
     m_old = SelectObject(dc, section);
     m_dc = dc;
     m_bitmap = section;
-    m_surface.resize(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height));
+    m_surface.resize(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), m_factor);
 }
 
 void BarWindow::releaseTarget() noexcept
@@ -694,6 +794,10 @@ std::intptr_t BarWindow::handle(unsigned message, std::uintptr_t wParam, std::in
         if (wParam == SPI_SETWORKAREA && m_config.mode == domain::BarMode::Float)
         {
             place(); // a floating bar follows the work area
+        }
+        else if (wParam == SPI_SETWORKAREA && m_config.mode == domain::BarMode::Reserve && !m_reserved.empty())
+        {
+            SetTimer(hwnd, kStripTimer, kStripCheckMs, nullptr); // Explorer worked it out again: still clear?
         }
 
         break;

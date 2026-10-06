@@ -303,7 +303,10 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
             break;
         case kFocusTimer:
             KillTimer(self, kFocusTimer);
-            if (m_pendingFocus && IsWindow(static_cast<HWND>(windowOf(*m_pendingFocus))) != FALSE)
+            // Like a Mac: never a window of another desktop (Windows would go back to that desktop to
+            // show it — a switch right after another one bounced back).
+            if (m_pendingFocus && IsWindow(static_cast<HWND>(windowOf(*m_pendingFocus))) != FALSE &&
+                onShownDesktop(windowOf(*m_pendingFocus)))
             {
                 focus(windowOf(*m_pendingFocus));
             }
@@ -325,7 +328,7 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
         const int workspace = static_cast<int>(wParam) - 1;
         if (mac() && m_virtual)
         {
-            VirtualDesktops::goTo(workspace, m_virtualState);
+            VirtualDesktops::goTo(workspace, m_virtual->read()); // as Windows has it now (see Workspace)
             return 0;
         }
         for (std::size_t i = 0; i < m_monitors.size(); ++i)
@@ -685,6 +688,7 @@ void TilerApp::apply(tiling::Change change)
             m_originals.emplace(id, original);
         }
         m_hidden.insert(id);
+        m_insets[id] = insetsOf(window); // still shown: measurable
         hideFollowers(id);
         hide(window);
     }
@@ -763,14 +767,58 @@ void TilerApp::layout()
             }
             remember(id, window);
             m_targets[id] = rect;
+            // Shown in place a moment ago and maybe not shown yet: no visible frame to measure, and a move now
+            // would put it off by its borders. settle() looks at it once it shows.
+            if (m_justShown.contains(id))
+            {
+                continue;
+            }
             if (!nearly(frameOf(window), rect))
             {
                 place(window, rect);
             }
         }
     }
+    m_justShown.clear();
     m_settleRounds = kSettleRounds;
     SetTimer(static_cast<HWND>(m_window), kSettleTimer, kSettleDelayMs, nullptr);
+}
+
+bool TilerApp::onShownDesktop(Window window) const
+{
+    if (!mac() || !m_virtual)
+    {
+        return true; // our own workspaces: a window shown is on the screen
+    }
+    const VirtualDesktops::State now = m_virtual->read();
+    const auto desktop = m_virtual->desktopOf(window, now);
+    return !desktop || *desktop == now.current; // unknown (pinned to every desktop): fine
+}
+
+void TilerApp::placeComing(std::span<const tiling::WindowId> coming)
+{
+    if (!m_desktop || !m_plan || coming.empty())
+    {
+        return;
+    }
+    for (std::size_t m = 0; m < m_desktop->monitorCount(); ++m)
+    {
+        for (const auto& [id, rect] : m_desktop->activeWorkspace(m).placements(m_desktop->area(m), options(m)))
+        {
+            const auto insets = m_insets.find(id);
+            if (std::ranges::find(coming, id) == coming.end() || insets == m_insets.end())
+            {
+                continue;
+            }
+            HWND w = static_cast<HWND>(windowOf(id));
+            if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE)
+            {
+                continue;
+            }
+            showInPlace(windowOf(id), rect, insets->second);
+            m_justShown.insert(id);
+        }
+    }
 }
 
 void TilerApp::settle()
@@ -975,9 +1023,14 @@ void TilerApp::command(TilingCommand command, int number)
         break;
     }
     case TilingCommand::Workspace:
+        // A new switch: the focus the last one was going to give is not wanted anymore.
+        m_pendingFocus.reset();
+        KillTimer(static_cast<HWND>(m_window), kFocusTimer);
         if (mac())
         {
-            VirtualDesktops::goTo(number - 1, m_virtualState);
+            // As Windows has it now: a switch a moment ago may not have reached us yet, and a stale
+            // "current" sends no keys at all. (A copy: syncDesktops() still sees the change.)
+            VirtualDesktops::goTo(number - 1, m_virtual ? m_virtual->read() : m_virtualState);
         }
         else
         {
@@ -1094,8 +1147,15 @@ void TilerApp::goTo(std::size_t monitor, int workspace)
     {
         return;
     }
-    apply(m_desktop->goTo(monitor, workspace));
-    layout(); // now: the windows that came show in their places
+    tiling::Change change = m_desktop->goTo(monitor, workspace);
+    if (!mac())
+    {
+        // In their slots and on top before the old ones go (v1.6: they showed under the old ones, where
+        // they had been, and moved after: a cascade and a jolt at every switch).
+        placeComing(change.show);
+    }
+    apply(std::move(change));
+    layout(); // whatever is not in its place yet (a window that came from another monitor)
     publish();
 }
 

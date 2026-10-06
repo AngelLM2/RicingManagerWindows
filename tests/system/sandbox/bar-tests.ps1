@@ -56,6 +56,12 @@ public static extern bool SystemParametersInfoW(uint action, uint param, ref REC
 public static extern bool SystemParameterBool(uint action, uint param, ref bool value, uint winIni);
 [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
 public static extern bool SystemParameterSet(uint action, uint param, System.IntPtr value, uint winIni);
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern System.IntPtr FindWindowExW(System.IntPtr parent, System.IntPtr after, string cls, string title);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool ShowWindow(System.IntPtr window, int command);
+[System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+public static extern int DwmGetWindowAttribute(System.IntPtr window, int attribute, ref RECT value, int size);
 [System.Runtime.InteropServices.DllImport("gdi32.dll")]
 public static extern bool BitBlt(System.IntPtr target, int x, int y, int width, int height, System.IntPtr source, int sourceX, int sourceY, uint operation);
 '@
@@ -114,6 +120,34 @@ function Bar-Rect {
     $rect = New-Object Rmw.Win+RECT
     [void][Rmw.Win]::GetWindowRect($window, [ref]$rect)
     [System.Drawing.Rectangle]::FromLTRB($rect.Left, $rect.Top, $rect.Right, $rect.Bottom)
+}
+# Every bar's rectangle (a rice may have several).
+function Bar-Rects {
+    $found = @()
+    $window = [IntPtr]::Zero
+    while (($window = [Rmw.Win]::FindWindowExW([IntPtr]::Zero, $window, 'RicingManagerWindows.Bar', [NullString]::Value)) -ne [IntPtr]::Zero) {
+        if ([Rmw.Win]::IsWindowVisible($window)) {
+            $rect = New-Object Rmw.Win+RECT
+            [void][Rmw.Win]::GetWindowRect($window, [ref]$rect)
+            $found += [System.Drawing.Rectangle]::FromLTRB($rect.Left, $rect.Top, $rect.Right, $rect.Bottom)
+        }
+    }
+    $found
+}
+# A maximized window, as the user sees it (its frame without DWM's invisible borders): under no bar.
+function Maximized-Clear {
+    $test = Start-Process (Join-Path $Bin 'rmw_tiler_test_app.exe') 'MAX' -PassThru
+    [void](Wait-Until { [Rmw.Win]::FindWindowW('RmwTilerTestWindow', 'MAX') -ne [IntPtr]::Zero } 10)
+    $window = [Rmw.Win]::FindWindowW('RmwTilerTestWindow', 'MAX')
+    [void][Rmw.Win]::ShowWindow($window, 3) # SW_MAXIMIZE
+    Start-Sleep -Milliseconds 1200
+    $rect = New-Object Rmw.Win+RECT
+    [void][Rmw.Win]::DwmGetWindowAttribute($window, 9, [ref]$rect, 16) # DWMWA_EXTENDED_FRAME_BOUNDS
+    $frame = [System.Drawing.Rectangle]::FromLTRB($rect.Left, $rect.Top, $rect.Right, $rect.Bottom)
+    $bars = @(Bar-Rects)
+    $under = @($bars | Where-Object { $frame.IntersectsWith($_) })
+    Stop-Process -Id $test.Id -Force -ErrorAction SilentlyContinue
+    [pscustomobject]@{ clear = ($bars.Count -gt 0 -and $under.Count -eq 0); detail = "window=$frame bars=$($bars -join ' ') work=$(Work-Area)" }
 }
 function Write-Rice([string] $Folder, [string] $Bar) {
     New-Item -ItemType Directory -Force $Folder | Out-Null
@@ -307,8 +341,9 @@ $styleChecks = [ordered]@{
     'windows' = { (Work-Area).Bottom -eq $screen.Bottom - 48 -and (Bar-Rect).Width -eq $screen.Width }
     'status'  = { (Work-Area).Top -eq $screen.Top + 28 -and (Bar-Rect).Height -eq 28 }
     'side'    = { (Work-Area).Left -eq $screen.Left + 52 -and (Bar-Rect).Width -eq 52 }
-    'island'  = { $b = Bar-Rect; (Work-Area).Top -eq $screen.Top -and $b.Top -eq $screen.Top + 8 -and $b.Width -lt $screen.Width -and (Centered $b) }
-    'dock'    = { $b = Bar-Rect; (Work-Area).Bottom -eq $screen.Bottom -and $b.Bottom -eq $screen.Bottom - 10 -and $b.Width -lt $screen.Width / 2 -and (Centered $b) }
+    # The island and the dock keep maximized windows clear of them too (v1.7), margins included.
+    'island'  = { $b = Bar-Rect; (Work-Area).Top -eq $screen.Top + 44 -and $b.Top -eq $screen.Top + 8 -and $b.Width -lt $screen.Width -and (Centered $b) }
+    'dock'    = { $b = Bar-Rect; (Work-Area).Bottom -eq $screen.Bottom - 70 -and $b.Bottom -eq $screen.Bottom - 10 -and $b.Width -lt $screen.Width / 2 -and (Centered $b) }
 }
 # The Sandbox turns Windows' animation effects off; on for this part (the bar slides when they are on).
 [void][Rmw.Win]::SystemParameterSet(0x1043, 0, [IntPtr]1, 2) # SPI_SETCLIENTAREAANIMATION, send the change
@@ -330,12 +365,26 @@ foreach ($style in $styleChecks.Keys) {
     $r = [pscustomobject]@{ code = $applying.ExitCode; output = '' }
     $placed = Wait-Until $styleChecks[$style] 10
     Check "bar:style-$style" ($r.code -eq 0 -and $placed) "work=$(Work-Area) bar=$(Bar-Rect) apply=$($r.code): $($r.output)"
+    $max = Maximized-Clear
+    Check "bar:style-$style-maximized-clear" $max.clear $max.detail
     if ($style -eq 'island') {
         Check 'bar:slides-in' ((-not $animations) -or $positions.Count -ge 3) "$($positions.Count) positions while it came (animations: $animations)"
     }
     Start-Sleep -Seconds 2
     Shot "bar-4b-style-$style"
 }
+# A status bar on top and a dock below (Miku 39): a maximized window between them, under neither (v1.7).
+Write-Rice $styled "[[bar]]`nstyle = `"status`"`n`n[[bar]]`nstyle = `"dock`"`n"
+$r = Invoke-Rmw @('apply', $styled, '--wait')
+[void](Wait-Until { @(Bar-Rects).Count -eq 2 } 10)
+Start-Sleep -Seconds 2
+$max = Maximized-Clear
+Check 'bar:top-and-dock-maximized-clear' ($r.code -eq 0 -and $max.clear) "$($max.detail) apply=$($r.code)"
+Shot 'bar-4b-top-and-dock'
+Write-Rice $styled "[[bar]]`nstyle = `"dock`"`n"
+[void](Invoke-Rmw @('apply', $styled, '--wait'))
+Start-Sleep -Seconds 2
+
 # The dock: as long as its apps; another app, a longer dock.
 $before = (Bar-Rect).Width
 $console = Start-Process cmd.exe -PassThru

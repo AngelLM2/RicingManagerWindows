@@ -18,6 +18,7 @@
 
 #include <objbase.h>
 
+#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -67,7 +68,7 @@ std::filesystem::path dataDirectoryFrom(const wchar_t* commandLine)
     return standard ? *standard : std::filesystem::path();
 }
 
-int run(HANDLE showEvent)
+int run(HANDLE showEvent, HANDLE closeEvent)
 {
     const auto dataDirectory = dataDirectoryFrom(GetCommandLineW());
     if (dataDirectory.empty())
@@ -83,14 +84,22 @@ int run(HANDLE showEvent)
 
     settingsapp::SettingsApp app(dataDirectory);
     std::jthread watcher;
-    if (showEvent != nullptr)
+    if (showEvent != nullptr && closeEvent != nullptr)
     {
-        watcher = std::jthread([&app, showEvent](const std::stop_token& stop) {
+        watcher = std::jthread([&app, showEvent, closeEvent](const std::stop_token& stop) {
+            const std::array<HANDLE, 2> events = {showEvent, closeEvent};
             while (!stop.stop_requested())
             {
-                if (WaitForSingleObject(showEvent, 250) == WAIT_OBJECT_0)
+                const DWORD signaled =
+                    WaitForMultipleObjects(static_cast<DWORD>(events.size()), events.data(), FALSE, 250);
+                if (signaled == WAIT_OBJECT_0)
                 {
                     slint::invoke_from_event_loop([&app] { app.bringToFront(); });
+                }
+                else if (signaled == WAIT_OBJECT_0 + 1)
+                {
+                    app.closeForExit(); // at once: no call may start the core from here on
+                    slint::invoke_from_event_loop([&app] { app.hideForExit(); });
                 }
             }
         });
@@ -111,6 +120,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     const wil::unique_mutex_nothrow instance(CreateMutexW(nullptr, FALSE, kInstanceMutex));
     const bool first = instance && GetLastError() != ERROR_ALREADY_EXISTS;
     const wil::unique_event_nothrow show(CreateEventW(nullptr, FALSE, FALSE, kShowEvent));
+    const wil::unique_event_nothrow close(CreateEventW(nullptr, FALSE, FALSE, rmw::platform::kSettingsCloseEvent));
     if (!first)
     {
         AllowSetForegroundWindow(ASFW_ANY);
@@ -127,7 +137,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     }
     try
     {
-        return run(show.get());
+        return run(show.get(), close.get());
     }
     catch (const std::exception& e)
     {

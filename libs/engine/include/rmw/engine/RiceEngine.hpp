@@ -23,12 +23,20 @@ struct SkippedField
     std::string reason;
 };
 
+// A module a restore could not put back (the others went on): it stays as it was, and stays ours.
+struct FailedModule
+{
+    std::string module;
+    std::string reason;
+};
+
 struct OperationReport
 {
     std::int64_t historyId = 0;       // 0 when nothing changed
     std::vector<std::string> modules; // modules that were changed
     std::vector<SkippedField> skipped;
     std::vector<std::string> warnings;
+    std::vector<FailedModule> failed; // restores only
 };
 
 struct RestoreOptions
@@ -44,7 +52,9 @@ struct RestoreOptions
 //   2. capture the current state of those modules
 //   3. durably record that snapshot and the journal entry ("in progress")
 //   4. apply module by module in dependency order; on any failure undo every touched module,
-//      the failed one included, in reverse order
+//      the failed one included, in reverse order. A restore goes on instead: the module that
+//      failed stays as it is (reported in `failed`) and the others still come back, since going
+//      back to the original is never better undone (ADR-0023)
 //   5. record lastApplied per field and the history entry; close the journal
 //
 // A crash between 3 and 5 leaves the journal open; recover() undoes it on the next start.
@@ -69,7 +79,7 @@ public:
                                                 bool changesElsewhere = false);
 
     // Puts back the original value of every field we changed, except fields the user changed
-    // after us (listed in `skipped`) unless `force`.
+    // after us (listed in `skipped`) unless `force`. Fails only when no module came back.
     [[nodiscard]] Result<OperationReport> restoreOriginal(const RestoreOptions& options = {});
 
     // Returns to how things were right before history entry `historyId`, same field rules.

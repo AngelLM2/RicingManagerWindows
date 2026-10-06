@@ -47,7 +47,9 @@ export component AppearancePage inherits ScrollView {
                 label: @tr("Light or dark");
                 description: @tr("“On a schedule” switches by itself at the times below.");
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Leave as it is"), @tr("Light"), @tr("Dark"), @tr("Windows decides"), @tr("On a schedule")];
                     current-index <=> Api.theme-mode;
                     accessible-label: @tr("Light or dark");
@@ -114,7 +116,9 @@ export component AppearancePage inherits ScrollView {
                 label: @tr("Color code");
                 description: @tr("#RRGGBB. Empty leaves Windows' accent as it is.");
                 LineEdit {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     text <=> Api.accent;
                     placeholder-text: "#0078D4";
                     accessible-label: @tr("Accent color code");
@@ -136,7 +140,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Transparency effects");
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
                     current-index <=> Api.transparency;
                     accessible-label: @tr("Transparency effects");
@@ -149,7 +155,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Accent color on Start and the taskbar");
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
                     current-index <=> Api.accent-on-taskbar;
                     accessible-label: @tr("Accent color on Start and the taskbar");
@@ -168,7 +176,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Corners");
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Leave as it is"), @tr("Round"), @tr("Slightly round"), @tr("Square")];
                     current-index <=> Api.windows-corners;
                     accessible-label: @tr("Window corners");
@@ -181,7 +191,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Backdrop of the title bar");
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Leave as it is"), @tr("None"), @tr("Mica"), @tr("Acrylic"), @tr("Tabbed")];
                     current-index <=> Api.windows-backdrop;
                     accessible-label: @tr("Backdrop of the title bar");
@@ -194,7 +206,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Dark title bars");
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
                     current-index <=> Api.windows-dark;
                     accessible-label: @tr("Dark title bars");
@@ -207,7 +221,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Border color");
                 LineEdit {
-                    width: 160px;
+                    min-width: 90px;
+                    preferred-width: 160px;
+                    max-width: 160px;
                     text <=> Api.windows-border;
                     placeholder-text: "#7AA2F7 or none";
                     accessible-label: @tr("Window border color");
@@ -223,7 +239,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Title bar color");
                 LineEdit {
-                    width: 160px;
+                    min-width: 90px;
+                    preferred-width: 160px;
+                    max-width: 160px;
                     text <=> Api.windows-caption;
                     placeholder-text: "#1A1B26";
                     accessible-label: @tr("Title bar color");
@@ -239,7 +257,9 @@ export component AppearancePage inherits ScrollView {
             SettingRow {
                 label: @tr("Title color");
                 LineEdit {
-                    width: 160px;
+                    min-width: 90px;
+                    preferred-width: 160px;
+                    max-width: 160px;
                     text <=> Api.windows-title;
                     placeholder-text: "#C0CAF5";
                     accessible-label: @tr("Title color");
@@ -256,7 +276,9 @@ export component AppearancePage inherits ScrollView {
                 label: @tr("Programs left as they are");
                 description: @tr("Their file names, separated by commas.");
                 LineEdit {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     text <=> Api.windows-exclude;
                     placeholder-text: "code.exe, steam.exe";
                     accessible-label: @tr("Programs left as they are");

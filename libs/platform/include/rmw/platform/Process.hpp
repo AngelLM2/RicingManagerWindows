@@ -99,6 +99,12 @@ private:
     bool m_owned = false;
 };
 
+// The settings window listens for this (rmw-settings): set, it closes like when its X is clicked. The
+// core sets it when it exits on request, so an open window does not start it again.
+inline constexpr const wchar_t* kSettingsCloseEvent = L"Local\\RicingManagerWindows.Settings.Close";
+// Closes the settings window, if one is open (never blocks).
+void closeSettingsWindow() noexcept;
+
 // The running processes started from `folder` whose file name is one of `names` (any case): an
 // installation's core and workers, not another copy's.
 [[nodiscard]] std::vector<std::uint32_t> processesFromFolder(const std::filesystem::path& folder,

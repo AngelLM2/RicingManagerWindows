@@ -114,7 +114,7 @@ length = "auto"
     const BarConfig& dock = plan->bars[0];
     EXPECT_EQ(dock.thickness, 70u); // the bar's own wins
     EXPECT_EQ(dock.position, BarPosition::Bottom);
-    EXPECT_EQ(dock.mode, rmw::domain::BarMode::Float);
+    EXPECT_EQ(dock.mode, rmw::domain::BarMode::Reserve); // maximized windows end above it (v1.7)
     EXPECT_TRUE(dock.length.fit);
     EXPECT_TRUE(std::ranges::any_of(dock.center, [](const auto& item) { return item.id == "dock"; }));
     EXPECT_EQ(plan->bars[1].position, BarPosition::Top);

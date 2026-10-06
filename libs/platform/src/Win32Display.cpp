@@ -541,6 +541,15 @@ Result<std::string> Win32WallpaperApi::transcodedWallpaper()
     return utf16To8(std::wstring(appData.get()) + LR"(\Microsoft\Windows\Themes\TranscodedWallpaper)");
 }
 
+std::string Win32WallpaperApi::defaultWallpaper()
+{
+    std::array<wchar_t, MAX_PATH> windows{};
+    const UINT length = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
+    const std::wstring folder =
+        length > 0 && length < windows.size() ? std::wstring(windows.data(), length) : std::wstring(L"C:\\Windows");
+    return utf16To8Lossy(folder + LR"(\Web\Wallpaper\Windows\img0.jpg)");
+}
+
 Result<std::string> Win32WallpaperApi::sniffImageType(std::string_view file)
 {
     auto path = wide(file);

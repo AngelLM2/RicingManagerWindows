@@ -287,6 +287,7 @@ namespace
 // The one settings window (one instance per user): its original window procedure and its app.
 WNDPROC g_original = nullptr;
 SettingsApp* g_app = nullptr;
+HWND g_window = nullptr;
 bool g_sizing = false;
 
 LRESULT CALLBACK repaintingProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -311,11 +312,29 @@ LRESULT CALLBACK repaintingProc(HWND window, UINT message, WPARAM wParam, LPARAM
     }
     case WM_SIZE:
         whole = wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED;
+        if (whole && g_app != nullptr)
+        {
+            const UINT dpi = GetDpiForWindow(window);
+            g_app->setWidth(static_cast<double>(LOWORD(lParam)) * 96.0 / (dpi == 0 ? 96.0 : dpi));
+        }
         break;
     case WM_DISPLAYCHANGE:
     case WM_DPICHANGED:
         whole = true;
         break;
+    case WM_SHOWWINDOW:
+        whole = wParam != FALSE; // shown again (the tiler's workspaces hide and show it)
+        break;
+    case WM_ACTIVATE:
+        whole = LOWORD(wParam) != WA_INACTIVE; // back from another desktop, Alt+Tab
+        break;
+    case WM_PAINT: {
+        // Windows asks for an area (uncovered, shown again): the renderer would draw only what it knows
+        // changed. Slint's own redraws come with no area, so this never feeds itself.
+        RECT update{};
+        whole = GetUpdateRect(window, &update, FALSE) != FALSE;
+        break;
+    }
     default:
         break;
     }
@@ -325,6 +344,15 @@ LRESULT CALLBACK repaintingProc(HWND window, UINT message, WPARAM wParam, LPARAM
         g_app->repaintAll();
     }
     return result;
+}
+
+// Back from another virtual desktop: DWM uncloaks the window, and no window message says so.
+void CALLBACK uncloaked(HWINEVENTHOOK, DWORD, HWND window, LONG object, LONG, DWORD, DWORD)
+{
+    if (object == OBJID_WINDOW && g_app != nullptr && window == g_window)
+    {
+        g_app->repaintAll();
+    }
 }
 
 } // namespace
@@ -337,8 +365,27 @@ void SettingsApp::watchWindow()
         return;
     }
     g_app = this;
+    g_window = handle;
     g_original = reinterpret_cast<WNDPROC>( // NOLINT(performance-no-int-to-ptr): the window's procedure
         SetWindowLongPtrW(handle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&repaintingProc)));
+    // This process's windows only (out of context: nothing is loaded anywhere), heard on this thread's loop.
+    if (SetWinEventHook(EVENT_OBJECT_UNCLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr, &uncloaked, GetCurrentProcessId(),
+                        0, WINEVENT_OUTOFCONTEXT) == nullptr)
+    {
+        log::warn("settings: cannot hear the window come back from another desktop ({})", GetLastError());
+    }
+}
+
+void SettingsApp::setWidth(double logical)
+{
+    const bool narrow = logical < 1000.0;
+    // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+    slint::invoke_from_event_loop([this, narrow] {
+        if (m_ui->get_narrow() != narrow)
+        {
+            m_ui->set_narrow(narrow);
+        }
+    });
 }
 
 void SettingsApp::repaintAll()
@@ -386,9 +433,19 @@ void SettingsApp::run()
         return slint::CloseRequestResponse::HideWindow;
     });
     m_ui->show();
-    fitToMonitor();
-    watchWindow();
-    setDarkTitleBar(window(), windowsUsesDarkApps());
+    // The native window comes with the event loop (winit creates it there): what needs it waits for it.
+    // (v1.6 asked right here, got none, and the window never heard it came back from another workspace.)
+    m_windowSetup.start(slint::TimerMode::Repeated, std::chrono::milliseconds(20), [this] {
+        if (window() == nullptr)
+        {
+            return;
+        }
+        m_windowSetup.stop();
+        fitToMonitor();
+        watchWindow();
+        setDarkTitleBar(window(), windowsUsesDarkApps());
+        log::info("settings: the window is up");
+    });
     log::info("settings: shown");
     notice(NoticeKind::Connecting);
     refreshStatus();
@@ -429,6 +486,12 @@ void SettingsApp::fitToMonitor()
     SetWindowPos(handle, nullptr, work.left + ((workWidth - width) / 2),
                  work.top + ((workHeight - height) / 2), width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
+void SettingsApp::hideForExit()
+{
+    log::info("settings: Ricing Manager is exiting; closing");
+    m_ui->hide();
+}
+
 void SettingsApp::bringToFront()
 {
     auto* const handle = static_cast<HWND>(window());
@@ -508,6 +571,10 @@ void SettingsApp::call(std::string method, Json params, Done done, bool operatio
             Reply reply = [&]() -> Reply {
                 if (!client.connected())
                 {
+                    if (m_closing)
+                    {
+                        return fail(ErrorCode::NotFound, "Ricing Manager is exiting");
+                    }
                     if (auto connected = client.connect(); !connected)
                     {
                         return std::unexpected(std::move(connected.error()));
@@ -2022,7 +2089,22 @@ void SettingsApp::bind()
                         failed(reply.error());
                         return;
                     }
-                    notice(NoticeKind::Restored, json::stringOr(*reply, "label", ""));
+                    std::string notBack;
+                    for (const auto& entry : json::memberOr(*reply, "failed", Json::array()))
+                    {
+                        notBack += std::format(
+                            "{}{} ({})", notBack.empty() ? "" : "; ",
+                            text(m_ui->global<Words>().invoke_module(shared(json::stringOr(entry, "module", "")))),
+                            json::stringOr(entry, "reason", ""));
+                    }
+                    if (notBack.empty())
+                    {
+                        notice(NoticeKind::Restored, json::stringOr(*reply, "label", ""));
+                    }
+                    else
+                    {
+                        notice(NoticeKind::RestoredPartly, notBack);
+                    }
                     refreshStatus();
                     refreshRices();
                 },

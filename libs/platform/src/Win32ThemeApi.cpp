@@ -706,6 +706,15 @@ Result<void> Win32ThemeApi::nameCurrentTheme(const std::string& file)
     return {};
 }
 
+std::string Win32ThemeApi::windowsThemeFile(bool dark)
+{
+    std::array<wchar_t, MAX_PATH> windows{};
+    const UINT length = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
+    const std::wstring folder =
+        length > 0 && length < windows.size() ? std::wstring(windows.data(), length) : std::wstring(L"C:\\Windows");
+    return utf16To8Lossy(folder + (dark ? L"\\Resources\\Themes\\dark.theme" : L"\\Resources\\Themes\\aero.theme"));
+}
+
 Result<void> Win32ThemeApi::applyThemeFile(const std::string& file)
 {
     auto wide = utf8To16(file);

@@ -11,6 +11,9 @@ msgstr "Aplicado: {}"
 msgid "Restored: {}"
 msgstr "Restaurado: {}"
 
+msgid "Everything else came back. Not back: {}"
+msgstr "O resto voltou. Não voltou: {}"
+
 msgid "Undone: {}"
 msgstr "Desfeito: {}"
 
@@ -773,6 +776,9 @@ msgstr "Depois ▶"
 msgid "Move the selected widget later"
 msgstr "Mover o widget selecionado para depois"
 
+msgid "Remove the selected widget"
+msgstr "Remover o widget selecionado"
+
 msgid "To the left"
 msgstr "Para a esquerda"
 
@@ -781,9 +787,6 @@ msgstr "Para o centro"
 
 msgid "To the right"
 msgstr "Para a direita"
-
-msgid "Remove the selected widget"
-msgstr "Remover o widget selecionado"
 
 msgid "Widget to add"
 msgstr "Widget para adicionar"

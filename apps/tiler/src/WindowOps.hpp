@@ -46,6 +46,19 @@ using Window = void*; // HWND
 [[nodiscard]] tiling::Rect frameOf(Window window) noexcept;
 // Moves and sizes `window` so its visible frame lands on `frame`.
 void place(Window window, const tiling::Rect& frame) noexcept;
+// The invisible resize borders around the visible frame (outer minus visible, per side), read while the
+// window shows: a hidden window has no visible frame to measure.
+struct Insets
+{
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+};
+[[nodiscard]] Insets insetsOf(Window window) noexcept;
+// A hidden window shown in its slot (with the borders it had), above the others and without the
+// focus: a workspace switch covers the old windows first, so no window shows anywhere but in its place.
+void showInPlace(Window window, const tiling::Rect& frame, const Insets& insets) noexcept;
 void hide(Window window) noexcept;
 void show(Window window) noexcept; // without taking the focus
 // The colored border of Windows 11 (DWMWA_BORDER_COLOR); nullopt: Windows' own again.

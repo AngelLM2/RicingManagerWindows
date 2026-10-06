@@ -4,7 +4,9 @@
 #include "rmw/ports/Display.hpp"
 #include "rmw/ports/Registry.hpp"
 
+#include <optional>
 #include <span>
+#include <string>
 
 // Static wallpaper per monitor (docs/03 §6, ADR-0004). Fields:
 //   "monitor:<identityKey>"  {"file": path} — "" means no image; captures may add "ext" (type of
@@ -68,6 +70,9 @@ private:
     // Pairs each connected monitor with IDesktopWallpaper's path by its rectangle (the device
     // path from QueryDisplayConfig can be empty).
     [[nodiscard]] Result<std::vector<Slot>> slots();
+    // The picture a monitor field asks for, as far as it is there: the file, else its `copy`, else
+    // Windows' own wallpaper; nothing when none is ("" is no picture at all).
+    [[nodiscard]] std::optional<std::string> resolve(const engine::Json& monitor);
 
     ports::IDisplayTopology& m_topology;
     ports::IWallpaperApi& m_wallpaper;

@@ -11,6 +11,7 @@
 
 #include <app.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -42,9 +43,15 @@ public:
     void run();
     // Another rmw-settings was started: this window comes to the front.
     void bringToFront();
+    // Ricing Manager exits (the tray's Exit, `rmw shutdown`): from any thread, nothing starts the core
+    // again; then, on the UI thread, the window closes.
+    void closeForExit() noexcept { m_closing = true; }
+    void hideForExit();
     // The whole window is drawn again (it came back from off the screen, from minimized, from
     // another monitor): the renderer redraws only what it knows changed.
     void repaintAll();
+    // The window's width in logical pixels: below 1000 the side bar shows icons only.
+    void setWidth(double logical);
 
 private:
     // Watches the window's messages for when it must be drawn whole again.
@@ -129,7 +136,10 @@ private:
     int m_operations = 0;                        // running changes (the busy state)
     int m_appliedLanguage = -1;                  // what applyLanguage() last chose
     slint::Timer m_refresh;
+    slint::Timer m_windowSetup; // until the native window exists
     slint::Timer m_barSave; // the bar's settings are saved a moment after the last change
+
+    std::atomic<bool> m_closing{false}; // Ricing Manager exits: the core is not started again
 
     // The worker thread and what it is asked.
     std::mutex m_mutex;

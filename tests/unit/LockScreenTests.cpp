@@ -188,6 +188,14 @@ TEST_F(LockScreenTest, AUsersPictureGetsACopyUsedWhenItIsGone)
     ASSERT_TRUE(system.apply(state));
     EXPECT_EQ(lockScreen.source, copy);
 
+    // Both gone (a data folder deleted under a running core): the picture stays, the restore goes on.
+    lockScreen.gone.insert(copy);
+    lockScreen.source = "rice.jpg";
+    lockScreen.sets = 0;
+    ASSERT_TRUE(system.apply(state));
+    EXPECT_EQ(lockScreen.sets, 0);
+    EXPECT_EQ(lockScreen.source, "rice.jpg");
+
     // Windows' own pictures are never copied.
     Json windows = {{"picture", {{"spotlight", true}, {"file", R"(C:\Windows\Web\Screen\img100.jpg)"}}}};
     ASSERT_TRUE(LockScreenLogic().internalize(windows, sink).has_value());
