@@ -38,7 +38,8 @@ try {
     $prefixes = $Path | ForEach-Object { (Join-Path $root $_).TrimEnd('\') + '\' }
     $database = Get-Content (Join-Path $root 'build\tidy\compile_commands.json') -Raw | ConvertFrom-Json
     $files = $database | ForEach-Object { [IO.Path]::GetFullPath($_.file) } | Sort-Object -Unique |
-        Where-Object { $file = $_; $prefixes | Where-Object { $file.StartsWith($_, 'OrdinalIgnoreCase') } }
+        Where-Object { $file = $_; $prefixes | Where-Object { $file.StartsWith($_, 'OrdinalIgnoreCase') } } |
+        Where-Object { $_ -match '\.(c|cc|cpp|cxx)$' } # C++ only (no .rc resource scripts)
     if (-not $files) { Write-Host 'No files to check.'; return }
 
     $outDir = Join-Path $root 'build\tidy\tidy-logs'

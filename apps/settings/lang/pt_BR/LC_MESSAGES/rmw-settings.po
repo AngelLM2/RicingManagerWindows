@@ -26,6 +26,12 @@ msgstr "Criado: “{}”"
 msgid "Copied into the rice: {}"
 msgstr "Copiado para o rice: {}"
 
+msgid "Added to your rices: {}"
+msgstr "Adicionado aos seus rices: {}"
+
+msgid "Ready to share: {}"
+msgstr "Pronto para compartilhar: {}"
+
 msgid "Installed {}"
 msgstr "Instalado: {}"
 
@@ -893,6 +899,9 @@ msgstr "Desinstalar {}"
 msgid "Widgets, skins, tweaks, actions and rules made by the community. Scripts run apart, with only what you approve."
 msgstr "Widgets, skins, ajustes, ações e regras feitos pela comunidade. Os scripts rodam à parte, só com o que você aprovar."
 
+msgid "Install from a file…"
+msgstr "Instalar de um arquivo…"
+
 msgid "Install from a folder…"
 msgstr "Instalar de uma pasta…"
 
@@ -929,6 +938,12 @@ msgstr "Duplicar"
 msgid "Duplicate {}"
 msgstr "Duplicar {}"
 
+msgid "Share…"
+msgstr "Compartilhar…"
+
+msgid "Share {} as a .rice file"
+msgstr "Compartilhar {} como arquivo .rice"
+
 msgid "Open folder"
 msgstr "Abrir pasta"
 
@@ -941,11 +956,14 @@ msgstr "Um rice é um visual inteiro: wallpaper, cores, cursores, barras e plugi
 msgid "Save my current look as a rice"
 msgstr "Salvar meu visual atual como um rice"
 
+msgid "Import a .rice…"
+msgstr "Importar um .rice…"
+
 msgid "Add a rice folder…"
 msgstr "Adicionar uma pasta de rice…"
 
-msgid "No rices yet. Save your current look, or add a folder with a rice.toml."
-msgstr "Nenhum rice ainda. Salve seu visual atual, ou adicione uma pasta com um rice.toml."
+msgid "No rices yet. Save your current look, import a .rice, or add a folder with a rice.toml."
+msgstr "Nenhum rice ainda. Salve seu visual atual, importe um .rice ou adicione uma pasta com um rice.toml."
 
 msgid "Ricing Manager itself."
 msgstr "O próprio Ricing Manager."

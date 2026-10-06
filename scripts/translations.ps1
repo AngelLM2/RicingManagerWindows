@@ -62,7 +62,7 @@ foreach ($tsv in Get-ChildItem $lang -Filter *.tsv) {
     }
     $target = Join-Path $lang "$language\LC_MESSAGES\rmw-settings.po"
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
-    [IO.File]::WriteAllText($target, $po.ToString(), $utf8)
+    [IO.File]::WriteAllText($target, $po.ToString().Replace("`r`n", "`n"), $utf8) # LF, like the repository
     Write-Host "${language}: $($pairs.Count) of $($ids.Count) texts -> $target"
 }
 if ($failed) { throw 'Translations are not complete.' }

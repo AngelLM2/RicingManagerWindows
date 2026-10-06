@@ -49,6 +49,8 @@ private:
     // ---- the core, on the worker thread --------------------------------------------------------
     // `operation`: a change (apply, restore...): waits while the core is busy, shows the busy state.
     void call(std::string method, ipc::Json params, Done done, bool operation = false);
+    // Work of our own (no core) on the same thread, shown as busy.
+    void background(std::function<Reply()> job, Done done);
     void work(const std::stop_token& stop);
 
     // ---- what the pages show ---------------------------------------------------------------------

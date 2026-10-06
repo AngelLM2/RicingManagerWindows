@@ -404,9 +404,12 @@ std::wstring buildManagedTheme(std::wstring_view baseTheme, const ports::ThemeLo
 Result<void> Win32ThemeApi::applyLook(const ports::ThemeLook& look)
 {
     // Windows sometimes takes a theme and keeps the old accent (seen right after Explorer
-    // restarts): a turn that does not show in a third of the time is applied again — as the other
-    // turn's file, and the last time through the legacy manager.
+    // restarts, and switching from light to dark): a turn that does not show is applied again —
+    // as the other turn's file, and the last time through the legacy manager. A theme shows in a
+    // few hundred ms (S4: ~200 ms); one that has not after 1.2 s waits for the next try.
     constexpr int kTurns = 3;
+    constexpr std::array<std::chrono::milliseconds, kTurns - 1> kTurnEnds = {std::chrono::milliseconds(1200),
+                                                                             std::chrono::milliseconds(3000)};
     const auto start = std::chrono::steady_clock::now();
     const auto deadline = start + m_wait;
     for (int turn = 1; turn <= kTurns; ++turn)
@@ -444,7 +447,9 @@ Result<void> Win32ThemeApi::applyLook(const ports::ThemeLook& look)
             return std::unexpected(hresultError(result, "apply the managed theme"));
         }
 
-        const auto turnEnd = turn == kTurns ? deadline : std::min(deadline, start + (m_wait * turn / kTurns));
+        const auto turnEnd = turn == kTurns
+                                 ? deadline
+                                 : std::min(deadline, start + kTurnEnds[static_cast<std::size_t>(turn - 1)]);
         while (!registryShows(look) && std::chrono::steady_clock::now() < turnEnd)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));

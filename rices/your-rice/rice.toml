@@ -1,0 +1,72 @@
+schema = 1
+
+# The "Your Rice" kit (docs/11 §3): the Diva Stage colors, cursors and bar, and no picture of ours.
+# Duplicate it, then pick your own wallpaper (Wallpapers > Choose…) — the picture is copied into
+# your copy of the rice and stays on your PC.
+
+[meta]
+id          = "io.github.angellm2.rices.your-rice"
+name        = "Your Rice"
+author      = "Ricing Manager"
+version     = "1.0.0"
+license     = "GPL-3.0-or-later"
+description = "A starting point: teal and pink colors, cursors and a bar, and room for your own picture. Duplicate it, then choose your wallpaper in Wallpapers."
+
+[palette]
+base   = "#0B1026"
+teal   = "#2CD5C4"
+pink   = "#FF4FA3"
+violet = "#7B5CFF"
+text   = "#E8FCFF"
+
+[appearance]
+mode              = "dark"
+accent            = "#FF4FA3"
+transparency      = true
+accent_on_taskbar = false
+
+[wallpaper]
+background = "#0B1026"
+
+[[wallpaper.monitor]]
+match = "all"
+kind  = "color"
+color = "#0B1026"
+
+[cursors]
+source = "assets/cursors"
+size   = 32
+
+[cursors.map]
+normal      = "normal.cur"
+help        = "help.cur"
+working     = "working.ani"
+busy        = "busy.ani"
+precision   = "precision.cur"
+text        = "text.cur"
+handwriting = "handwriting.cur"
+unavailable = "unavailable.cur"
+vertical    = "vertical.cur"
+horizontal  = "horizontal.cur"
+diagonal1   = "diagonal1.cur"
+diagonal2   = "diagonal2.cur"
+move        = "move.cur"
+alternate   = "alternate.cur"
+link        = "link.cur"
+location    = "location.cur"
+person      = "person.cur"
+
+[[bar]]
+monitor             = "all"
+position            = "top"
+mode                = "reserve"
+thickness           = 34
+length              = "100%"
+margin              = [6, 8, 0, 8]
+radius              = 12
+background          = { kind = "acrylic", tint = "palette.base", opacity = 0.78 }
+foreground          = "palette.text"
+hide_native_taskbar = true
+left                = ["start", "desktops", "windows"]
+center              = ["clock"]
+right               = ["media", "tray", "volume", "network", "battery"]

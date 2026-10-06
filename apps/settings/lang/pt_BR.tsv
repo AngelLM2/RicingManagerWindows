@@ -307,7 +307,7 @@ Open the folder of {}	Abrir a pasta de {}
 A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share.	Um rice é um visual inteiro: wallpaper, cores, cursores, barras e plugins, numa pasta que você pode compartilhar.
 Save my current look as a rice	Salvar meu visual atual como um rice
 Add a rice folder…	Adicionar uma pasta de rice…
-No rices yet. Save your current look, or add a folder with a rice.toml.	Nenhum rice ainda. Salve seu visual atual, ou adicione uma pasta com um rice.toml.
+No rices yet. Save your current look, import a .rice, or add a folder with a rice.toml.	Nenhum rice ainda. Salve seu visual atual, importe um .rice ou adicione uma pasta com um rice.toml.
 Ricing Manager itself.	O próprio Ricing Manager.
 Startup	Inicialização
 Start with Windows	Iniciar com o Windows
@@ -390,3 +390,9 @@ Open an app	Abrir um app
 open apps installed on this PC	abrir apps instalados neste PC
 Choose the app…	Escolher o app…
 App: {}	App: {}
+Added to your rices: {}	Adicionado aos seus rices: {}
+Ready to share: {}	Pronto para compartilhar: {}
+Share…	Compartilhar…
+Share {} as a .rice file	Compartilhar {} como arquivo .rice
+Import a .rice…	Importar um .rice…
+Install from a file…	Instalar de um arquivo…
