@@ -184,6 +184,52 @@ TEST(BarSurface, GeneratedBarsCompileAndDraw)
     }
 }
 
+TEST(BarSurface, DockSpacerSeparatorAndTextDrawAndAutoLengthFollowsThem)
+{
+    // M10: the new widgets compile and draw, across and along; a bar of length "auto" knows how
+    // long it wants to be, and grows with what it shows.
+    for (const auto position : {rmw::domain::BarPosition::Bottom, rmw::domain::BarPosition::Left})
+    {
+        rmw::domain::BarConfig config;
+        config.position = position;
+        config.length = {true, 100.0, true};
+        config.center = {{"start", {}}, {"dock", {}}, {"separator", {}}, {"spacer", {}}, {"text", {}}};
+        const auto generated =
+            rmw::bar::generateBarSource(config, rmw::barapp::builtinKinds(), rmw::barapp::builtinSources());
+        EXPECT_TRUE(generated.unknown.empty());
+        auto instance = compile(generated.source);
+        const auto apps = [](int count) {
+            auto model = std::make_shared<slint::VectorModel<Value>>();
+            for (int i = 0; i < count; ++i)
+            {
+                model->push_back(Value(slint::interpreter::Struct{{"id", Value(static_cast<double>(i))},
+                                                                  {"title", Value(slint::SharedString("An app"))},
+                                                                  {"icon", Value(slint::Image())},
+                                                                  {"running", Value(i % 2 == 0)},
+                                                                  {"active", Value(i == 0)},
+                                                                  {"count", Value(i == 0 ? 2.0 : 1.0)}}));
+            }
+            return Value(std::shared_ptr<slint::Model<Value>>(model));
+        };
+        ASSERT_TRUE(instance->set_property("w1-apps", apps(2)));
+        ASSERT_TRUE(instance->set_property("w4-text", Value(slint::SharedString("Miku"))));
+        ASSERT_TRUE(instance->set_property("w4-glyph", Value(slint::SharedString("\xEE\xA3\x96")))); // E8D6
+        instance->set_property("bar-radius", Value(16.0));
+        const bool horizontal = position == rmw::domain::BarPosition::Bottom;
+        HeadlessPlatform::last->resize(horizontal ? 700 : 60, horizontal ? 60 : 700);
+        Surface surface;
+        HeadlessPlatform::last->draw(surface, true, matteOf(instance));
+        const double two = instance->get_property("content-length")->to_number().value();
+        ASSERT_TRUE(instance->set_property("w1-apps", apps(6)));
+        HeadlessPlatform::last->draw(surface, true, matteOf(instance));
+        const double six = instance->get_property("content-length")->to_number().value();
+        EXPECT_GT(two, 150.0);
+        EXPECT_GT(six, two + 150.0) << "four more apps, about 50 px each";
+        const auto pixels = surface.pixels();
+        EXPECT_TRUE(std::ranges::any_of(pixels, [&](std::uint32_t p) { return p != pixels[0]; }));
+    }
+}
+
 TEST(BarSurface, TheStartZoneNeverRunsIntoTheCenter)
 {
     // Found on a real desktop: many windows pushed the list under the centered clock.

@@ -99,6 +99,7 @@ void BarTableReader::read(const toml::table& table, const std::string& path, Bar
                 bar.skin = std::move(*id);
             }
         }
+        bar.style = t.enumeration<BarStyle>("style", kBarStyleNames);
     }
     bar.position = t.enumeration<BarPosition>("position", kBarPositionNames).value_or(bar.position);
     bar.mode = t.enumeration<BarMode>("mode", kBarModeNames).value_or(bar.mode);
@@ -152,6 +153,11 @@ void BarTableReader::readBarLength(TableReader& t, BarConfig& bar)
     if (const auto* text = node->as_string())
     {
         const std::string& value = text->get();
+        if (value == "auto")
+        {
+            bar.length = {true, 100.0, true};
+            return;
+        }
         double percent = 0.0;
         if (value.size() >= 2 && value.back() == '%')
         {
@@ -165,7 +171,7 @@ void BarTableReader::readBarLength(TableReader& t, BarConfig& bar)
             }
         }
     }
-    t.error("length", "expected a percentage like \"100%\" (1–100) or a size in pixels like 600");
+    t.error("length", "expected a percentage like \"100%\" (1–100), a size in pixels like 600, or \"auto\"");
 }
 
 void BarTableReader::readBarMargin(TableReader& t, BarConfig& bar)

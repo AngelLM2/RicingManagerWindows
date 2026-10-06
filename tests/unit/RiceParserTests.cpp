@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <format>
 #include <string>
 
 namespace
@@ -348,6 +349,25 @@ TEST(RiceParser, WallpaperEffectsAndParticles)
     EXPECT_TRUE(palette.rice->wallpaper->monitors[0].particles[0].color->isPalette());
     EXPECT_TRUE(fails("[[wallpaper.monitor]]\nsource = \"a.png\"\n"
                       "particles = [{ kind = \"fireflies\", color = \"palette.nope\" }]\n"));
+}
+
+TEST(RiceParser, StartSection)
+{
+    const auto parsed = parse(rice("[start]\nmenu = \"ours\"\npinned = [\"a!App\", \"a!App\", \"b\"]\n"));
+    ASSERT_TRUE(parsed.rice.has_value()) << dump(parsed.diagnostics);
+    EXPECT_EQ(parsed.rice->start->menu, StartMenuKind::Ours);
+    EXPECT_EQ(parsed.rice->start->pinned, (std::vector<std::string>{"a!App", "b"})); // each once
+    const auto fails = [](std::string_view body) { return !parse(rice(body)).rice.has_value(); };
+    EXPECT_TRUE(fails("[start]\nmenu = \"mine\"\n"));
+    EXPECT_TRUE(fails("[start]\npinned = [1]\n"));
+    EXPECT_TRUE(fails("[start]\npinned = [\"\"]\n"));
+    EXPECT_TRUE(fails("[start]\nlayout = \"huge\"\n"));
+    std::string many = "[start]\npinned = [";
+    for (std::size_t i = 0; i <= rmw::limits::kStartMaxPinned; ++i)
+    {
+        many += std::format("\"app{}\",", i);
+    }
+    EXPECT_TRUE(fails(many + "]\n"));
 }
 
 TEST(RiceParser, SpanAndMonitorRulesDoNotMix)

@@ -168,6 +168,8 @@ export struct BarModel {
     autohide: bool,
     hide-native: bool,
     skin: string,
+    style: int,         // 0 its own, 1 windows, 2 dock, 3 island, 4 status, 5 side (M10)
+    length-auto: bool,  // as long as what it shows
     left: [WidgetChip],
     center: [WidgetChip],
     right: [WidgetChip],
@@ -353,6 +355,12 @@ export global Api {
     callback bar-edited();
     callback bar-add();
     callback bar-remove();
+    callback bar-duplicate();
+    callback bar-style(int);
+    // The selected bar's dock (M10): its pinned apps; pinning one uses the app list (pick-app-for 2).
+    in property <bool> bar-has-dock;
+    in property <[AppChoice]> dock-pinned;
+    callback dock-unpin(int);
     callback bar-move-item(int /* zone */, int /* index */, int /* to zone */, int /* to index */);
     callback bar-add-item(int /* zone */, string /* id */);
     callback bar-remove-item(int /* zone */, int /* index */);
@@ -387,7 +395,7 @@ export global Api {
     callback rule-list-remove(int);
     callback pick-rice-for(int /* 0 hotkey, 1 rule */, int /* index */);
     // launch.app: the window lists the installed apps; picking one sets the hotkey's or rule's app.
-    callback pick-app-for(int /* 0 hotkey, 1 rule */, int /* index */);
+    callback pick-app-for(int /* 0 hotkey, 1 rule, 2 the selected bar's dock */, int /* index */);
     in-out property <bool> picking-app;
     in property <[AppChoice]> apps-shown;
     callback app-filter-edited(string);

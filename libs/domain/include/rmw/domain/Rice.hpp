@@ -268,6 +268,30 @@ struct TaskbarConfig
     std::optional<TaskbarSearch> search;
 };
 
+// ---- Start ([start], M11) ----------------------------------------------------------------------
+
+enum class StartMenuKind
+{
+    Windows, // Windows' own Start (what the rice says below about it still applies)
+    Ours,    // Ricing Manager's: opened by our bar's Start button (and the Win key, if the user wants)
+};
+
+// Windows' own Start: what its settings allow (Settings > Personalization > Start).
+enum class StartLayout
+{
+    Default,
+    MorePins,
+    MoreRecommendations,
+};
+
+struct StartConfig
+{
+    std::optional<StartMenuKind> menu;
+    std::vector<std::string> pinned;       // our menu's pinned apps, ids as `rmw apps` lists them
+    std::optional<StartLayout> layout;     // Windows' menu
+    std::optional<bool> recommendations;   // Windows' menu: recent files and tips in "Recommended"
+};
+
 // ---- own bar ([[bar]]) --------------------------------------------------------------------------
 
 enum class BarPosition
@@ -288,6 +312,18 @@ struct BarLength
 {
     bool percent = true;
     double value = 100.0; // percent of the monitor edge, or logical pixels
+    bool fit = false;     // "auto": as long as what the bar shows, centered (M10)
+};
+
+// A ready-made look for a bar (M10): like a skin that comes with Ricing Manager. The bar's own keys
+// win, then its skin's, then the style's.
+enum class BarStyle
+{
+    Windows, // at the bottom, Start and the apps in the middle, like Windows 11
+    Dock,    // floating at the bottom, as long as its apps, icons that grow under the mouse
+    Island,  // a floating pill at the top
+    Status,  // a thin line at the top, Waybar/Polybar style
+    Side,    // along the left edge
 };
 
 struct BarBackground
@@ -333,12 +369,17 @@ struct BarConfig
     std::vector<BarItem> right;
     // A bar.skin plugin this bar starts from: the skin fills every key the bar leaves out.
     std::string skin;
+    std::optional<BarStyle> style; // M10: fills what the bar and its skin leave out
     // The keys written in rice.toml (or in the skin's [skin]): "thickness", "left"...
     std::vector<std::string> keys;
 };
 
 // The bar with what `skin` (a plugin's [skin]) writes and `bar` leaves out.
 [[nodiscard]] BarConfig applySkin(const BarConfig& bar, const BarConfig& skin);
+// A style as a skin: every key it sets is in `keys`.
+[[nodiscard]] BarConfig barStyle(BarStyle style);
+// The bar with its style applied (after its skin, which the core applies first).
+[[nodiscard]] BarConfig withStyle(const BarConfig& bar);
 
 // ---- plugins ----------------------------------------------------------------------------------
 
@@ -384,6 +425,7 @@ struct Rice
     std::optional<WallpaperConfig> wallpaper;
     std::optional<CursorConfig> cursors;
     std::optional<TaskbarConfig> taskbar;
+    std::optional<StartConfig> start;
     std::vector<BarConfig> bars;
     std::vector<PluginRequirement> pluginRequirements;
     std::vector<PluginSettings> pluginSettings;
@@ -404,6 +446,9 @@ std::string_view toString(TaskbarAlignment value) noexcept;
 std::string_view toString(TaskbarSearch value) noexcept;
 std::string_view toString(BarPosition value) noexcept;
 std::string_view toString(BarMode value) noexcept;
+std::string_view toString(BarStyle value) noexcept;
+std::string_view toString(StartMenuKind value) noexcept;
+std::string_view toString(StartLayout value) noexcept;
 std::string_view toString(BarBackground::Kind value) noexcept;
 
 } // namespace rmw::domain

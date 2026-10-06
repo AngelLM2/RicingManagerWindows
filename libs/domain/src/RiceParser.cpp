@@ -79,6 +79,10 @@ public:
         {
             readTaskbar(*taskbar);
         }
+        if (const auto* start = t.table("start"))
+        {
+            readStart(*start);
+        }
         if (const auto* plugins = t.table("plugins"))
         {
             readPlugins(*plugins); // before [[bar]], which checks widget plugins against it
@@ -597,6 +601,35 @@ private:
         config.search = t.enumeration<TaskbarSearch>("search", kTaskbarSearchNames);
         t.reportUnknownKeys();
         m_rice.taskbar = config;
+    }
+
+    void readStart(const toml::table& table)
+    {
+        TableReader t(table, "start", m_diagnostics);
+        StartConfig config;
+        config.menu = t.enumeration<StartMenuKind>("menu", kStartMenuNames);
+        config.layout = t.enumeration<StartLayout>("layout", kStartLayoutNames);
+        config.recommendations = t.boolean("recommendations");
+        if (const auto* pinned = t.array("pinned", limits::kStartMaxPinned))
+        {
+            std::size_t index = 0;
+            for (const auto& node : *pinned)
+            {
+                const std::string path = indexPath(t.pathOf("pinned"), index++);
+                const auto* id = node.as_string();
+                if (id == nullptr || id->get().empty() || id->get().size() > 256)
+                {
+                    errorAt(m_diagnostics, node, path, "expected an app id, as `rmw apps` lists them");
+                    continue;
+                }
+                if (std::ranges::find(config.pinned, id->get()) == config.pinned.end())
+                {
+                    config.pinned.push_back(id->get());
+                }
+            }
+        }
+        t.reportUnknownKeys();
+        m_rice.start = std::move(config);
     }
 
     void readBars(TableReader& root)

@@ -42,6 +42,10 @@ constexpr auto kBuiltinWidgets = std::to_array<std::string_view>({
     "volume",
     "battery",
     "notifications",
+    "spacer",
+    "separator",
+    "text",
+    "dock",
 });
 
 std::string utf8(const fs::path& path)
