@@ -25,7 +25,10 @@ Rect reservation(const domain::BarConfig& bar, const Rect& monitor, double scale
     const auto& margin = bar.margin; // top, right, bottom, left
     const double across = isHorizontal(bar.position) ? margin[0] + bar.thickness + margin[2]
                                                      : margin[3] + bar.thickness + margin[1];
-    const std::int32_t depth = px(across, scale);
+    // At most half the monitor: a rice's margins and thickness could ask for more than the screen, and the
+    // shell would then give every maximized window nothing.
+    const std::int32_t side = isHorizontal(bar.position) ? monitor.height() : monitor.width();
+    const std::int32_t depth = std::clamp(px(across, scale), 0, std::max(side / 2, 0));
     Rect strip = monitor;
     switch (bar.position)
     {

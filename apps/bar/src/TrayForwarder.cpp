@@ -19,6 +19,7 @@ namespace tray = bar::tray;
 constexpr UINT kTimeoutMs = 5000; // nobody waits for this thread: Explorer may take its time
 constexpr auto kRetryEvery = 2s;
 constexpr int kMaxAttempts = 60; // two minutes
+constexpr std::size_t kMaxWaiting = 8; // per icon, while Explorer refuses it
 
 HICON iconOf(std::uint32_t handle) noexcept
 {
@@ -182,7 +183,24 @@ void TrayForwarder::run(const std::stop_token& stop)
             }
             if (const auto found = m_pending.find(key); found != m_pending.end())
             {
-                found->second.jobs.push_back(std::move(job)); // after what Explorer refused
+                // After what Explorer refused. An update over an update waiting is all that counts: an icon
+                // that animates while Explorer refuses it piled up a copied icon (a GDI handle) per frame,
+                // for two minutes (seen on the owner's PC: two icons refused for good).
+                auto& jobs = found->second.jobs;
+                if (job.command == tray::Command::Modify && !jobs.empty() &&
+                    jobs.back().command == tray::Command::Modify)
+                {
+                    release(jobs.back());
+                    job.attempts = jobs.back().attempts;
+                    jobs.back() = std::move(job);
+                    continue;
+                }
+                if (jobs.size() >= kMaxWaiting)
+                {
+                    release(jobs.front());
+                    jobs.pop_front();
+                }
+                jobs.push_back(std::move(job));
                 continue;
             }
             if (deliver(job))

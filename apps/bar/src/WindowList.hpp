@@ -28,6 +28,7 @@ public:
         std::string title;
         slint::Image icon;
         bool iconLoaded = false;
+        bool appIcon = false; // the app's (the Shell's): a new title does not change it
     };
 
     static WindowTracker& instance();
@@ -57,10 +58,12 @@ private:
     void schedule();
     void refresh();
     // The app's icon from the Shell (sharp at any scale), once per app; the window's own otherwise.
-    slint::Image iconFor(void* window);
+    // `fromApp` says which.
+    slint::Image iconFor(void* window, bool& fromApp);
 
     std::unique_ptr<providers::WindowEventHooks> m_hooks;
     std::vector<Entry> m_windows;
+    // By app; an empty image: the Shell has none for it (asked once, not at every title change).
     std::map<std::wstring, slint::Image> m_appIcons;
     void* m_foreground = nullptr;
     std::map<std::size_t, std::function<void()>> m_subscribers;
