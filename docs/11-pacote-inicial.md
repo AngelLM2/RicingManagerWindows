@@ -12,6 +12,13 @@
 
 ## 2. Os 6 rices do pacote inicial (v1.0)
 
+> **Na v1.0 (ADR-0015):**
+> - **Prontos:** Diva Stage e Tokyo Midnight (com vídeo), Sakura Dawn, Mocha Kawaii e o kit "Your Rice".
+> - **Arte:** desenhada por código em `rices/art/RiceArt.cpp` (Direct2D/DirectWrite/Media Foundation), com cursores próprios no lugar do Bibata recolorido.
+> - **Onde ficam:** neste repositório, já que nada binário entra no Git. O target `rices` desenha e empacota.
+> - **Pendentes:** Spring Spirits e Witch's Workshop esperam o OK do dono para baixar a arte CC BY de terceiros.
+> - **Fontes:** as fontes do Windows (Segoe UI Variable, Yu Gothic UI); as da tabela, que precisariam ser baixadas, ficam para quando houver o OK.
+
 | Rice | Clima | Paleta (hex) | Wallpaper | Cursores | Fonte |
 |---|---|---|---|---|---|
 | **Diva Stage** ★ | Vocaloid-*inspired* (sem personagem): palco, luzes, equalizador | `#0B1026` `#2CD5C4` `#FF4FA3` `#7B5CFF` `#E8FCFF` | **original**: holofotes, barras de equalizador e forma de onda em SVG + loop de vídeo renderizado do nosso shader | Bibata recolorido teal/rosa | M PLUS Rounded 1c + JetBrains Mono |
