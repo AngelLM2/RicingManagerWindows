@@ -150,6 +150,20 @@ export component IconsPage inherits ScrollView {
             }
         }
 
+        if Api.editing: Card {
+            title: @tr("Every folder and drive (advanced)");
+
+            for row in Api.icon-machine-rows: IconLine {
+                kind: "machine";
+                icon: row;
+                label: row.key == "folder" ? @tr("Every folder") : @tr("Every drive");
+            }
+
+            Hint {
+                text: @tr("For every user of this PC. It needs \"Folder and drive icons for the whole PC\" on in Settings, and Windows asks for administrator each time.");
+            }
+        }
+
         if Api.editing: Hint {
             text: @tr("Windows' own icons are not copied into the rice: a rice you share takes only your files.");
         }

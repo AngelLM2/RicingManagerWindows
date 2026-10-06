@@ -4,6 +4,7 @@
 #include "rmw/ports/Registry.hpp"
 #include "rmw/ports/Shell.hpp"
 
+#include <chrono>
 #include <functional>
 
 // Light/dark mode, accent color, transparency and accent on taskbar (ADR-0005). Fields:
@@ -11,6 +12,11 @@
 //   "accent"                    "#RRGGBB" — via the managed .theme (ColorizationColor)
 //   "transparency"              bool   — Personalize\EnableTransparency
 //   "accentOnTaskbar"           bool   — Personalize\ColorPrevalence
+//   "theme"                     the theme selected (Themes\CurrentTheme): "C:\...\x.theme"; from a rice
+//                               that changes the look, "ricing-manager" (ours). A restore applies the
+//                               user's theme file again, so Settings shows their theme selected, with
+//                               what it sets that the other fields do not (the accent palette, an
+//                               accent taken from the wallpaper...).
 namespace rmw::modules
 {
 
@@ -34,10 +40,12 @@ private:
 class AppearanceSystem final : public engine::IModuleSystem
 {
 public:
-    AppearanceSystem(ports::IRegistry& registry, ports::IShell& shell, ports::IThemeApi& theme) noexcept
+    AppearanceSystem(ports::IRegistry& registry, ports::IShell& shell, ports::IThemeApi& theme,
+                     std::chrono::milliseconds themeSettle = std::chrono::seconds(10)) noexcept
         : m_registry(registry)
         , m_shell(shell)
         , m_theme(theme)
+        , m_themeSettle(themeSettle)
     {
     }
 
@@ -49,6 +57,7 @@ private:
     ports::IRegistry& m_registry;
     ports::IShell& m_shell;
     ports::IThemeApi& m_theme;
+    std::chrono::milliseconds m_themeSettle; // how long a restored theme gets to show its look
 };
 
 // True when `now` falls in the light period of `schedule` (handles periods across midnight).

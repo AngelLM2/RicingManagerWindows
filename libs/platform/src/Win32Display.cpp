@@ -366,6 +366,20 @@ Result<void> Win32WallpaperApi::setWallpaper(std::string_view devicePath, std::s
     });
 }
 
+Result<void> Win32WallpaperApi::setDesktopWallpaper(std::string_view file)
+{
+    auto path = wide(file);
+    if (!path)
+    {
+        return fail(ErrorCode::InvalidArgument, "wallpaper path is not valid UTF-8");
+    }
+    if (SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, path->data(), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) == FALSE)
+    {
+        return fail(ErrorCode::System, "SPI_SETDESKWALLPAPER", GetLastError());
+    }
+    return {};
+}
+
 Result<ports::WallpaperPosition> Win32WallpaperApi::position()
 {
     return onSta<ports::WallpaperPosition>([](IDesktopWallpaper& api) -> Result<ports::WallpaperPosition> {

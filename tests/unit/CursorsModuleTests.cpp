@@ -138,6 +138,31 @@ TEST(CursorsSystem, CapturesAndAppliesTheScheme)
     EXPECT_FALSE(system.apply({{"Arrow", "C:\\x.cur"}}).has_value()); // not the field shape
 }
 
+// Settings' own pointer files (a color or a size picked in Accessibility) live in the user's folder:
+// a restore puts back their path, not our copy; the copy only when they were deleted.
+TEST_F(CursorsTest, TheUsersPointerFilesComeBackByTheirOwnPath)
+{
+    const auto own = m_dir.path() / "Microsoft" / "Windows" / "Cursors" / "arrow_eoa.cur";
+    writeBytes(own, rmw::test::cursorFile());
+    Json state = {{"Arrow", {{"type", "expand"}, {"data", own.string()}}}};
+    rmw::engine::StoreAssetSink sink(m_store, package());
+    ASSERT_TRUE(CursorsLogic().internalize(state, sink).has_value());
+    EXPECT_EQ(state["Arrow"]["data"], own.string());
+    const std::string copy = state["Arrow"]["copy"].get<std::string>();
+    EXPECT_NE(copy, own.string());
+    EXPECT_TRUE(CursorsLogic().fieldEquivalent("Arrow", state["Arrow"],
+                                               Json{{"type", "expand"}, {"data", own.string()}}));
+
+    FakeRegistry registry;
+    FakeShell shell;
+    CursorsSystem system(registry, shell);
+    ASSERT_TRUE(system.apply(state));
+    EXPECT_EQ(registry.values.at({std::string(kCursors), "Arrow"}).text, own.string());
+    shell.gone.insert(own.string());
+    ASSERT_TRUE(system.apply(state));
+    EXPECT_EQ(registry.values.at({std::string(kCursors), "Arrow"}).text, copy);
+}
+
 TEST_F(CursorsTest, ApplyThenRestoreOriginalUnderTheEngine)
 {
     FakeRegistry registry;

@@ -18,6 +18,7 @@ add_executable(rmw_unit_tests
     unit/FileSystemTests.cpp
     unit/IconsTests.cpp
     unit/LockScreenTests.cpp
+    unit/MachineIconsTests.cpp
     unit/IpcTests.cpp
     unit/JsonTests.cpp
     unit/LogTests.cpp
@@ -57,6 +58,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::engine
     rmw::ipc
     rmw::json
+    rmw::machine
     rmw::modules
     rmw::package
     rmw::platform

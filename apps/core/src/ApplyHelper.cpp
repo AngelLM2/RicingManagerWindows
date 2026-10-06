@@ -114,7 +114,24 @@ Result<void> HelperModuleRunner::start()
     return {};
 }
 
+namespace
+{
+// Windows' lock screen service can take tens of seconds on a busy PC (seen in the Sandbox), and a
+// restore of the appearance applies the user's theme and waits for it to show.
+constexpr auto kSlowModuleTimeout = std::chrono::milliseconds(45'000);
+
+std::chrono::milliseconds timeoutFor(std::string_view moduleId, std::chrono::milliseconds normal)
+{
+    return moduleId == "lockscreen" || moduleId == "appearance" ? std::max(normal, kSlowModuleTimeout) : normal;
+}
+} // namespace
+
 Result<Json> HelperModuleRunner::call(std::string_view method, const Json& params)
+{
+    return call(method, params, m_timeout);
+}
+
+Result<Json> HelperModuleRunner::call(std::string_view method, const Json& params, std::chrono::milliseconds timeout)
 {
     if (!m_connection || !m_child || !m_child->running())
     {
@@ -132,11 +149,11 @@ Result<Json> HelperModuleRunner::call(std::string_view method, const Json& param
         stop(); // a helper that missed a deadline or broke the protocol is not reused
         return std::unexpected(std::move(error));
     };
-    if (auto sent = m_connection->send(ipc::requestText(id, method, params), m_timeout); !sent)
+    if (auto sent = m_connection->send(ipc::requestText(id, method, params), timeout); !sent)
     {
         return failed(std::move(sent.error()).withContext("send to the apply helper"));
     }
-    auto reply = m_connection->receive(m_timeout);
+    auto reply = m_connection->receive(timeout);
     if (!reply)
     {
         if (reply.error().code() == ErrorCode::Timeout)
@@ -145,7 +162,7 @@ Result<Json> HelperModuleRunner::call(std::string_view method, const Json& param
                 Error(ErrorCode::Timeout,
                       std::format("the apply helper did not answer '{}' within {} s (Explorer may be hung); "
                                   "it was stopped",
-                                  method, m_timeout.count() / 1000)));
+                                  method, timeout.count() / 1000)));
         }
         return failed(std::move(reply.error()).withContext("the apply helper stopped"));
     }
@@ -169,7 +186,8 @@ Result<engine::CaptureResult> HelperModuleRunner::capture(std::string_view modul
     {
         names.push_back(field);
     }
-    auto result = call("module.capture", Json{{"module", moduleId}, {"fields", std::move(names)}});
+    auto result = call("module.capture", Json{{"module", moduleId}, {"fields", std::move(names)}},
+                       timeoutFor(moduleId, m_timeout));
     if (!result)
     {
         return std::unexpected(std::move(result.error()));
@@ -179,7 +197,7 @@ Result<engine::CaptureResult> HelperModuleRunner::capture(std::string_view modul
 
 Result<void> HelperModuleRunner::apply(std::string_view moduleId, const Json& desired)
 {
-    auto result = call("module.apply", Json{{"module", moduleId}, {"desired", desired}});
+    auto result = call("module.apply", Json{{"module", moduleId}, {"desired", desired}}, timeoutFor(moduleId, m_timeout));
     if (!result)
     {
         return std::unexpected(std::move(result.error()));

@@ -1049,6 +1049,7 @@ void SettingsApp::refreshSettings()
     api.set_rules_list(modelOf(std::move(rules)));
     api.set_keep_in_tray(m_settings->keepInTray);
     api.set_start_win_key(m_settings->startWinKey);
+    api.set_machine_icons(m_settings->machineIcons);
     const domain::TilingSettings& tiling = m_settings->tiling;
     api.set_tiling_enabled(tiling.enabled);
     api.set_tiling_mode(tiling.mode == domain::TilingMode::Mac ? 1 : 0);
@@ -1372,6 +1373,15 @@ void SettingsApp::showEdited()
         }
     }
     api.set_icon_type_rows(modelOf(std::move(typeIcons)));
+    std::vector<IconRow> machineIcons;
+    for (std::size_t i = 0; i < domain::kMachineIconCount; ++i)
+    {
+        const auto icon = static_cast<domain::MachineIcon>(i);
+        machineIcons.push_back(
+            {shared(domain::riceName(icon)),
+             shared(iconOf([](const domain::IconsConfig& c) -> const auto& { return c.machine; }, icon))});
+    }
+    api.set_icon_machine_rows(modelOf(std::move(machineIcons)));
 
     // Start (M11).
     const auto& start = rice.start;
@@ -3100,6 +3110,15 @@ void SettingsApp::bind()
                 put(icons.folders, *folder);
             }
         }
+        else if (kind == "machine")
+        {
+            const auto machine = domain::machineIconFromRiceName(key);
+            known = machine.has_value();
+            if (known)
+            {
+                put(icons.machine, *machine);
+            }
+        }
         else
         {
             std::ranges::transform(key, key.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
@@ -3125,7 +3144,8 @@ void SettingsApp::bind()
             }
         }
         // Nothing left of [icons]: the rice leaves the icons alone.
-        if (icons.desktop.empty() && icons.folders.empty() && icons.apps.empty() && icons.types.empty())
+        if (icons.desktop.empty() && icons.folders.empty() && icons.apps.empty() && icons.types.empty() &&
+            icons.machine.empty())
         {
             rice->icons.reset();
         }
@@ -3971,6 +3991,7 @@ void SettingsApp::bind()
         }
         m_settings->keepInTray = api.get_keep_in_tray();
         m_settings->startWinKey = api.get_start_win_key();
+        m_settings->machineIcons = api.get_machine_icons();
         const int language = api.get_language();
         m_settings->language = language == 1   ? std::string(domain::kLanguageEnglish)
                                : language == 2 ? std::string(domain::kLanguagePortuguese)

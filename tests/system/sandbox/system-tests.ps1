@@ -119,6 +119,33 @@ function New-Ico([string] $Path, [byte] $R, [byte] $G, [byte] $B) {
     [IO.File]::WriteAllBytes($Path, $stream.ToArray())
 }
 
+# Everything Windows keeps for pointers, colors and themes, as reg.exe prints it: the same before an apply
+# and after its restore (a restore that is 100%). Values Windows itself changes on its own are left out.
+$residueKeys = @(
+    'HKCU\Control Panel\Cursors', 'HKCU\Control Panel\Colors', 'HKCU\Control Panel\Desktop',
+    'HKCU\Control Panel\Mouse', 'HKCU\Software\Microsoft\Accessibility',
+    'HKCU\Software\Microsoft\Windows\CurrentVersion\Themes',
+    'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent', 'HKCU\Software\Microsoft\Windows\DWM',
+    'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced',
+    'HKCU\Software\Microsoft\Windows\CurrentVersion\Search', 'HKCU\AppEvents\Schemes',
+    'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID')
+# (Pre-High Contrast Scheme: Windows writes it on its own schedule; checked apart: never a theme of ours.)
+$volatile = 'InstalledWin32AppsRevision|TranscodedImageCache|TranscodedImageCount|LastUpdated|TaskbarStateLastRun|Pre-High Contrast Scheme'
+function High-Contrast-Not-Ours {
+    "$((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes' -ErrorAction SilentlyContinue).'Pre-High Contrast Scheme')" -notlike '*\RicingManager*'
+}
+function Registry-Snapshot {
+    foreach ($key in $residueKeys) {
+        $lines = & reg.exe query $key /s 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $lines | Where-Object { $_.Trim() -and $_ -notmatch $volatile } | ForEach-Object { $_.Trim() }
+        } else { "[$key absent]" }
+    }
+}
+function Registry-Residue($Before, $After) {
+    @(Compare-Object @($Before) @($After) | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+}
+
 function Compare-State($Before, $After) {
     $diff = @()
     foreach ($key in $Before.Keys) {
@@ -197,6 +224,27 @@ source = "assets/wall.jpg"
 fit = "fill"
 '@ | Out-File (Join-Path $rice 'rice.toml') -Encoding ascii
 
+# ---- a pointer style of the user's own (Settings > Accessibility > Mouse pointer): its own files,
+# bigger, colored. A theme apply must not take it away, and a restore must leave it as it was.
+$pointers = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Cursors'
+New-Item -ItemType Directory -Force $pointers | Out-Null
+Copy-Item 'C:\Windows\Cursors\aero_arrow_l.cur' (Join-Path $pointers 'arrow_eoa.cur') -ErrorAction SilentlyContinue
+Copy-Item 'C:\Windows\Cursors\aero_link_l.cur' (Join-Path $pointers 'link_eoa.cur') -ErrorAction SilentlyContinue
+Set-ItemProperty 'HKCU:\Control Panel\Cursors' -Name 'Arrow' -Value (Join-Path $pointers 'arrow_eoa.cur')
+Set-ItemProperty 'HKCU:\Control Panel\Cursors' -Name 'Hand' -Value (Join-Path $pointers 'link_eoa.cur')
+Set-ItemProperty 'HKCU:\Control Panel\Cursors' -Name 'CursorBaseSize' -Value 48 -Type DWord
+New-Item -Force 'HKCU:\Software\Microsoft\Accessibility' | Out-Null
+Set-ItemProperty 'HKCU:\Software\Microsoft\Accessibility' -Name 'CursorSize' -Value 3 -Type DWord
+Set-ItemProperty 'HKCU:\Software\Microsoft\Accessibility' -Name 'CursorType' -Value 6 -Type DWord
+Set-ItemProperty 'HKCU:\Software\Microsoft\Accessibility' -Name 'CursorColor' -Value 0x00F7A27A -Type DWord
+Add-Type -Namespace Rmw -Name Pointers -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool SystemParametersInfoW(uint action, uint uiParam, System.IntPtr pvParam, uint winIni);
+'@
+[void][Rmw.Pointers]::SystemParametersInfoW(0x57, 0, [IntPtr]::Zero, 0) # SPI_SETCURSORS
+$pristine = @(Registry-Snapshot)
+$pristineState = Read-State
+
 # ---- 0. diagnostics (never fail the run) ----------------------------------------------------------
 Add-Type -Namespace Rmw -Name Native -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
@@ -274,6 +322,13 @@ $residue = @(Compare-Object ($registryBefore -split "`n") ($registryAfter -split
 Check 'restore:no-registry-residue' ($residue.Count -eq 0) (($residue | Select-Object -First 12) -join ' | ')
 $wallpaperRestored = (Invoke-Rmw @('inspect', 'wallpaper')).output
 Check 'restore:wallpaper-back' ($wallpaperRestored -eq $wallpaperBefore) "before=$wallpaperBefore after=$wallpaperRestored"
+# Against Windows as it was before Ricing Manager ever ran (two applies and two restores since).
+$residue = Registry-Residue $pristine @(Registry-Snapshot)
+$residue | Out-File (Join-Path $Out 'pristine-residue.txt') -Encoding utf8
+Check 'restore:registry-as-pristine' ($residue.Count -eq 0) (($residue | Select-Object -First 40) -join ' | ')
+$pointerDiff = Compare-State $pristineState (Read-State)
+Check 'restore:pointers-as-pristine' ($pointerDiff.Count -eq 0) ($pointerDiff -join '; ')
+Check 'restore:high-contrast-not-ours' (High-Contrast-Not-Ours) ''
 
 # ---- 2. a second operation while one runs gets busy ---------------------------------------------
 Start-Core @('--test-delay-ms', '6000')
@@ -370,7 +425,8 @@ $lightBefore = (Read-State).AppsLight
 [Rmw.Input]::keybd_event(0x7C, 0, 2, [UIntPtr]::Zero) # up
 $flipped = Wait-Until { "$((Read-State).AppsLight)" -ne "$lightBefore" } 15
 Check 'hotkey:toggled-appearance' $flipped "before=$lightBefore after=$((Read-State).AppsLight)"
-Start-Sleep -Seconds 1
+# The operation ends a moment after the look shows (what a theme apply changes elsewhere is put back).
+[void](Wait-Until { @((Invoke-Rmw @('history')).output -split "`n" | Where-Object { $_ -match '^#' }).Count -gt $historyBefore } 10)
 $historyAfter = @((Invoke-Rmw @('history')).output -split "`n" | Where-Object { $_ -match '^#' }).Count
 Check 'hotkey:recorded-in-history' ($historyAfter -eq $historyBefore + 1) "before=$historyBefore after=$historyAfter"
 $r = Invoke-Rmw @('restore', '--original', '--wait')
@@ -483,6 +539,83 @@ $coreLog = Get-Content (Join-Path $data 'logs\core.log') -ErrorAction SilentlyCo
 $results.Add([pscustomobject]@{ name = 'diag:explorer-restart-seen'; ok = $true; detail = "seen=$($coreLog -match 'Explorer restarted')" })
 $r = Invoke-Rmw @('restore', '--original', '--wait')
 Check 'explorer:restore' ($r.code -eq 0) $r.output
+
+# ---- 12. advanced: every folder's and drive's icon for the whole PC (rmw-elevated through the UAC) --
+$shellIcons = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons'
+$machineHome = Join-Path $env:ProgramData 'RicingManagerWindows\machine'
+function Machine-State {
+    if (-not (Test-Path $shellIcons)) { return 'absent' }
+    $values = Get-ItemProperty $shellIcons
+    "3=$($values.'3') 4=$($values.'4') 8=$($values.'8')"
+}
+$machineBefore = Machine-State
+$machineRice = Join-Path $Work 'machine-rice'
+New-Ico (Join-Path $machineRice 'assets\folder.ico') 0x39 0xc5 0xbb
+New-Ico (Join-Path $machineRice 'assets\drive.ico') 0xe1 0x28 0x85
+"schema = 1`n`n[meta]`nname = `"Machine icons`"`n`n[icons.machine]`nfolder = `"assets/folder.ico`"`ndrive = `"assets/drive.ico`"`n" |
+    Out-File (Join-Path $machineRice 'rice.toml') -Encoding ascii
+# Off in Settings (the default): the rice says so and nothing of the machine changes.
+$r = Invoke-Rmw @('apply', $machineRice, '--wait')
+Start-Sleep -Seconds 2
+Check 'machine:off-changes-nothing' ($r.output -match 'advanced option' -and (Machine-State) -eq $machineBefore) "$($r.output) | $(Machine-State)"
+"schema = 1`n`n[core]`nkeep_in_tray = true`n`n[icons]`nmachine = true`n" | Out-File $settings -Encoding ascii
+[void](Invoke-Rmw @('settings', 'reload'))
+$r = Invoke-Rmw @('apply', $machineRice, '--wait')
+$set = Wait-Until { "$((Get-ItemProperty $shellIcons -ErrorAction SilentlyContinue).'8')" -like '*RicingManagerWindows\machine\icons\*.ico,0' } 30
+Check 'machine:set' $set "$($r.output) | $(Machine-State)"
+Check 'machine:folder-open-and-closed' ("$((Get-ItemProperty $shellIcons -ErrorAction SilentlyContinue).'3')" -like '*\machine\icons\*.ico,0' -and "$((Get-ItemProperty $shellIcons -ErrorAction SilentlyContinue).'4')" -like '*\machine\icons\*.ico,0') (Machine-State)
+$usersWrite = @((Get-Acl (Join-Path $machineHome 'icons') -ErrorAction SilentlyContinue).Access | Where-Object {
+    $_.IdentityReference -match 'Users$' -and $_.AccessControlType -eq 'Allow' -and "$($_.FileSystemRights)" -match 'Write|Modify|FullControl|Delete' })
+Check 'machine:only-administrators-write' ((Test-Path (Join-Path $machineHome 'icons')) -and $usersWrite.Count -eq 0) (((Get-Acl (Join-Path $machineHome 'icons') -ErrorAction SilentlyContinue).Access | ForEach-Object { "$($_.IdentityReference):$($_.FileSystemRights)" }) -join ', ')
+$r = Invoke-Rmw @('restore', '--original', '--wait')
+$back = Wait-Until { (Machine-State) -eq $machineBefore -and -not (Test-Path (Join-Path $machineHome 'journal.json')) } 30
+Check 'machine:restore-puts-back' $back "$($r.output) | before=$machineBefore now=$(Machine-State)"
+Check 'machine:no-icons-left' (-not (Test-Path (Join-Path $machineHome 'icons'))) ''
+if (Test-Path (Join-Path $machineHome 'elevated.log')) { Copy-Item (Join-Path $machineHome 'elevated.log') (Join-Path $Out 'elevated.log') -Force }
+"schema = 1`n`n[core]`nkeep_in_tray = true`n" | Out-File $settings -Encoding ascii
+[void](Invoke-Rmw @('settings', 'reload'))
+
+# ---- 11. extra rices (optional): each rice folder put in <bin>\extra-rices is applied, shown, restored
+$extraRoot = Join-Path $Bin 'extra-rices'
+if (Test-Path $extraRoot) {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    function Screen-Shot([string] $Name) {
+        $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        try { $graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bitmap.Size) } catch { }
+        $bitmap.Save((Join-Path $Out "$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose(); $bitmap.Dispose()
+    }
+    foreach ($folder in Get-ChildItem $extraRoot -Directory) {
+        $name = $folder.Name -replace ' ', '-'
+        $copy = Join-Path $Work "extra-$name" # the bin folder is read-only
+        Copy-Item $folder.FullName $copy -Recurse -Force
+        $beforeExtra = Read-State
+        $registryBeforeExtra = @(Registry-Snapshot)
+        $themeBefore = Get-Content ((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes').CurrentTheme) -ErrorAction SilentlyContinue
+        $r = Invoke-Rmw @('apply', $copy, '--wait')
+        Check "extra:${name}:apply" ($r.code -eq 0) $r.output
+        Start-Sleep -Seconds 10 # the bars, the live wallpaper, the window look
+        Screen-Shot "extra-$name-desktop"
+        Start-Process explorer.exe $env:USERPROFILE # the folders' icons, a window with the look
+        Start-Sleep -Seconds 4
+        Screen-Shot "extra-$name-explorer"
+        (New-Object -ComObject Shell.Application).Windows() | ForEach-Object { try { $_.Quit() } catch { } }
+        $r = Invoke-Rmw @('restore', '--original', '--wait')
+        Check "extra:${name}:restore" ($r.code -eq 0) $r.output
+        Start-Sleep -Seconds 2
+        $diff = Compare-State $beforeExtra (Read-State)
+        Check "extra:${name}:everything-back" ($diff.Count -eq 0) ($diff -join '; ')
+        $residue = Registry-Residue $registryBeforeExtra @(Registry-Snapshot)
+        Check "extra:${name}:registry-as-before" ($residue.Count -eq 0) (($residue | Select-Object -First 60) -join ' | ')
+        Check "extra:${name}:high-contrast-not-ours" (High-Contrast-Not-Ours) ''
+        $residue | Out-File (Join-Path $Out "extra-$name-residue.txt") -Encoding utf8
+        $themeAfter = Get-Content ((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes').CurrentTheme) -ErrorAction SilentlyContinue
+        @(Compare-Object $themeBefore $themeAfter | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" }) |
+            Out-File (Join-Path $Out "extra-$name-theme-diff.txt") -Encoding utf8
+    }
+}
 
 Remove-Item $settings -ErrorAction SilentlyContinue
 Stop-Core

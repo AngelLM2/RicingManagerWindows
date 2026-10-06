@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include <shlobj.h>
+#include <shlwapi.h>
 #include <wil/com.h>
 #include <wil/resource.h>
 
@@ -19,6 +20,7 @@
 #include <chrono>
 #include <cstring>
 #include <format>
+#include <span>
 #include <fstream>
 #include <thread>
 #include <vector>
@@ -235,6 +237,197 @@ HRESULT applyLegacy(const std::filesystem::path& path)
     return bstr ? legacy->ApplyTheme(bstr.get()) : E_OUTOFMEMORY;
 }
 
+// What a theme apply may change that is not the look, kept before it and put back after: every value
+// of Control Panel\Cursors (the pointers, their scheme, their size), the pointer style of Accessibility
+// (size, type, color), Settings' recent colors and the theme to come back to after high contrast. The legacy theme manager applies a whole theme file,
+// its pointer section included (and that section is often older than the pointers in use), and every
+// apply adds its accent to the recent colors.
+class Kept
+{
+public:
+    static Kept take()
+    {
+        Kept kept;
+        for (const auto& spec : kKeys)
+        {
+            kept.m_keys.push_back(read(spec));
+        }
+        return kept;
+    }
+
+    // Put back now, and again while Explorer finishes the apply (it writes some of these late).
+    void putBackSettled() const
+    {
+        putBack();
+        for (const auto wait : {std::chrono::milliseconds(400), std::chrono::milliseconds(1200)})
+        {
+            std::this_thread::sleep_for(wait);
+            putBack();
+        }
+    }
+
+    // Writes back what changed, deletes what appeared; the pointers are reloaded when they changed.
+    void putBack() const
+    {
+        bool cursors = false;
+        std::optional<DWORD> size;
+        for (std::size_t k = 0; k < m_keys.size(); ++k)
+        {
+            const Key& before = m_keys[k];
+            const Key now = read(kKeys[k]);
+            HKEY handle = nullptr;
+            if (RegCreateKeyExW(HKEY_CURRENT_USER, before.path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr,
+                                &handle, nullptr) != ERROR_SUCCESS)
+            {
+                continue;
+            }
+            for (const auto& value : before.values)
+            {
+                const auto there = std::ranges::find(now.values, value.name, &Value::name);
+                if (there == now.values.end() || there->type != value.type || there->data != value.data)
+                {
+                    RegSetValueExW(handle, value.name.c_str(), 0, value.type, value.data.data(),
+                                   static_cast<DWORD>(value.data.size()));
+                    cursors = cursors || k == 0;
+                    if (k == 0 && value.name == L"CursorBaseSize" && value.type == REG_DWORD &&
+                        value.data.size() == sizeof(DWORD))
+                    {
+                        DWORD pixels = 0;
+                        std::memcpy(&pixels, value.data.data(), sizeof(pixels));
+                        size = pixels;
+                    }
+                }
+            }
+            for (const auto& value : now.values)
+            {
+                if (std::ranges::find(before.values, value.name, &Value::name) == before.values.end())
+                {
+                    RegDeleteValueW(handle, value.name.c_str());
+                    cursors = cursors || k == 0;
+                }
+            }
+            RegCloseKey(handle);
+        }
+        if (cursors)
+        {
+            SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, 0);
+            if (size)
+            {
+                constexpr UINT kSetCursorBaseSize = 0x2029; // SPI_SETCURSORBASESIZE
+                SystemParametersInfoW(kSetCursorBaseSize, 0,
+                                      reinterpret_cast<PVOID>(static_cast<UINT_PTR>(*size)), // NOLINT(performance-no-int-to-ptr)
+                                      0);
+            }
+            log::info("theme: the pointers a theme apply changed are back");
+        }
+    }
+
+private:
+    struct Value
+    {
+        std::wstring name;
+        DWORD type = 0;
+        std::vector<BYTE> data;
+    };
+    struct Key
+    {
+        std::wstring path;
+        std::vector<Value> values;
+    };
+    struct Spec
+    {
+        std::wstring_view path;
+        std::array<std::wstring_view, 3> names; // `count` of them; none: every value of the key
+        std::size_t count = 0;
+    };
+    static constexpr std::array<Spec, 5> kKeys = {{
+        {LR"(Control Panel\Cursors)", {}, 0},
+        {LR"(Software\Microsoft\Accessibility)", {L"CursorSize", L"CursorType", L"CursorColor"}, 3},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes\History\Colors)", {}, 0},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes\History)", {L"AutoColor"}, 1},
+        // The theme Windows goes back to after high contrast: the user's, never a theme of ours.
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes)", {L"Pre-High Contrast Scheme"}, 1},
+    }};
+
+    static Key read(const Spec& spec)
+    {
+        Key key{std::wstring(spec.path), {}};
+        const std::span<const std::wstring_view> names(spec.names.data(), spec.count);
+        HKEY handle = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, key.path.c_str(), 0, KEY_QUERY_VALUE, &handle) != ERROR_SUCCESS)
+        {
+            return key;
+        }
+        for (DWORD i = 0; i < 256; ++i)
+        {
+            std::array<wchar_t, 256> name{};
+            auto nameSize = static_cast<DWORD>(name.size());
+            std::vector<BYTE> data(4096);
+            auto dataSize = static_cast<DWORD>(data.size());
+            DWORD type = 0;
+            if (RegEnumValueW(handle, i, name.data(), &nameSize, nullptr, &type, data.data(), &dataSize) != ERROR_SUCCESS)
+            {
+                break;
+            }
+            const std::wstring valueName(name.data(), nameSize);
+            if (!names.empty() && std::ranges::find(names, valueName) == names.end())
+            {
+                continue;
+            }
+            data.resize(dataSize);
+            key.values.push_back({valueName, type, std::move(data)});
+        }
+        RegCloseKey(handle);
+        return key;
+    }
+
+    std::vector<Key> m_keys;
+};
+
+// "@%SystemRoot%\System32\themeui.dll,-2013" and the like: the name Settings shows.
+std::wstring displayNameOf(const std::filesystem::path& file)
+{
+    auto theme = readThemeFile(file);
+    if (!theme)
+    {
+        return {};
+    }
+    bool inTheme = false;
+    for (std::size_t start = 0; start <= theme->text.size();)
+    {
+        const std::size_t end = theme->text.find(L'\n', start);
+        const std::wstring_view line =
+            trim(std::wstring_view(theme->text).substr(start, (end == std::wstring::npos ? theme->text.size() : end) - start));
+        if (line.starts_with(L'['))
+        {
+            inTheme = equalsIgnoreCase(line, L"[Theme]");
+        }
+        else if (inTheme)
+        {
+            const auto equals = line.find(L'=');
+            if (equals != std::wstring_view::npos && equalsIgnoreCase(trim(line.substr(0, equals)), L"DisplayName"))
+            {
+                std::wstring value(trim(line.substr(equals + 1)));
+                if (value.starts_with(L'@'))
+                {
+                    std::array<wchar_t, 512> resolved{};
+                    if (SUCCEEDED(SHLoadIndirectString(value.c_str(), resolved.data(), static_cast<UINT>(resolved.size()), nullptr)))
+                    {
+                        value = resolved.data();
+                    }
+                }
+                return value;
+            }
+        }
+        if (end == std::wstring::npos)
+        {
+            break;
+        }
+        start = end + 1;
+    }
+    return {};
+}
+
 struct ManagedTheme
 {
     std::filesystem::path path;
@@ -410,6 +603,8 @@ Result<void> Win32ThemeApi::applyLook(const ports::ThemeLook& look)
     constexpr int kTurns = 3;
     constexpr std::array<std::chrono::milliseconds, kTurns - 1> kTurnEnds = {std::chrono::milliseconds(1200),
                                                                              std::chrono::milliseconds(3000)};
+    const Kept kept = Kept::take();
+    const auto keep = wil::scope_exit([&] { kept.putBackSettled(); });
     const auto start = std::chrono::steady_clock::now();
     const auto deadline = start + m_wait;
     for (int turn = 1; turn <= kTurns; ++turn)
@@ -472,6 +667,95 @@ Result<void> Win32ThemeApi::applyLook(const ports::ThemeLook& look)
     }
     return fail(ErrorCode::Timeout,
                 std::format("Windows did not report the new theme in time ({})", lookDifference(look)));
+}
+
+Result<void> Win32ThemeApi::nameCurrentTheme(const std::string& file)
+{
+    auto wide = utf8To16(file);
+    if (!wide)
+    {
+        return std::unexpected(std::move(wide.error()));
+    }
+    const auto bytes = static_cast<DWORD>((wide->size() + 1) * sizeof(wchar_t));
+    // Windows may still be writing these from the last apply: written again a moment later. The theme to
+    // come back to after high contrast is Windows' to keep, but never one of ours: that would bring a
+    // rice's look back.
+    const auto ours = [](const std::wstring& path) {
+        const std::wstring name = std::filesystem::path(path).filename().native();
+        return name.size() >= 13 && equalsIgnoreCase(std::wstring_view(name).substr(0, 13), L"RicingManager");
+    };
+    for (int round = 0; round < 2; ++round)
+    {
+        if (const LSTATUS status = RegSetKeyValueW(HKEY_CURRENT_USER, std::wstring(kThemesKey).c_str(),
+                                                   L"CurrentTheme", REG_SZ, wide->c_str(), bytes);
+            status != ERROR_SUCCESS)
+        {
+            return std::unexpected(win32Error(static_cast<std::uint32_t>(status), "name the current theme"));
+        }
+        if (const auto highContrast = readString(kThemesKey, L"Pre-High Contrast Scheme");
+            highContrast && ours(*highContrast))
+        {
+            RegSetKeyValueW(HKEY_CURRENT_USER, std::wstring(kThemesKey).c_str(), L"Pre-High Contrast Scheme", REG_SZ,
+                            wide->c_str(), bytes);
+        }
+        if (round == 0)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    }
+    return {};
+}
+
+Result<void> Win32ThemeApi::applyThemeFile(const std::string& file)
+{
+    auto wide = utf8To16(file);
+    if (!wide)
+    {
+        return std::unexpected(std::move(wide.error()));
+    }
+    const std::filesystem::path path(expand(*wide));
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec))
+    {
+        return fail(ErrorCode::NotFound, std::format("the theme {} is gone", file));
+    }
+    const Kept kept = Kept::take();
+    const auto keep = wil::scope_exit([&] { kept.putBackSettled(); });
+    const std::wstring name = displayNameOf(path);
+    HRESULT result = E_FAIL;
+    std::thread worker([&] {
+        const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        if (FAILED(init))
+        {
+            result = init;
+            return;
+        }
+        // The look only (Windows' list knows it by its name); else the whole file, the pointers kept.
+        result = name.empty() ? HRESULT_FROM_WIN32(ERROR_NOT_FOUND) : applyByIndex(name);
+        if (result == HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
+        {
+            result = applyLegacy(path);
+        }
+        CoUninitialize();
+    });
+    worker.join();
+    if (FAILED(result))
+    {
+        return std::unexpected(hresultError(result, "apply the theme again"));
+    }
+    // Windows takes it in the background: until it names the file as the current theme.
+    const auto deadline = std::chrono::steady_clock::now() + m_wait;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (const auto current = readString(kThemesKey, L"CurrentTheme");
+            current && equalsIgnoreCase(expand(*current), path.native()))
+        {
+            return {};
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    log::warn("theme: Windows does not name {} as the current theme yet", file);
+    return {};
 }
 
 } // namespace rmw::platform

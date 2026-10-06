@@ -736,7 +736,20 @@ private:
                 }
             }
         }
-        if (config.desktop.empty() && config.folders.empty() && config.apps.empty() && config.types.empty())
+        if (const auto* machine = t.table("machine"))
+        {
+            TableReader m(*machine, t.pathOf("machine"), m_diagnostics);
+            for (const auto& entry : kMachineIconNames)
+            {
+                if (auto file = readPath(m, entry.name, kIconExtensions))
+                {
+                    config.machine.emplace_back(entry.value, std::move(*file));
+                }
+            }
+            m.reportUnknownKeys();
+        }
+        if (config.desktop.empty() && config.folders.empty() && config.apps.empty() && config.types.empty() &&
+            config.machine.empty())
         {
             t.warning("folders", "nothing to change: give desktop icons, [icons.folders], [icons.apps] or [icons.types]");
         }

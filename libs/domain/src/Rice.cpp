@@ -378,6 +378,16 @@ std::string_view toString(SoundScheme value) noexcept
     return enumToName<SoundScheme>(kSoundSchemeNames, value);
 }
 
+std::string_view riceName(MachineIcon icon) noexcept
+{
+    return enumToName<MachineIcon>(kMachineIconNames, icon);
+}
+
+std::optional<MachineIcon> machineIconFromRiceName(std::string_view name) noexcept
+{
+    return enumFromName<MachineIcon>(kMachineIconNames, name);
+}
+
 std::string_view toString(WindowCorners value) noexcept
 {
     return enumToName<WindowCorners>(kWindowCornersNames, value);

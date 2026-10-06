@@ -6,7 +6,9 @@
 
 // The cursor scheme (docs/09 §6): REG_EXPAND_SZ values under HKCU\Control Panel\Cursors plus
 // SPI_SETCURSORS. Fields:
-//   "Arrow", "Help", ... "Person"   {"type": "expand"|"string", "data": path} or null (absent)
+//   "Arrow", "Help", ... "Person"   {"type": "expand"|"string", "data": path} or null (absent); a
+//                                    captured user file also has "copy" (the same file in the store),
+//                                    written only when the file at "data" is gone
 //   "scheme"                         the key's default value (scheme name), same shape or null
 //   "schemeSource"                   "Scheme Source" DWORD or null
 //   "size"                           CursorBaseSize DWORD (32..256) or null
@@ -22,9 +24,13 @@ public:
     [[nodiscard]] std::span<const std::string_view> dependsOn() const noexcept override;
     [[nodiscard]] Result<engine::Json> desiredFromRice(const domain::Rice& rice,
                                                        engine::IAssetSink& assets) const override;
-    // Copies cursor files outside %SystemRoot% into the store, so a restore still works after the
-    // user deletes the pack they had installed.
+    // Copies cursor files outside %SystemRoot% into the store, as "copy" next to their path: a restore
+    // puts the path back (Settings' own pointer files stay Settings'), the copy only when the user
+    // deleted the pack they had installed.
     [[nodiscard]] Result<void> internalize(engine::Json& state, engine::IAssetSink& assets) const override;
+    // "copy" never counts.
+    [[nodiscard]] bool fieldEquivalent(std::string_view field, const engine::Json& a,
+                                       const engine::Json& b) const override;
 };
 
 class CursorsSystem final : public engine::IModuleSystem

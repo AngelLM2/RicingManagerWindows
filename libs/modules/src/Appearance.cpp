@@ -2,7 +2,10 @@
 
 #include "rmw/base/Log.hpp"
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <thread>
 #include <ctime>
 #include <format>
 
@@ -17,6 +20,28 @@ constexpr std::string_view kPersonalize = R"(Software\Microsoft\Windows\CurrentV
 constexpr std::string_view kDwm = R"(Software\Microsoft\Windows\DWM)";
 constexpr std::uint32_t kDefaultColorization = 0xC40078D4; // Windows blue
 constexpr std::uint32_t kColorizationAlpha = 0xC4000000;   // what Windows writes for opaque accents
+constexpr std::string_view kThemes = R"(Software\Microsoft\Windows\CurrentVersion\Themes)";
+constexpr std::string_view kOurTheme = "ricing-manager"; // "theme" from a rice: the managed theme
+constexpr auto kThemeSettleStep = std::chrono::milliseconds(100);
+
+// RicingManager.theme, RicingManager-2.theme: the managed theme (ours).
+bool isOurTheme(const Json& value)
+{
+    if (!value.is_string())
+    {
+        return false;
+    }
+    const auto& text = value.get_ref<const std::string&>();
+    if (text == kOurTheme)
+    {
+        return true;
+    }
+    const auto slash = text.find_last_of("\\/");
+    std::string name = text.substr(slash == std::string::npos ? 0 : slash + 1);
+    std::ranges::transform(name, name.begin(),
+                           [](char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; });
+    return name.starts_with("ricingmanager");
+}
 
 domain::TimeOfDay localNow()
 {
@@ -139,6 +164,10 @@ Result<Json> AppearanceLogic::desiredFromRice(const domain::Rice& rice, engine::
     {
         desired["accentOnTaskbar"] = *appearance.accentOnTaskbar;
     }
+    if (desired.contains("appsLight") || desired.contains("accent"))
+    {
+        desired["theme"] = kOurTheme; // the look goes through our managed theme
+    }
     return desired;
 }
 
@@ -147,6 +176,23 @@ bool AppearanceLogic::fieldEquivalent(std::string_view field, const Json& a, con
     if (field == "accent")
     {
         return colorizationFromHex(a) == colorizationFromHex(b);
+    }
+    if (field == "theme")
+    {
+        if (isOurTheme(a) || isOurTheme(b))
+        {
+            return isOurTheme(a) && isOurTheme(b);
+        }
+        if (a.is_string() && b.is_string())
+        {
+            const auto lower = [](std::string text) {
+                std::ranges::transform(text, text.begin(), [](char c) {
+                    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+                });
+                return text;
+            };
+            return lower(a.get<std::string>()) == lower(b.get<std::string>());
+        }
     }
     return a == b;
 }
@@ -183,6 +229,15 @@ Result<engine::CaptureResult> AppearanceSystem::capture()
         return std::unexpected(std::move(colorization.error()));
     }
     result.state["accent"] = accentHex(*colorization);
+    auto theme = m_registry.read(kThemes, "CurrentTheme");
+    if (!theme)
+    {
+        return std::unexpected(std::move(theme.error()));
+    }
+    result.state["theme"] = *theme && ((*theme)->type == ports::RegistryValue::Type::String ||
+                                       (*theme)->type == ports::RegistryValue::Type::ExpandString)
+                                ? Json((*theme)->text)
+                                : Json(nullptr);
     return result;
 }
 
@@ -211,45 +266,105 @@ Result<void> AppearanceSystem::apply(const Json& desired)
         }
     }
 
+    // A restore: the theme the user had selected comes back first (its look only; the pointers and the
+    // recent colors stay as they are). The fields below then set what it does not.
+    bool themeApplied = false;
+    if (const auto theme = desired.find("theme"); theme != desired.end() && theme->is_string() && !isOurTheme(*theme))
+    {
+        if (auto applied = m_theme.applyThemeFile(theme->get<std::string>()); applied)
+        {
+            themeApplied = true;
+        }
+        else
+        {
+            log::warn("appearance: the theme the user had cannot come back ({}); its look is set instead",
+                      applied.error().toString());
+        }
+    }
+
     if (appsLight || systemLight || colorization)
     {
+        const auto rgb = [](std::optional<std::uint32_t> argb) {
+            return argb ? std::optional<std::uint32_t>(*argb & 0x00FFFFFF) : std::nullopt;
+        };
+        const auto shows = [&](const Json& state) {
+            return (!appsLight || state["appsLight"] == *appsLight) &&
+                   (!systemLight || state["systemLight"] == *systemLight) &&
+                   (!colorization || rgb(colorizationFromHex(state["accent"])) == rgb(colorization));
+        };
         auto current = capture();
         if (!current)
         {
             return std::unexpected(std::move(current.error()));
         }
-        const Json& now = current->state;
-        const ports::ThemeLook look{
-            appsLight.value_or(now["appsLight"].get<bool>()),
-            systemLight.value_or(now["systemLight"].get<bool>()),
-            colorization.value_or(colorizationFromHex(now["accent"]).value_or(kDefaultColorization)),
-        };
-        if (auto themed = m_theme.applyLook(look); !themed)
+        // The user's theme names itself first; its mode and accent reach the registry a moment later.
+        const auto settleUntil = std::chrono::steady_clock::now() + m_themeSettle;
+        while (themeApplied && !shows(current->state) && std::chrono::steady_clock::now() < settleUntil)
         {
-            const bool accentChanges =
-                colorization && accentHex(*colorization) != now["accent"].get<std::string>();
-            if (accentChanges)
+            std::this_thread::sleep_for(kThemeSettleStep);
+            current = capture();
+            if (!current)
             {
-                return std::unexpected(std::move(themed.error()).withContext("apply accent color"));
+                return std::unexpected(std::move(current.error()));
             }
-            // Mode only: the registry fallback works, though the taskbar may not repaint until
-            // the next sign-in (ADR-0005).
-            log::warn("theme apply failed ({}); falling back to the registry for light/dark",
-                      themed.error().toString());
-            for (auto [name, light] : {std::pair{"AppsUseLightTheme", look.appsLight},
-                                       std::pair{"SystemUsesLightTheme", look.systemLight}})
+        }
+        const Json& now = current->state;
+        const bool shown = themeApplied && shows(now);
+        if (themeApplied && !shown)
+        {
+            // Windows does not always take a theme's accent with its look (seen in the Sandbox): the look
+            // the user had goes on through our theme, and their theme is named the current one again.
+            log::warn("appearance: the theme the user had does not show its look (light apps {}, system {}, "
+                      "accent {}); setting it, then naming their theme again",
+                      now["appsLight"].dump(), now["systemLight"].dump(), now["accent"].dump());
+        }
+        if (!shown)
+        {
+            const ports::ThemeLook look{
+                appsLight.value_or(now["appsLight"].get<bool>()),
+                systemLight.value_or(now["systemLight"].get<bool>()),
+                colorization.value_or(colorizationFromHex(now["accent"]).value_or(kDefaultColorization)),
+            };
+            auto themed = m_theme.applyLook(look);
+            if (!themed)
             {
-                if (auto written =
-                        m_registry.write(kPersonalize, name, ports::RegistryValue::fromDword(light ? 1 : 0));
-                    !written)
+                const bool accentChanges =
+                    colorization && accentHex(*colorization) != now["accent"].get<std::string>();
+                if (accentChanges)
                 {
-                    return written;
+                    return std::unexpected(std::move(themed.error()).withContext("apply accent color"));
+                }
+                // Mode only: the registry fallback works, though the taskbar may not repaint until
+                // the next sign-in (ADR-0005).
+                log::warn("theme apply failed ({}); falling back to the registry for light/dark",
+                          themed.error().toString());
+                for (auto [name, light] : {std::pair{"AppsUseLightTheme", look.appsLight},
+                                           std::pair{"SystemUsesLightTheme", look.systemLight}})
+                {
+                    if (auto written =
+                            m_registry.write(kPersonalize, name, ports::RegistryValue::fromDword(light ? 1 : 0));
+                        !written)
+                    {
+                        return written;
+                    }
+                }
+                if (auto broadcast = m_shell.broadcastSettingChange("ImmersiveColorSet"); !broadcast)
+                {
+                    return broadcast;
                 }
             }
-            if (auto broadcast = m_shell.broadcastSettingChange("ImmersiveColorSet"); !broadcast)
-            {
-                return broadcast;
-            }
+        }
+    }
+
+    // The user's theme is the current one (and never one of ours the one to come back to after high
+    // contrast), whichever way its look came back: Windows writes these in its own time, or not at all
+    // after our fallback.
+    if (themeApplied)
+    {
+        const std::string original = desired.find("theme")->get<std::string>();
+        if (auto named = m_theme.nameCurrentTheme(original); !named)
+        {
+            log::warn("appearance: cannot name {} the current theme: {}", original, named.error().toString());
         }
     }
 
