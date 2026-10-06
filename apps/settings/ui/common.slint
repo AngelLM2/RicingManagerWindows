@@ -238,3 +238,43 @@ export component Problem inherits Rectangle {
         }
     }
 }
+
+// A round button with an icon (Segoe Fluent Icons) and a name for Narrator and the tooltip.
+export component IconButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background: !root.enabled ? transparent
+        : touch.pressed ? Palette.foreground.transparentize(82%)
+        : touch.has-hover ? Palette.foreground.transparentize(90%) : transparent;
+    animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if (root.enabled) {
+            root.clicked();
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        text: root.glyph;
+        font-family: "Segoe Fluent Icons";
+        font-size: 15px;
+        color: root.enabled ? Palette.foreground : Palette.foreground.transparentize(60%);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}

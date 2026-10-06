@@ -201,6 +201,81 @@ std::vector<domain::CursorAssignment> guessCursors(const fs::path& folder)
 
 // ---- the window ---------------------------------------------------------------------------------
 
+namespace
+{
+
+// The one settings window (one instance per user): its original window procedure and its app.
+WNDPROC g_original = nullptr;
+SettingsApp* g_app = nullptr;
+bool g_sizing = false;
+
+LRESULT CALLBACK repaintingProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    bool whole = false;
+    switch (message)
+    {
+    case WM_ENTERSIZEMOVE:
+        g_sizing = true;
+        break;
+    case WM_EXITSIZEMOVE:
+        g_sizing = false;
+        whole = true;
+        break;
+    case WM_WINDOWPOSCHANGED: {
+        // Moved by code or a shortcut (Win+arrows), or shown again; a drag ends with EXITSIZEMOVE.
+        const auto* position =
+            reinterpret_cast<const WINDOWPOS*>(lParam); // NOLINT(performance-no-int-to-ptr)
+        whole = !g_sizing && position != nullptr &&
+                ((position->flags & SWP_NOMOVE) == 0 || (position->flags & SWP_SHOWWINDOW) != 0);
+        break;
+    }
+    case WM_SIZE:
+        whole = wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED;
+        break;
+    case WM_DISPLAYCHANGE:
+    case WM_DPICHANGED:
+        whole = true;
+        break;
+    default:
+        break;
+    }
+    const LRESULT result = CallWindowProcW(g_original, window, message, wParam, lParam);
+    if (whole && g_app != nullptr)
+    {
+        g_app->repaintAll();
+    }
+    return result;
+}
+
+} // namespace
+
+void SettingsApp::watchWindow()
+{
+    auto* const handle = static_cast<HWND>(window());
+    if (handle == nullptr || g_original != nullptr)
+    {
+        return;
+    }
+    g_app = this;
+    g_original = reinterpret_cast<WNDPROC>( // NOLINT(performance-no-int-to-ptr): the window's procedure
+        SetWindowLongPtrW(handle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&repaintingProc)));
+}
+
+void SettingsApp::repaintAll()
+{
+    if (m_repaintQueued)
+    {
+        return;
+    }
+    m_repaintQueued = true;
+    // Not from inside the window procedure: Slint takes it from its own loop.
+    // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+    slint::invoke_from_event_loop([this] {
+        m_repaintQueued = false;
+        m_ui->set_repaint(!m_ui->get_repaint());
+    });
+}
+
 SettingsApp::SettingsApp(fs::path dataDirectory)
     : m_dataDirectory(std::move(dataDirectory))
     , m_ui(AppWindow::create())
@@ -232,6 +307,7 @@ void SettingsApp::run()
     });
     m_ui->show();
     fitToMonitor();
+    watchWindow();
     setDarkTitleBar(window(), windowsUsesDarkApps());
     log::info("settings: shown");
     notice(NoticeKind::Connecting);
@@ -441,6 +517,11 @@ void SettingsApp::refreshStatus()
                                 : shared(settings::readEntry(fs::path(utf8To16Lossy(current))).name));
         api.set_can_undo(!json::stringOr(rice, "previous", "").empty());
         api.set_safe_mode(json::memberOr(m_status, "safeMode", Json()).is_string());
+        if (const Page page = api.get_page(); page == Page::Appearance || page == Page::Wallpapers ||
+                                              page == Page::Cursors || page == Page::Bar)
+        {
+            ensureEditing(page); // opened on an editor page before the core answered
+        }
         api.set_original_captured(json::memberOr(m_status, "originalCapturedAt", Json()).is_number());
 
         std::vector<slint::SharedString> managed;
@@ -922,6 +1003,57 @@ void SettingsApp::refreshDiagnostics()
 }
 
 // ---- the rice being edited -----------------------------------------------------------------------
+
+void SettingsApp::ensureEditing(Page page)
+{
+    const auto& api = m_ui->global<Api>();
+    if (m_edit || m_preparingEdit || !api.get_connected())
+    {
+        return;
+    }
+    // The applied rice is what changes...
+    const std::string current =
+        json::stringOr(json::memberOr(m_status, "rice", Json::object()), "current", "");
+    std::error_code ec;
+    if (!current.empty() && fs::exists(fs::path(utf8To16Lossy(current)) / L"rice.toml", ec))
+    {
+        startEditing(fs::path(utf8To16Lossy(current)), page);
+        return;
+    }
+    // ...or, with none applied, the look Windows has now, saved as "My look": these pages never
+    // open on nothing to change.
+    auto folder = settings::newRiceFolder(m_dataDirectory, text(m_ui->global<Words>().invoke_my_look_name()));
+    if (!folder)
+    {
+        failed(folder.error());
+        return;
+    }
+    m_preparingEdit = true;
+    api.set_preparing_edit(true);
+    const std::string riceName = utf8(folder->filename());
+    call(
+        "rice.export", Json{{"path", utf8(*folder)}, {"name", riceName}},
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+        [this, folder = *folder, page](Reply reply) {
+            m_preparingEdit = false;
+            m_ui->global<Api>().set_preparing_edit(false);
+            if (!reply)
+            {
+                failed(reply.error());
+                return;
+            }
+            refreshRices();
+            if (m_edit)
+            {
+                return; // the user picked a rice to edit meanwhile: theirs wins
+            }
+            const Page now = m_ui->global<Api>().get_page();
+            const bool editorPage = now == Page::Appearance || now == Page::Wallpapers ||
+                                    now == Page::Cursors || now == Page::Bar;
+            startEditing(folder, editorPage ? now : page);
+        },
+        true);
+}
 
 void SettingsApp::startEditing(const fs::path& folder, Page page)
 {
@@ -1486,6 +1618,7 @@ void SettingsApp::bind()
         {
         case Page::Home:
             refreshStatus();
+            refreshRices(); // the applied rice's picture and the library strip
             break;
         case Page::Rices:
             refreshRices();
@@ -1502,6 +1635,11 @@ void SettingsApp::bind()
         case Page::Wallpapers:
         case Page::Bar:
             refreshMonitors();
+            ensureEditing(page);
+            break;
+        case Page::Appearance:
+        case Page::Cursors:
+            ensureEditing(page);
             break;
         default:
             break;

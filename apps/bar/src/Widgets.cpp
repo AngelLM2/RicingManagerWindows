@@ -28,24 +28,50 @@ using slint::interpreter::Value;
 // Every widget takes `foreground` and `vertical` from the bar (rmw::bar::generateBarSource).
 constexpr std::string_view kSources = R"slint(
 // ---- built-in widgets (rmw-bar) ------------------------------------------------------------------
+// Every one takes from the bar: `foreground`, `vertical`, `item-radius` (its highlights follow the
+// bar's corners) and `accent` (Windows' accent color, for what is active). Highlights fade in and
+// out; icons come from Segoe Fluent Icons, Windows 11's own icon font.
+
+component RmwHighlight inherits Rectangle {
+    in property <color> foreground;
+    in property <length> item-radius;
+    in property <bool> hovered;
+    in property <bool> pressed;
+    in property <bool> active;
+    border-radius: root.item-radius;
+    background: root.pressed ? root.foreground.transparentize(80%)
+        : root.active ? root.foreground.transparentize(85%)
+        : root.hovered ? root.foreground.transparentize(89%)
+        : root.foreground.transparentize(100%);
+    animate background { duration: 120ms; easing: ease-out; }
+}
+
 export component RmwStart inherits Rectangle {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     callback clicked();
     min-width: 36px;
     min-height: 32px;
-    preferred-width: 40px;
+    preferred-width: 42px;
     preferred-height: 40px;
-    border-radius: 6px;
-    background: touch.pressed ? rgba(255, 255, 255, 0.20) : touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
-    // A neutral four-tile mark.
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
+    // Four tiles in the accent color; they draw together a little when pressed.
+    property <length> tile: touch.pressed ? 6.5px : 7px;
+    animate tile { duration: 90ms; easing: ease-out; }
     for i in 4: Rectangle {
-        x: (parent.width - 16px) / 2 + mod(i, 2) * 9px;
-        y: (parent.height - 16px) / 2 + floor(i / 2) * 9px;
-        width: 7px;
-        height: 7px;
+        x: (parent.width - 2 * root.tile - 2px) / 2 + mod(i, 2) * (root.tile + 2px);
+        y: (parent.height - 2 * root.tile - 2px) / 2 + floor(i / 2) * (root.tile + 2px);
+        width: root.tile;
+        height: root.tile;
         border-radius: 1.5px;
-        background: root.foreground;
+        background: root.accent;
     }
     touch := TouchArea {
         clicked => { root.clicked(); }
@@ -62,6 +88,8 @@ export struct RmwWindowItem {
 component RmwWindowButton inherits Rectangle {
     in property <RmwWindowItem> item;
     in property <color> foreground;
+    in property <length> item-radius;
+    in property <color> accent;
     in property <bool> labels;
     callback activate(int);
     min-width: 40px;
@@ -69,8 +97,13 @@ component RmwWindowButton inherits Rectangle {
     preferred-width: root.labels ? 180px : 44px;
     max-width: root.labels ? 220px : 48px;
     preferred-height: 40px;
-    border-radius: 6px;
-    background: root.item.active ? rgba(255, 255, 255, 0.16) : touch.has-hover ? rgba(255, 255, 255, 0.09) : transparent;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+        active: root.item.active;
+    }
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
@@ -80,9 +113,10 @@ component RmwWindowButton inherits Rectangle {
             alignment: center;
             Image {
                 source: root.item.icon;
-                width: 20px;
-                height: 20px;
+                width: 22px;
+                height: 22px;
                 image-fit: contain;
+                image-rendering: smooth;
             }
         }
         if root.labels: Text {
@@ -93,14 +127,15 @@ component RmwWindowButton inherits Rectangle {
             vertical-alignment: center;
         }
     }
-    // The active window's mark.
+    // The open window's mark: a dot, a longer accent bar for the active one.
     Rectangle {
         width: root.item.active ? 16px : 6px;
         height: 3px;
         x: (parent.width - self.width) / 2;
         y: parent.height - 4px;
         border-radius: 1.5px;
-        background: root.item.active ? root.foreground : root.foreground.transparentize(60%);
+        background: root.item.active ? root.accent : root.foreground.transparentize(55%);
+        animate width, background { duration: 160ms; easing: ease-out; }
     }
     touch := TouchArea {
         clicked => { root.activate(root.item.id); }
@@ -110,6 +145,8 @@ component RmwWindowButton inherits Rectangle {
 export component RmwWindows inherits HorizontalLayout {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <[RmwWindowItem]> windows;
     in property <bool> labels: true;
     callback activate(int);
@@ -117,6 +154,8 @@ export component RmwWindows inherits HorizontalLayout {
     for item in root.windows: RmwWindowButton {
         item: item;
         foreground: root.foreground;
+        item-radius: root.item-radius;
+        accent: root.accent;
         labels: root.labels;
         activate(id) => { root.activate(id); }
     }
@@ -125,6 +164,8 @@ export component RmwWindows inherits HorizontalLayout {
 export component RmwWindowsColumn inherits VerticalLayout {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <[RmwWindowItem]> windows;
     in property <bool> labels;
     callback activate(int);
@@ -132,30 +173,54 @@ export component RmwWindowsColumn inherits VerticalLayout {
     for item in root.windows: RmwWindowButton {
         item: item;
         foreground: root.foreground;
+        item-radius: root.item-radius;
+        accent: root.accent;
         labels: false;
         activate(id) => { root.activate(id); }
     }
 }
 
-// A short text that updates itself (cpu, memory, network, battery, volume).
-export component RmwLabel inherits Rectangle {
+// A status that updates itself (volume, network, battery, cpu, memory): an icon, and a short text
+// when the rice wants it.
+export component RmwStatus inherits Rectangle {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <string> text;
+    in property <string> glyph;
+    in property <bool> show-text: true;
     in property <bool> shown: true;
     callback clicked();
     callback scrolled(int);
     visible: root.shown;
-    min-width: root.shown ? label.preferred-width + 16px : 0px;
+    min-width: root.shown ? max(32px, row.preferred-width) : 0px;
     min-height: root.shown ? 32px : 0px;
-    border-radius: 6px;
-    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
-    label := Text {
-        text: root.text;
-        color: root.foreground;
-        font-size: 12px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
+    row := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        alignment: center;
+        if root.glyph != "": Text {
+            text: root.glyph;
+            font-family: "Segoe Fluent Icons";
+            font-size: 15px;
+            color: root.foreground;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+        if root.show-text && root.text != "": Text {
+            text: root.text;
+            color: root.foreground;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
     }
     touch := TouchArea {
         clicked => { root.clicked(); }
@@ -166,20 +231,26 @@ export component RmwLabel inherits Rectangle {
     }
 }
 
-// Notifications (or quick settings): a bell from the system icon font.
+// Notifications (or quick settings): a bell.
 export component RmwBell inherits Rectangle {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     callback clicked();
     min-width: 36px;
     min-height: 32px;
     preferred-width: 40px;
-    border-radius: 6px;
-    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
     Text {
-        text: "\u{E7E7}";
+        text: "\u{EA8F}";
         font-family: "Segoe Fluent Icons";
-        font-size: 16px;
+        font-size: 15px;
         color: root.foreground;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -192,10 +263,15 @@ export component RmwBell inherits Rectangle {
 component RmwGlyph inherits Rectangle {
     in property <string> glyph;
     in property <color> foreground;
+    in property <length> item-radius;
     callback clicked();
     width: 28px;
-    border-radius: 6px;
-    background: touch.has-hover ? rgba(255, 255, 255, 0.14) : transparent;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
     Text {
         text: root.glyph;
         font-family: "Segoe Fluent Icons";
@@ -213,6 +289,8 @@ component RmwGlyph inherits Rectangle {
 export component RmwMedia inherits Rectangle {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <string> title;
     in property <bool> playing;
     in property <bool> shown;
@@ -224,11 +302,18 @@ export component RmwMedia inherits Rectangle {
     preferred-width: root.shown ? 260px : 0px;
     max-width: root.shown ? 320px : 0px;
     min-height: root.shown ? 32px : 0px;
-    border-radius: 6px;
     HorizontalLayout {
         padding-left: 8px;
         padding-right: 2px;
         spacing: 2px;
+        Text {
+            text: "\u{E8D6}";
+            font-family: "Segoe Fluent Icons";
+            font-size: 13px;
+            color: root.accent;
+            vertical-alignment: center;
+        }
+        Rectangle { width: 4px; }
         Text {
             text: root.title;
             color: root.foreground;
@@ -240,16 +325,19 @@ export component RmwMedia inherits Rectangle {
         RmwGlyph {
             glyph: "\u{E892}";
             foreground: root.foreground;
+            item-radius: root.item-radius;
             clicked => { root.previous(); }
         }
         RmwGlyph {
             glyph: root.playing ? "\u{E769}" : "\u{E768}";
             foreground: root.foreground;
+            item-radius: root.item-radius;
             clicked => { root.toggle(); }
         }
         RmwGlyph {
             glyph: "\u{E893}";
             foreground: root.foreground;
+            item-radius: root.item-radius;
             clicked => { root.next(); }
         }
     }
@@ -263,16 +351,32 @@ export struct RmwDesktopItem {
 component RmwDesktopButton inherits Rectangle {
     in property <RmwDesktopItem> desktop;
     in property <color> foreground;
+    in property <length> item-radius;
+    in property <color> accent;
     callback select(int);
     min-width: 26px;
     min-height: 26px;
     preferred-width: 30px;
     preferred-height: 30px;
-    border-radius: 6px;
-    background: root.desktop.active ? rgba(255, 255, 255, 0.18) : touch.has-hover ? rgba(255, 255, 255, 0.09) : transparent;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
+    // The current one: an accent pill under its number.
+    Rectangle {
+        width: root.desktop.active ? 14px : 0px;
+        height: 3px;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 4px;
+        border-radius: 1.5px;
+        background: root.accent;
+        animate width { duration: 160ms; easing: ease-out; }
+    }
     Text {
         text: "\{root.desktop.index + 1}";
-        color: root.foreground;
+        color: root.desktop.active ? root.foreground : root.foreground.transparentize(35%);
         font-size: 12px;
         font-weight: root.desktop.active ? 700 : 400;
         horizontal-alignment: center;
@@ -286,12 +390,16 @@ component RmwDesktopButton inherits Rectangle {
 export component RmwDesktops inherits HorizontalLayout {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <[RmwDesktopItem]> desktops;
     callback select(int);
     spacing: 2px;
     for desktop in root.desktops: RmwDesktopButton {
         desktop: desktop;
         foreground: root.foreground;
+        item-radius: root.item-radius;
+        accent: root.accent;
         select(index) => { root.select(index); }
     }
 }
@@ -299,12 +407,16 @@ export component RmwDesktops inherits HorizontalLayout {
 export component RmwDesktopsColumn inherits VerticalLayout {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <[RmwDesktopItem]> desktops;
     callback select(int);
     spacing: 2px;
     for desktop in root.desktops: RmwDesktopButton {
         desktop: desktop;
         foreground: root.foreground;
+        item-radius: root.item-radius;
+        accent: root.accent;
         select(index) => { root.select(index); }
     }
 }
@@ -317,19 +429,26 @@ export struct RmwTrayItem {
 
 component RmwTrayButton inherits Rectangle {
     in property <RmwTrayItem> item;
+    in property <color> foreground;
+    in property <length> item-radius;
     // kind: 0 left, 1 right, 2 double, 3 hover starts, 4 hover ends, 5 middle (TrayWidget.cpp)
     callback act(int, int);
     min-width: 24px;
     min-height: 24px;
-    preferred-width: 28px;
+    preferred-width: 30px;
     preferred-height: 32px;
-    border-radius: 4px;
-    background: touch.pressed ? rgba(255, 255, 255, 0.20) : touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: min(root.item-radius, 6px);
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
     Image {
         source: root.item.icon;
         width: 16px;
         height: 16px;
         image-fit: contain;
+        image-rendering: smooth;
     }
     touch := TouchArea {
         clicked => { root.act(root.item.id, 0); }
@@ -348,19 +467,24 @@ component RmwTrayButton inherits Rectangle {
 
 component RmwTrayChevron inherits Rectangle {
     in property <color> foreground;
+    in property <length> item-radius;
     in property <bool> expanded;
     callback toggle();
-    min-width: 20px;
+    min-width: 22px;
     min-height: 24px;
-    preferred-width: 22px;
+    preferred-width: 26px;
     preferred-height: 32px;
-    border-radius: 4px;
-    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: min(root.item-radius, 6px);
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
     Text {
         // Segoe Fluent Icons: chevron up (more) / down (fewer)
         text: root.expanded ? "\u{E70D}" : "\u{E70E}";
         font-family: "Segoe Fluent Icons";
-        font-size: 10px;
+        font-size: 11px;
         color: root.foreground;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -373,6 +497,8 @@ component RmwTrayChevron inherits Rectangle {
 export component RmwTray inherits HorizontalLayout {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <[RmwTrayItem]> icons;
     in property <int> hidden-count;
     in property <bool> expanded;
@@ -381,11 +507,14 @@ export component RmwTray inherits HorizontalLayout {
     spacing: 0px;
     if root.hidden-count > 0: RmwTrayChevron {
         foreground: root.foreground;
+        item-radius: root.item-radius;
         expanded: root.expanded;
         toggle => { root.toggle(); }
     }
     for item in root.icons: RmwTrayButton {
         item: item;
+        foreground: root.foreground;
+        item-radius: root.item-radius;
         act(id, kind) => { root.act(id, kind); }
     }
 }
@@ -393,6 +522,8 @@ export component RmwTray inherits HorizontalLayout {
 export component RmwTrayColumn inherits VerticalLayout {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <[RmwTrayItem]> icons;
     in property <int> hidden-count;
     in property <bool> expanded;
@@ -401,30 +532,52 @@ export component RmwTrayColumn inherits VerticalLayout {
     spacing: 0px;
     if root.hidden-count > 0: RmwTrayChevron {
         foreground: root.foreground;
+        item-radius: root.item-radius;
         expanded: root.expanded;
         toggle => { root.toggle(); }
     }
     for item in root.icons: RmwTrayButton {
         item: item;
+        foreground: root.foreground;
+        item-radius: root.item-radius;
         act(id, kind) => { root.act(id, kind); }
     }
 }
 
+// The time, and the date under it when the rice asks (`date = "%d/%m/%Y"`).
 export component RmwClock inherits Rectangle {
     in property <color> foreground;
     in property <bool> vertical;
+    in property <length> item-radius: 6px;
+    in property <color> accent: #60cdff;
     in property <string> text;
+    in property <string> date;
     callback clicked();
-    min-width: label.preferred-width + 16px;
+    min-width: max(label.preferred-width, day.preferred-width) + 18px;
     min-height: 32px;
-    border-radius: 6px;
-    background: touch.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
-    label := Text {
-        text: root.text;
-        color: root.foreground;
-        font-size: 13px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    RmwHighlight {
+        foreground: root.foreground;
+        item-radius: root.item-radius;
+        hovered: touch.has-hover;
+        pressed: touch.pressed;
+    }
+    VerticalLayout {
+        alignment: center;
+        spacing: 0px;
+        label := Text {
+            text: root.text;
+            color: root.foreground;
+            font-size: root.date != "" ? 12px : 13px;
+            horizontal-alignment: center;
+        }
+        day := Text {
+            visible: root.date != "";
+            height: root.date != "" ? self.preferred-height : 0px;
+            text: root.date;
+            color: root.foreground.transparentize(25%);
+            font-size: 11px;
+            horizontal-alignment: center;
+        }
     }
     touch := TouchArea {
         clicked => { root.clicked(); }
@@ -432,13 +585,14 @@ export component RmwClock inherits Rectangle {
 }
 )slint";
 
-constexpr std::array<bar::WidgetProperty, 1> kTextProperty = {{{"text", "string"}}};
+constexpr std::array<bar::WidgetProperty, 2> kClockProperties = {{{"text", "string"}, {"date", "string"}}};
 constexpr std::array<bar::WidgetProperty, 2> kWindowsProperties = {
     {{"windows", "[RmwWindowItem]"}, {"labels", "bool"}}};
-constexpr std::array<bar::WidgetProperty, 2> kLabelProperties = {{{"text", "string"}, {"shown", "bool"}}};
+constexpr std::array<bar::WidgetProperty, 4> kStatusProperties = {
+    {{"text", "string"}, {"glyph", "string"}, {"show-text", "bool"}, {"shown", "bool"}}};
 constexpr std::array<bar::WidgetProperty, 1> kDesktopsProperties = {{{"desktops", "[RmwDesktopItem]"}}};
 constexpr std::array<std::string_view, 1> kClicked = {"clicked"};
-constexpr std::array<std::string_view, 2> kLabelCallbacks = {"clicked", "scrolled(int)"};
+constexpr std::array<std::string_view, 2> kStatusCallbacks = {"clicked", "scrolled(int)"};
 constexpr std::array<std::string_view, 1> kActivate = {"activate(int)"};
 constexpr std::array<std::string_view, 1> kSelect = {"select(int)"};
 constexpr std::array<bar::WidgetProperty, 3> kMediaProperties = {
@@ -447,20 +601,37 @@ constexpr std::array<std::string_view, 3> kMediaCallbacks = {"toggle", "next", "
 constexpr std::array<bar::WidgetProperty, 3> kTrayProperties = {
     {{"icons", "[RmwTrayItem]"}, {"hidden-count", "int"}, {"expanded", "bool"}}};
 constexpr std::array<std::string_view, 2> kTrayCallbacks = {"act(int, int)", "toggle"};
-constexpr std::array<bar::WidgetKind, 12> kKinds = {{
-    {"tray", "RmwTray", kTrayProperties, kTrayCallbacks, "RmwTrayColumn"},
-    {"media", "RmwMedia", kMediaProperties, kMediaCallbacks},
-    {"start", "RmwStart", {}, kClicked},
-    {"clock", "RmwClock", kTextProperty, kClicked},
-    {"windows", "RmwWindows", kWindowsProperties, kActivate, "RmwWindowsColumn"},
-    {"cpu", "RmwLabel", kLabelProperties, kLabelCallbacks},
-    {"memory", "RmwLabel", kLabelProperties, kLabelCallbacks},
-    {"network", "RmwLabel", kLabelProperties, kLabelCallbacks},
-    {"battery", "RmwLabel", kLabelProperties, kLabelCallbacks},
-    {"volume", "RmwLabel", kLabelProperties, kLabelCallbacks},
-    {"notifications", "RmwBell", {}, kClicked},
-    {"desktops", "RmwDesktops", kDesktopsProperties, kSelect, "RmwDesktopsColumn"},
-}};
+
+// A built-in widget: it takes everything the bar hands out.
+constexpr bar::WidgetKind builtin(std::string_view id, std::string_view component,
+                                  std::span<const bar::WidgetProperty> properties,
+                                  std::span<const std::string_view> callbacks, std::string_view vertical = {})
+{
+    return {.id = id,
+            .component = component,
+            .properties = properties,
+            .callbacks = callbacks,
+            .verticalComponent = vertical,
+            .takesForeground = true,
+            .takesVertical = true,
+            .takesItemRadius = true,
+            .takesAccent = true};
+}
+
+constexpr std::array<bar::WidgetKind, 12> kKinds = {
+    builtin("tray", "RmwTray", kTrayProperties, kTrayCallbacks, "RmwTrayColumn"),
+    builtin("media", "RmwMedia", kMediaProperties, kMediaCallbacks),
+    builtin("start", "RmwStart", {}, kClicked),
+    builtin("clock", "RmwClock", kClockProperties, kClicked),
+    builtin("windows", "RmwWindows", kWindowsProperties, kActivate, "RmwWindowsColumn"),
+    builtin("cpu", "RmwStatus", kStatusProperties, kStatusCallbacks),
+    builtin("memory", "RmwStatus", kStatusProperties, kStatusCallbacks),
+    builtin("network", "RmwStatus", kStatusProperties, kStatusCallbacks),
+    builtin("battery", "RmwStatus", kStatusProperties, kStatusCallbacks),
+    builtin("volume", "RmwStatus", kStatusProperties, kStatusCallbacks),
+    builtin("notifications", "RmwBell", {}, kClicked),
+    builtin("desktops", "RmwDesktops", kDesktopsProperties, kSelect, "RmwDesktopsColumn"),
+};
 
 constexpr std::size_t kMaxClockFormat = 64;
 
@@ -495,8 +666,9 @@ class ClockProvider final : public Provider
 {
 public:
     ClockProvider(const bar::Slot& slot, const Instance& instance)
-        : m_property(slot.prefix + "-text")
+        : m_prefix(slot.prefix)
         , m_format(settingString(*slot.item, "format", "%H:%M").substr(0, kMaxClockFormat))
+        , m_dateFormat(settingString(*slot.item, "date", "").substr(0, kMaxClockFormat))
         , m_instance(instance)
     {
         instance->set_callback(slot.prefix + "-clicked", [](std::span<const Value>) {
@@ -512,20 +684,25 @@ private:
     void update()
     {
         std::string text = formatClock(m_format);
-        if (text == m_shown)
+        std::string date = m_dateFormat.empty() ? std::string() : formatClock(m_dateFormat);
+        if (text == m_shown && date == m_shownDate)
         {
             return;
         }
         if (auto instance = m_instance.lock())
         {
-            (*instance)->set_property(m_property, Value(slint::SharedString(text)));
+            (*instance)->set_property(m_prefix + "-text", Value(slint::SharedString(text)));
+            (*instance)->set_property(m_prefix + "-date", Value(slint::SharedString(date)));
         }
         m_shown = std::move(text);
+        m_shownDate = std::move(date);
     }
 
-    std::string m_property;
+    std::string m_prefix;
     std::string m_format;
+    std::string m_dateFormat;
     std::string m_shown;
+    std::string m_shownDate;
     slint::ComponentWeakHandle<slint::interpreter::ComponentInstance> m_instance;
     slint::Timer m_timer; // last: stops before what it uses goes away
 };

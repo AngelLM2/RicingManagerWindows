@@ -94,6 +94,9 @@ export component AppWindow inherits Window {
     min-height: 560px;
     background: Palette.background;
     default-font-family: "Segoe UI Variable Text";
+    // Flipped by SettingsApp when the window comes back (moved, restored, another monitor): the
+    // whole window is drawn again, so no part stays unpainted.
+    in-out property <bool> repaint;
 
     function go(page: Page) {
         Api.page = page;
@@ -137,8 +140,14 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle {
-                    height: 10px;
+                Text {
+                    text: @tr("CUSTOMIZE");
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Palette.foreground.transparentize(45%);
+                    height: 30px;
+                    vertical-alignment: bottom;
+                    accessible-role: AccessibleRole.none;
                 }
 
                 NavItem {
@@ -186,8 +195,14 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle {
-                    height: 10px;
+                Text {
+                    text: @tr("MORE");
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Palette.foreground.transparentize(45%);
+                    height: 30px;
+                    vertical-alignment: bottom;
+                    accessible-role: AccessibleRole.none;
                 }
 
                 NavItem {
@@ -386,5 +401,14 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    // A full-window layer that changes when `repaint` flips (invisible: 1/255 of black or none).
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: root.repaint ? #00000001 : #00000000;
     }
 }

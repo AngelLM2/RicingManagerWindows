@@ -42,6 +42,14 @@ struct IconPixels
 // session, and the copy stays valid after its owner destroys it. Empty when it cannot be drawn.
 [[nodiscard]] IconPixels iconPixels(void* icon, int size = 0);
 
+// Who a window belongs to, as Start knows it: its AppUserModelID (packaged and grouped apps, File
+// Explorer) or else its executable's path. Windows of one app share it. "" when it cannot be read.
+[[nodiscard]] std::wstring appIdentity(void* window);
+// The app's icon as the Shell draws it (Start, the taskbar), at `size` pixels or a little more:
+// sharp at any scale, where a window's own icon is often 16 px. COM must be initialized on the
+// calling thread. Empty when there is none.
+[[nodiscard]] IconPixels appIconPixels(const std::wstring& identity, int size);
+
 // WinEvent hooks out of context (nothing of ours goes into other processes) for what changes a
 // taskbar: foreground, minimize, show/hide/destroy, title, cloak. `changed` runs on the thread that
 // created the hooks, from its message loop. One set per process.

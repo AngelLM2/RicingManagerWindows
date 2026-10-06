@@ -262,8 +262,6 @@ This rice.toml was written by hand: saving from here keeps every setting but not
 What Ricing Manager manages now, and the way back.	O que o Ricing Manager gerencia agora, e o caminho de volta.
 Safe mode: Ricing Manager stopped unexpectedly when starting, so nothing runs by itself. Restoring still works.	Modo seguro: o Ricing Manager parou inesperadamente ao iniciar, então nada roda sozinho. Restaurar continua funcionando.
 No rice applied	Nenhum rice aplicado
-Pick one in Rices, or start your own.	Escolha um em Rices, ou comece o seu.
-Edit this rice	Editar este rice
 Every change is recorded and can be taken back.	Toda mudança fica registrada e pode ser desfeita.
 Back to the rice applied before this one.	Volta ao rice aplicado antes deste.
 Your wallpaper, colors, cursors and taskbar as they were before the first rice.	Seu wallpaper, cores, cursores e barra de tarefas como eram antes do primeiro rice.
@@ -298,11 +296,8 @@ Close	Fechar
 applied	aplicado
 by {}	por {}
 Apply {}	Aplicar {}
-Edit	Editar
 Edit {}	Editar {}
-Duplicate	Duplicar
 Duplicate {}	Duplicar {}
-Open folder	Abrir pasta
 Open the folder of {}	Abrir a pasta de {}
 A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share.	Um rice é um visual inteiro: wallpaper, cores, cursores, barras e plugins, numa pasta que você pode compartilhar.
 Save my current look as a rice	Salvar meu visual atual como um rice
@@ -392,7 +387,18 @@ Choose the app…	Escolher o app…
 App: {}	App: {}
 Added to your rices: {}	Adicionado aos seus rices: {}
 Ready to share: {}	Pronto para compartilhar: {}
-Share…	Compartilhar…
 Share {} as a .rice file	Compartilhar {} como arquivo .rice
 Import a .rice…	Importar um .rice…
 Install from a file…	Instalar de um arquivo…
+CUSTOMIZE	PERSONALIZAR
+MORE	MAIS
+Getting your current look ready to edit…	Preparando o seu visual atual para editar…
+It is saved as a rice of its own, so you can always go back.	Ele é salvo como um rice próprio, para você sempre poder voltar.
+Applied now	Aplicado agora
+Windows as it came	O Windows como veio
+Customize	Personalizar
+Customize my Windows	Personalizar meu Windows
+Change the rice	Trocar de rice
+Your rices	Seus rices
+Click one to apply it	Clique em um para aplicar
+Apply again	Aplicar de novo

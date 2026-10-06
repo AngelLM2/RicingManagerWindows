@@ -349,8 +349,16 @@ Result<LoadedRice> loadRice(const fs::path& folder)
         return std::unexpected(std::move(rice.error()));
     }
     loaded.rice = std::move(*rice);
-    // Comments of the author's own, which saving would drop.
+    // Comments of the author's own, which saving would drop. Ours are not: the line that saving
+    // writes, and the note `rmw export` opens a file with.
     std::size_t start = 0;
+    if (text.starts_with("# Exported by Ricing Manager"))
+    {
+        while (start < text.size() && text[start] == '#')
+        {
+            start = std::min(text.find('\n', start), text.size()) + 1;
+        }
+    }
     while (start < text.size())
     {
         const std::size_t end = std::min(text.find('\n', start), text.size());

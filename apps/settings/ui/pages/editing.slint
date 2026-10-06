@@ -8,7 +8,12 @@ import { Card, Hint, Problem, Metrics } from "../common.slint";
 export component EditingBanner inherits VerticalLayout {
     spacing: 8px;
 
-    if !Api.editing: Card {
+    if !Api.editing && Api.preparing-edit: Card {
+        title: @tr("Getting your current look ready to edit…");
+        subtitle: @tr("It is saved as a rice of its own, so you can always go back.");
+    }
+
+    if !Api.editing && !Api.preparing-edit: Card {
         title: @tr("Pick a rice to change");
         subtitle: @tr("These pages change a rice. Start from the one you use, or from a new one.");
 

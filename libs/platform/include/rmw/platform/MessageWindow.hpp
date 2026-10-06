@@ -52,6 +52,8 @@ struct TrayItem
     std::wstring label;
     bool checked = false;
     bool enabled = true;
+    // Shown in bold; a left click on the icon runs it (a right click shows the menu).
+    bool isDefault = false;
 };
 
 class MessageWindow

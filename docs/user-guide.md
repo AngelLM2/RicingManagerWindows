@@ -92,8 +92,9 @@ Plugins add widgets, bar skins, tweaks, actions and rules. They come as `.rmwp` 
 ## Hotkeys and rules
 
 In the window (**Hotkeys and rules**) or in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml`.
-While you have hotkeys, rules or a schedule, Ricing Manager stays running (a tray icon); otherwise
-it applies what you ask and leaves.
+Ricing Manager keeps its icon in the tray, next to the clock: a click opens the window, the right
+click has **Start with Windows** and **Restore the original Windows**. To have nothing running when
+there are no hotkeys, rules or schedule, turn off **Keep the icon in the tray** in Settings.
 
 ## When something goes wrong
 

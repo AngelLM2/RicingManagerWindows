@@ -132,6 +132,23 @@ slint::Color foregroundOf(const domain::BarConfig& bar, bool light)
                  : slint::Color::from_rgb_uint8(0xf3, 0xf3, 0xf3);
 }
 
+// Windows' accent color (the rice sets it), lighter on a dark bar, as Windows draws it there.
+slint::Color accentOf(bool light)
+{
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\DWM)", L"AccentColor",
+                     RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
+    {
+        value = 0xFFD47800; // Windows' default blue (ABGR)
+    }
+    const auto channel = [&](unsigned shift) {
+        const auto c = static_cast<double>((value >> shift) & 0xFFU);
+        return static_cast<std::uint8_t>(light ? c : c + ((255.0 - c) * 0.35));
+    };
+    return slint::Color::from_rgb_uint8(channel(0), channel(8), channel(16));
+}
+
 } // namespace
 
 struct BarApp::Access
@@ -490,6 +507,7 @@ bool BarApp::rebuild()
             instance->set_property("bar-background", Value(backgroundOf(config, light)));
             instance->set_property("bar-radius", Value(static_cast<double>(config.radius)));
             instance->set_property("bar-foreground", Value(slint::Brush(foregroundOf(config, light))));
+            instance->set_property("bar-accent", Value(slint::Brush(accentOf(light))));
             auto shown = std::make_unique<Shown>(Shown{instance, {}});
             for (const auto& slot : generated.slots)
             {

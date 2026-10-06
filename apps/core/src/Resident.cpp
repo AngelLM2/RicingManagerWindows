@@ -8,12 +8,17 @@
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/json/Json.hpp"
+#include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
+#include "rmw/platform/Pipe.hpp"
 
 #include <windows.h>
 
+#include <shellapi.h>
+
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <format>
 #include <utility>
@@ -36,6 +41,7 @@ enum TimerId : std::uint32_t
     kDisplayTimer,
     kExplorerTimer,
     kSettingsTimer,
+    kTrayPromoteTimer,
     kPagesTimer,
     kBarSourceTimer,
 };
@@ -48,6 +54,8 @@ enum TrayId : std::uint32_t
     kTrayExit,
     kTraySafeMode,
     kTrayBar,
+    kTrayOpen,
+    kTrayAutostart,
 };
 
 // Always the same, documented chord: brings Windows' taskbar back whatever the bar does.
@@ -304,6 +312,9 @@ void Resident::onTimer(std::uint32_t id)
             }
         });
         return;
+    case kTrayPromoteTimer:
+        promoteTrayIconOnce();
+        return;
     case kSettingsTimer:
         if (stampOf(settingsFile(m_core->dataDirectory())) != m_settingsStamp)
         {
@@ -337,8 +348,110 @@ void Resident::onTray(std::uint32_t id)
         log::info("exit from the tray");
         m_window->quit(0);
         return;
+    case kTrayOpen:
+        openSettings();
+        return;
+    case kTrayAutostart: {
+        auto self = platform::currentExecutable();
+        const bool enable = !startsWithWindows();
+        if (auto set =
+                self ? platform::setAutostart(enable, *self) : Result<void>(std::unexpected(self.error()));
+            !set)
+        {
+            log::warn("start with Windows: {}", set.error().toString());
+            return;
+        }
+        log::info("start with Windows: {} (tray)", enable ? "on" : "off");
+        showTray(); // the check mark follows
+        return;
+    }
     default:
         return;
+    }
+}
+
+void Resident::promoteTrayIconOnce()
+{
+    // Windows 11 puts a new tray icon behind the "^"; the user asked to see ours. Once: Explorer's
+    // per-user entry for our executable gets IsPromoted = 1, and a flag file says it was done, so
+    // hiding it again in Windows' settings sticks.
+    const auto flag = m_core->dataDirectory() / L"config" / L"tray-promoted";
+    std::error_code ec;
+    if (std::filesystem::exists(flag, ec))
+    {
+        return;
+    }
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return;
+    }
+    HKEY root = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, LR"(Control Panel\NotifyIconSettings)", 0, KEY_READ | KEY_SET_VALUE,
+                      &root) != ERROR_SUCCESS)
+    {
+        return; // not Windows 11
+    }
+    bool promoted = false;
+    std::array<wchar_t, 64> name{};
+    for (DWORD i = 0;; ++i)
+    {
+        auto length = static_cast<DWORD>(name.size());
+        if (RegEnumKeyExW(root, i, name.data(), &length, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS)
+        {
+            break;
+        }
+        std::wstring path(MAX_PATH * 2, L'\0');
+        auto bytes = static_cast<DWORD>(path.size() * sizeof(wchar_t));
+        if (RegGetValueW(root, name.data(), L"ExecutablePath", RRF_RT_REG_SZ, nullptr, path.data(), &bytes) !=
+            ERROR_SUCCESS)
+        {
+            continue;
+        }
+        path.resize(wcsnlen(path.c_str(), path.size()));
+        if (CompareStringOrdinal(path.c_str(), -1, self->c_str(), -1, TRUE) != CSTR_EQUAL)
+        {
+            continue;
+        }
+        const DWORD one = 1;
+        promoted =
+            RegSetKeyValueW(root, name.data(), L"IsPromoted", REG_DWORD, &one, sizeof(one)) == ERROR_SUCCESS;
+        break;
+    }
+    RegCloseKey(root);
+    if (!promoted)
+    {
+        return; // Explorer has not listed it yet: next time the tray shows
+    }
+    std::filesystem::create_directories(flag.parent_path(), ec);
+    if (auto written = platform::writeFileAtomic(flag, std::as_bytes(std::span("1", 1))); written)
+    {
+        log::info("tray: our icon is shown next to the clock (once; Windows' settings can hide it)");
+    }
+}
+
+bool Resident::startsWithWindows()
+{
+    auto self = platform::currentExecutable();
+    auto state = self ? platform::autostartState(*self)
+                      : Result<platform::AutostartState>(std::unexpected(self.error()));
+    return state && state->registered && state->current && !state->disabledByUser;
+}
+
+void Resident::openSettings()
+{
+    // rmw-settings.exe sits next to the core; a second one brings the first to the front.
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return;
+    }
+    const auto settings = self->parent_path() / L"rmw-settings.exe";
+    const std::wstring arguments = std::format(L"--data-dir \"{}\"", m_core->dataDirectory().native());
+    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", settings.c_str(), arguments.c_str(),
+                                                nullptr, SW_SHOWNORMAL)) <= 32)
+    {
+        log::warn("tray: cannot open {}", utf16To8Lossy(settings.native()));
     }
 }
 
@@ -854,6 +967,9 @@ void Resident::showTray()
 {
     const UiStrings& text = uiStrings();
     std::vector<platform::TrayItem> menu;
+    // A left click opens the window; the menu is on the right click.
+    menu.push_back({.id = kTrayOpen, .label = std::wstring(text.openSettings), .isDefault = true});
+    menu.push_back({});
     if (safe())
     {
         menu.push_back({.id = kTraySafeMode, .label = std::wstring(text.safeModeItem), .enabled = false});
@@ -873,11 +989,17 @@ void Resident::showTray()
         menu.push_back({.id = kTrayReload, .label = std::wstring(text.reloadSettings)});
     }
     menu.push_back({});
+    menu.push_back(
+        {.id = kTrayAutostart, .label = std::wstring(text.startWithWindows), .checked = startsWithWindows()});
     menu.push_back({.id = kTrayExit, .label = std::wstring(text.exit)});
     if (auto shown = m_window->showTray(safe() ? text.tooltipSafeMode : text.tooltip, std::move(menu));
         !shown)
     {
         log::warn("tray: {}", shown.error().toString());
+    }
+    else
+    {
+        m_window->setTimer(kTrayPromoteTimer, 3s); // once Explorer has listed the icon
     }
 }
 

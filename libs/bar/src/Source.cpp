@@ -20,6 +20,9 @@ export component Bar inherits Window {
     in property <brush> bar-background: #000000;
     in property <length> bar-radius: 0px;
     in property <color> bar-foreground: #ffffff;
+    in property <color> bar-accent: #60cdff;
+    // Highlights inside the bar follow its corners: a rounder bar, rounder highlights.
+    out property <length> bar-item-radius: max(4px, min(root.bar-radius - 4px, 12px));
 )";
 
 } // namespace
@@ -82,6 +85,19 @@ GeneratedBar generateBarSource(const domain::BarConfig& bar, std::span<const Wid
             {
                 common += std::format(" vertical: {};", horizontal ? "false" : "true");
             }
+            // A widget that binds one of these itself (from its settings) keeps its own.
+            const auto ownsProperty = [&](std::string_view name) {
+                return std::ranges::any_of(
+                    kind->properties, [&](const WidgetProperty& property) { return property.name == name; });
+            };
+            if (kind->takesItemRadius && !ownsProperty("item-radius"))
+            {
+                common += " item-radius: root.bar-item-radius;";
+            }
+            if (kind->takesAccent && !ownsProperty("accent"))
+            {
+                common += " accent: root.bar-accent;";
+            }
             zones[zone] += std::format("            {} {{{}{} }}\n", component, common, bindings);
             generated.slots.push_back({prefix, &item, &*kind});
         }
@@ -122,9 +138,11 @@ GeneratedBar generateBarSource(const domain::BarConfig& bar, std::span<const Wid
     root += std::format("    out property <length> layout-start-end: start-zone.{0} + start-zone.{1};\n"
                         "    out property <length> layout-center-start: center-zone.{0};\n",
                         axis, along);
+    // Nothing a widget draws spills past the bar's corners.
     root += "    Rectangle {\n"
             "        background: root.bar-background;\n"
-            "        border-radius: root.bar-radius;\n";
+            "        border-radius: root.bar-radius;\n"
+            "        clip: true;\n";
     for (std::size_t zone = 0; zone < zones.size(); ++zone)
     {
         root += std::format("        {} := {} {{\n"

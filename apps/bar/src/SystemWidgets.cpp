@@ -12,10 +12,12 @@
 #include <wil/resource.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <utility>
 
 namespace rmw::barapp
@@ -43,6 +45,13 @@ std::string fill(std::string_view format, std::string_view value)
     return text;
 }
 
+// A Segoe Fluent Icons glyph (Private Use Area, so three bytes of UTF-8).
+std::string glyph(char32_t code)
+{
+    return {static_cast<char>(0xE0U | ((code >> 12U) & 0x0FU)),
+            static_cast<char>(0x80U | ((code >> 6U) & 0x3FU)), static_cast<char>(0x80U | (code & 0x3FU))};
+}
+
 std::string rate(double bytesPerSecond)
 {
     if (bytesPerSecond >= 1024.0 * 1024.0)
@@ -52,14 +61,18 @@ std::string rate(double bytesPerSecond)
     return std::format("{:.0f} KB/s", bytesPerSecond / 1024.0);
 }
 
-// A text widget that refreshes itself: CPU, memory, network, battery.
+// A status that refreshes itself: CPU, memory, network, battery. An icon, and its text when the
+// rice's `label` says so.
 class LabelProvider : public Provider
 {
 public:
-    LabelProvider(const bar::Slot& slot, const Instance& instance, std::chrono::milliseconds period)
+    LabelProvider(const bar::Slot& slot, const Instance& instance, std::chrono::milliseconds period,
+                  bool textByDefault)
         : m_prefix(slot.prefix)
         , m_instance(instance)
     {
+        instance->set_property(m_prefix + "-show-text",
+                               Value(settingBool(*slot.item, "label", textByDefault)));
         m_timer.start(slint::TimerMode::Repeated, period, [this] { refresh(); });
     }
 
@@ -79,6 +92,19 @@ protected:
         }
     }
 
+    void showGlyph(const std::string& icon)
+    {
+        if (icon == m_glyph)
+        {
+            return;
+        }
+        m_glyph = icon;
+        if (auto instance = m_instance.lock())
+        {
+            (*instance)->set_property(m_prefix + "-glyph", Value(slint::SharedString(icon)));
+        }
+    }
+
     // Called by the derived constructor once, then on the timer.
     virtual void refresh() = 0;
 
@@ -93,6 +119,7 @@ private:
     std::string m_prefix;
     slint::ComponentWeakHandle<slint::interpreter::ComponentInstance> m_instance;
     std::string m_text;
+    std::string m_glyph;
     bool m_shown = true;
     slint::Timer m_timer; // last: stops before the rest goes away
 };
@@ -101,9 +128,10 @@ class CpuProvider final : public LabelProvider
 {
 public:
     CpuProvider(const bar::Slot& slot, const Instance& instance)
-        : LabelProvider(slot, instance, 2s)
-        , m_format(settingString(*slot.item, "format", "CPU {}%"))
+        : LabelProvider(slot, instance, 2s, true)
+        , m_format(settingString(*slot.item, "format", "{}%"))
     {
+        showGlyph(glyph(0xE9D9)); // Diagnostic
         refresh();
     }
 
@@ -124,9 +152,10 @@ class MemoryProvider final : public LabelProvider
 {
 public:
     MemoryProvider(const bar::Slot& slot, const Instance& instance)
-        : LabelProvider(slot, instance, 5s)
-        , m_format(settingString(*slot.item, "format", "RAM {}%"))
+        : LabelProvider(slot, instance, 5s, true)
+        , m_format(settingString(*slot.item, "format", "{}%"))
     {
+        showGlyph(glyph(0xE9F5)); // Processing
         refresh();
     }
 
@@ -146,9 +175,10 @@ class NetworkProvider final : public LabelProvider
 {
 public:
     NetworkProvider(const bar::Slot& slot, const Instance& instance)
-        : LabelProvider(slot, instance, 2s)
+        : LabelProvider(slot, instance, 2s, true)
         , m_format(settingString(*slot.item, "format", "↓ {} ↑ {}"))
     {
+        showGlyph(glyph(0xE774)); // Globe
         refresh();
     }
 
@@ -177,7 +207,7 @@ class BatteryProvider final : public LabelProvider
 {
 public:
     BatteryProvider(const bar::Slot& slot, const Instance& instance)
-        : LabelProvider(slot, instance, 30s)
+        : LabelProvider(slot, instance, 30s, true)
         , m_format(settingString(*slot.item, "format", "{}%"))
     {
         refresh();
@@ -192,12 +222,15 @@ private:
             show({}, false); // a desktop: nothing to show
             return;
         }
-        std::string text = fill(m_format, std::to_string(battery.percent));
-        if (battery.pluggedIn)
-        {
-            text += " +"; // charging
-        }
-        show(text);
+        // Battery0..10 and BatteryCharging0..10: tenths of a charge.
+        constexpr std::array<char32_t, 11> kLevels = {0xE850, 0xE851, 0xE852, 0xE853, 0xE854, 0xE855,
+                                                      0xE856, 0xE857, 0xE858, 0xE859, 0xE83F};
+        constexpr std::array<char32_t, 11> kCharging = {0xE85A, 0xE85B, 0xE85C, 0xE85D, 0xE85E, 0xE85F,
+                                                        0xE860, 0xE861, 0xE862, 0xE83E, 0xEA93};
+        const auto tenth =
+            static_cast<std::size_t>(std::clamp((static_cast<int>(battery.percent) + 5) / 10, 0, 10));
+        showGlyph(glyph(battery.pluggedIn ? kCharging[tenth] : kLevels[tenth]));
+        show(fill(m_format, std::to_string(battery.percent)));
     }
 
     std::string m_format;
@@ -212,9 +245,10 @@ public:
         : m_prefix(slot.prefix)
         , m_instance(instance)
         , m_owner(std::make_shared<Owner>())
-        , m_watcher([owner = m_owner](const providers::VolumeState& state) { publish(owner, textOf(state)); })
+        , m_watcher([owner = m_owner](const providers::VolumeState& state) { publish(owner, state); })
     {
         m_owner->provider = this;
+        instance->set_property(m_prefix + "-show-text", Value(settingBool(*slot.item, "label", false)));
         instance->set_callback(m_prefix + "-clicked", [this](std::span<const Value>) {
             m_watcher.toggleMute();
             return Value();
@@ -226,7 +260,7 @@ public:
             }
             return Value();
         });
-        show("—");
+        show({});
     }
 
     ~VolumeProvider() override
@@ -246,20 +280,10 @@ private:
         VolumeProvider* provider = nullptr; // UI thread only, and only while it lives
     };
 
-    static std::string textOf(const providers::VolumeState& state)
+    // Hands the state to the UI thread; Slint objects are touched only there.
+    static void publish(const std::shared_ptr<Owner>& owner, providers::VolumeState state)
     {
-        if (!state.device)
-        {
-            return "—"; // no device
-        }
-        return state.muted ? std::string("Mute")
-                           : std::format("Vol {}%", static_cast<int>(std::lround(state.level * 100.0F)));
-    }
-
-    // Hands the text to the UI thread; Slint objects are touched only there.
-    static void publish(const std::shared_ptr<Owner>& owner, std::string text)
-    {
-        slint::invoke_from_event_loop([owner, text = std::move(text)] {
+        slint::invoke_from_event_loop([owner, state] {
             VolumeProvider* provider = nullptr;
             {
                 const std::scoped_lock lock(owner->mutex);
@@ -267,15 +291,29 @@ private:
             }
             if (provider != nullptr)
             {
-                provider->show(text);
+                provider->show(state);
             }
         });
     }
 
-    void show(const std::string& text)
+    void show(const std::optional<providers::VolumeState>& state)
     {
+        // No device yet: the speaker alone. Muted, then Volume0..3 by level.
+        char32_t icon = 0xE767;
+        std::string text;
+        if (state && state->device)
+        {
+            const int percent = static_cast<int>(std::lround(state->level * 100.0F));
+            icon = state->muted   ? 0xE74F
+                   : percent == 0 ? 0xE992
+                   : percent < 34 ? 0xE993
+                   : percent < 67 ? 0xE994
+                                  : 0xE995;
+            text = state->muted ? std::string() : std::format("{}%", percent);
+        }
         if (auto instance = m_instance.lock())
         {
+            (*instance)->set_property(m_prefix + "-glyph", Value(slint::SharedString(glyph(icon))));
             (*instance)->set_property(m_prefix + "-text", Value(slint::SharedString(text)));
             (*instance)->set_property(m_prefix + "-shown", Value(true));
         }
