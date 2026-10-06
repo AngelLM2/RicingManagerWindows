@@ -26,7 +26,7 @@ constexpr std::uint64_t kSettingsMaxBytes = 1u << 20;
 constexpr std::size_t kFolderFilesMax = 500;
 
 constexpr std::initializer_list<std::string_view> kImageExtensions = {"jpg", "jpeg", "png", "bmp"};
-constexpr std::initializer_list<std::string_view> kVideoExtensions = {"mp4", "m4v"};
+constexpr std::initializer_list<std::string_view> kVideoExtensions = {"mp4", "m4v", "webm"};
 constexpr std::initializer_list<std::string_view> kCursorExtensions = {"cur", "ani", "inf"};
 
 constexpr auto kBuiltinWidgets = std::to_array<std::string_view>({
@@ -199,6 +199,7 @@ RiceEntry readEntry(const fs::path& folder)
     entry.name = rice.meta.name;
     entry.author = rice.meta.author;
     entry.description = rice.meta.description;
+    entry.shareable = rice.meta.canShare();
     if (rice.wallpaper)
     {
         if (rice.wallpaper->layout == domain::WallpaperLayout::Span)
@@ -398,7 +399,7 @@ Result<std::string> importAsset(const fs::path& riceFolder, const fs::path& sour
         if (!hasOneOf(source, image ? kImageExtensions : kVideoExtensions))
         {
             return fail(ErrorCode::Unsupported,
-                        image ? "pick a .jpg, .png or .bmp image" : "pick an .mp4 video");
+                        image ? "pick a .jpg, .png or .bmp image" : "pick an .mp4 or .webm video");
         }
         if (image && platform::sniffFileType(source).empty())
         {

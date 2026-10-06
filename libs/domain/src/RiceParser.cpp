@@ -23,7 +23,7 @@ namespace
 {
 
 constexpr std::initializer_list<std::string_view> kImageExtensions = {"jpg", "jpeg", "png", "bmp"};
-constexpr std::initializer_list<std::string_view> kVideoExtensions = {"mp4", "m4v"};
+constexpr std::initializer_list<std::string_view> kVideoExtensions = {"mp4", "m4v", "webm"};
 constexpr std::initializer_list<std::string_view> kCursorExtensions = {"cur", "ani"};
 
 std::string extensionList(std::initializer_list<std::string_view> extensions)
@@ -194,6 +194,7 @@ private:
         meta.description = t.string("description", limits::kLongTextMaxBytes).value_or("");
         meta.version = t.parsed("version", SemVer::parse);
         meta.minApp = t.parsed("min_app", SemVer::parse);
+        meta.shareable = t.boolean("shareable");
         if (meta.minApp && *meta.minApp > m_options.appVersion)
         {
             t.error("min_app", std::format("this rice needs Ricing Manager {} or newer (this is {})",
@@ -439,6 +440,36 @@ private:
             break;
         }
 
+        if (rule.kind == WallpaperKind::Slideshow)
+        {
+            notFor("effects");
+            notFor("particles");
+        }
+        else
+        {
+            if (const auto* effects = t.table("effects"))
+            {
+                rule.effects = readEffects(*effects, t.pathOf("effects"), rule.kind);
+            }
+            if (const auto* layers = t.array("particles", limits::kWallpaperMaxParticleLayers))
+            {
+                std::size_t index = 0;
+                for (const auto& node : *layers)
+                {
+                    const std::string layerPath = indexPath(t.pathOf("particles"), index++);
+                    if (const auto* layer = node.as_table())
+                    {
+                        rule.particles.push_back(readParticleLayer(*layer, layerPath));
+                    }
+                    else
+                    {
+                        errorAt(m_diagnostics, node, layerPath,
+                                "expected a table ({ kind = \"sparkles\", ... })");
+                    }
+                }
+            }
+        }
+
         for (const auto& earlier : rules)
         {
             if (earlier.match == rule.match)
@@ -451,6 +482,65 @@ private:
         }
         t.reportUnknownKeys();
         rules.push_back(std::move(rule));
+    }
+
+    WallpaperEffects readEffects(const toml::table& table, const std::string& path, WallpaperKind kind)
+    {
+        TableReader t(table, path, m_diagnostics);
+        WallpaperEffects effects;
+        effects.brightness = t.number("brightness", -1.0, 1.0);
+        effects.contrast = t.number("contrast", 0.0, 2.0);
+        effects.saturation = t.number("saturation", 0.0, 2.0);
+        effects.hue = t.number("hue", -180.0, 180.0);
+        effects.speed = t.number("speed", 0.25, 4.0);
+        effects.blur = t.number("blur", 0.0, 40.0);
+        effects.parallax = t.number("parallax", 0.0, 1.0);
+        effects.zoom = t.number("zoom", 0.0, 1.0);
+        effects.vignette = t.number("vignette", 0.0, 1.0);
+        if (effects.speed && kind != WallpaperKind::Video)
+        {
+            t.warning("speed", "only a video has a speed (ignored)");
+            effects.speed.reset();
+        }
+        if (kind == WallpaperKind::Color)
+        {
+            // A color has nothing to blur, move or zoom; brightness and the rest are just
+            // another color, but they do no harm.
+            for (const std::string_view key : {"blur", "parallax", "zoom"})
+            {
+                if (table.contains(key))
+                {
+                    t.warning(key, "does not apply to kind \"color\" (ignored)");
+                }
+            }
+            effects.blur.reset();
+            effects.parallax.reset();
+            effects.zoom.reset();
+        }
+        t.reportUnknownKeys();
+        return effects;
+    }
+
+    ParticleLayer readParticleLayer(const toml::table& table, const std::string& path)
+    {
+        TableReader t(table, path, m_diagnostics);
+        ParticleLayer layer;
+        if (auto kind = t.enumeration<ParticleKind>("kind", kParticleKindNames))
+        {
+            layer.kind = *kind;
+        }
+        else if (!table.contains("kind"))
+        {
+            t.missing("kind");
+        }
+        layer.color = readColorRef(t, "color");
+        layer.count = readUnsigned<std::uint32_t>(t, "count", 1, limits::kParticleMaxCount);
+        layer.size = t.number("size", 0.25, 4.0);
+        layer.speed = t.number("speed", 0.0, 4.0);
+        layer.direction = t.number("direction", -360.0, 360.0);
+        layer.glow = t.boolean("glow");
+        t.reportUnknownKeys();
+        return layer;
     }
 
     void readCursors(const toml::table& table)

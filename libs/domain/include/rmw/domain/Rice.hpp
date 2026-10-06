@@ -30,6 +30,11 @@ struct RiceMeta
     std::optional<SemVer> version;
     std::string license;
     std::optional<SemVer> minApp;
+    // false: the rice holds files that are not its author's to give (a Wallpaper Engine wallpaper):
+    // it is never packed or shared, only used on this computer.
+    std::optional<bool> shareable;
+
+    [[nodiscard]] bool canShare() const noexcept { return shareable.value_or(true); }
 };
 
 // "#RRGGBB" or a palette entry ("palette.base"). "palette.accent" always resolves, falling back
@@ -118,6 +123,52 @@ struct WallpaperPolicy
     std::optional<bool> mute;
 };
 
+// What rmw-wallpaper does to a picture, a video or a color (M12): colors, motion. Every value is
+// optional: what the rice leaves out stays as it is (and is not written back).
+struct WallpaperEffects
+{
+    std::optional<double> brightness; // -1..1, 0 = as it is
+    std::optional<double> contrast;   // 0..2, 1 = as it is
+    std::optional<double> saturation; // 0..2, 1 = as it is (0 = gray)
+    std::optional<double> hue;        // -180..180 degrees
+    std::optional<double> speed;      // a video's playback rate, 0.25..4
+    std::optional<double> blur;       // 0..40 (logical pixels; pictures)
+    std::optional<double> parallax;   // 0..1: the picture follows the mouse a little
+    std::optional<double> zoom;       // 0..1: a slow pan and zoom (pictures)
+    std::optional<double> vignette;   // 0..1: darker corners
+
+    [[nodiscard]] bool empty() const noexcept;
+    friend bool operator==(const WallpaperEffects&, const WallpaperEffects&) = default;
+};
+
+enum class ParticleKind
+{
+    Sparkles,  // four-pointed glints that twinkle
+    Stars,     // small dots that twinkle, still
+    Snow,      // flakes falling, swaying
+    Rain,      // streaks falling, slanted
+    Petals,    // petals falling, turning
+    Fireflies, // glowing dots wandering
+    Magic,     // glowing motes rising, with a trail
+    Notes,     // musical notes floating up
+    Hearts,    // hearts floating up
+    Bubbles,   // rings rising
+};
+
+// A layer of particles drawn over the wallpaper (M12).
+struct ParticleLayer
+{
+    ParticleKind kind = ParticleKind::Sparkles;
+    std::optional<ColorRef> color;      // default: the kind's own
+    std::optional<std::uint32_t> count; // 1..1000
+    std::optional<double> size;         // 0.25..4 (1 = the kind's own)
+    std::optional<double> speed;        // 0..4 (1 = the kind's own)
+    std::optional<double> direction;    // -360..360 degrees, 90 = down, 270 = up
+    std::optional<bool> glow;           // a soft halo
+
+    friend bool operator==(const ParticleLayer&, const ParticleLayer&) = default;
+};
+
 struct MonitorWallpaper
 {
     MonitorSelector match;
@@ -128,6 +179,16 @@ struct MonitorWallpaper
     std::string fallbackImage; // Kind::Video: shown while paused or when video is unavailable
     std::optional<std::uint32_t> intervalSeconds; // Kind::Slideshow
     std::optional<bool> shuffle;                  // Kind::Slideshow
+    // Image, Video and Color (M12): with either, rmw-wallpaper draws this monitor; Windows' own
+    // wallpaper stays underneath (like a video's fallback).
+    WallpaperEffects effects;
+    std::vector<ParticleLayer> particles;
+
+    // Drawn by rmw-wallpaper: a video, or a picture or color with effects or particles.
+    [[nodiscard]] bool live() const noexcept
+    {
+        return kind == WallpaperKind::Video || !effects.empty() || !particles.empty();
+    }
 };
 
 struct WallpaperConfig
@@ -338,6 +399,7 @@ std::string_view toString(ThemeMode value) noexcept;
 std::string_view toString(WallpaperLayout value) noexcept;
 std::string_view toString(WallpaperKind value) noexcept;
 std::string_view toString(WallpaperFit value) noexcept;
+std::string_view toString(ParticleKind value) noexcept;
 std::string_view toString(TaskbarAlignment value) noexcept;
 std::string_view toString(TaskbarSearch value) noexcept;
 std::string_view toString(BarPosition value) noexcept;

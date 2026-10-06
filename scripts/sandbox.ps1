@@ -58,8 +58,11 @@ function Wait-SandboxClosed([int] $Seconds) {
 # Only one Windows Sandbox can run at a time: wait for a previous run to finish closing.
 if (-not (Wait-SandboxClosed 120)) { throw 'Another Windows Sandbox is still running.' }
 
-if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
+# Only this suite's results go: the other suites' (run before, with the same build) stay to be read.
 New-Item -ItemType Directory -Force $outDir | Out-Null
+Get-ChildItem $outDir -File |
+    Where-Object { $_.Name -eq 'done.json' -or $_.Name -like "$Suite.*" -or $_.Name -like "$Suite-*" } |
+    Remove-Item -Force
 
 if ($Suite -eq 'spike') {
     if (-not $Spike -or $Spike -notmatch '^[\w\-\\.]+\.exe$' -or $Spike -match '\.\.') {

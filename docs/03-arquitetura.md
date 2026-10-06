@@ -208,6 +208,7 @@ author  = "fulano"
 version = "1.0.0"
 license = "CC-BY-4.0"
 min_app = "0.4.0"
+# shareable = false                 # M12: o rice tem arquivos de terceiros (Wallpaper Engine): nunca é empacotado
 
 [appearance]
 mode              = "dark"          # light | dark | system | schedule
@@ -241,6 +242,15 @@ match  = "all"                      # todos os que não casaram acima
 kind   = "image"
 source = "assets/mountains.jpg"
 fit    = "fill"                     # fill | fit | stretch | center | tile
+# M12 (imagem, vídeo e cor): desenhados pelo rmw-wallpaper por cima do wallpaper do Windows
+effects   = { saturation = 1.1, vignette = 0.3, parallax = 0.4 }
+            # brightness -1..1 | contrast 0..2 | saturation 0..2 | hue -180..180 | speed 0.25..4 (vídeo)
+            # blur 0..40 | parallax 0..1 | zoom 0..1 (zoom e deslize lentos) | vignette 0..1
+particles = [
+    { kind = "sparkles", color = "palette.accent", count = 80, glow = true },
+    { kind = "petals", size = 1.5, speed = 0.75, direction = 110 },
+]           # sparkles | stars | snow | rain | petals | fireflies | magic | notes | hearts | bubbles
+            # count 1..1000 | size 0.25..4 | speed 0..4 | direction em graus (90 = para baixo) | até 8 camadas
 
 [cursors]
 source = "assets/cursors"           # pasta com install.inf ou o mapeamento abaixo
@@ -281,6 +291,7 @@ max_width   = 260
 Como as limitações do Windows são contornadas:
 - **`fit` por monitor**: o Windows só tem um modo de ajuste global. O app **pré-renderiza** a imagem na resolução nativa de cada monitor (com o `fit` pedido) e define "preencher" globalmente. Fica idêntico e custa zero em tempo de execução.
 - **`kind = "color"` por monitor**: pré-renderiza uma imagem sólida. `background` é a cor global do Windows.
+- **Efeitos e partículas (M12)**: o Windows não sabe desenhá-los. Uma regra `image`, `video` ou `color` com `effects` ou `particles` é desenhada pelo `rmw-wallpaper` (Direct2D no mesmo dispositivo do vídeo) atrás dos ícones; o wallpaper do Windows continua por baixo, sem os efeitos, e aparece se o worker parar. Uma imagem parada custa 0% de CPU depois de desenhada; o que se mexe segue o `fps_limit` e pausa como um vídeo.
 - **Slideshow**: se todos os monitores usam a mesma playlist e intervalo, usa o **slideshow nativo** do Windows (custo zero, não residente). Se diferem por monitor, o agendador do core troca as imagens (residente).
 - **Identidade do monitor**: o caminho do dispositivo muda ao trocar de porta/dock. Identificamos por **EDID** (fabricante + produto + número de série), com fallback para o caminho do dispositivo. Seletores portáveis (`primary`, `left`…) servem para rices compartilhados; `edid:` serve para o rice pessoal. Monitor sem regra e sem `all` → mantém o wallpaper atual. (Validado no spike S5.)
 

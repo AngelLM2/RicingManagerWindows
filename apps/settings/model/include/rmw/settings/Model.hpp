@@ -33,6 +33,7 @@ struct RiceEntry
     std::string description;
     std::string problem;           // why it does not read (empty: it does)
     std::filesystem::path preview; // an image of it (its first wallpaper), absolute; may be empty
+    bool shareable = true;         // false: it holds others' files (Wallpaper Engine), kept here
 };
 
 // What one folder holds. Never fails: an unreadable rice says why in `problem`.
