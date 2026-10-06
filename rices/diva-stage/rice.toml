@@ -1,0 +1,77 @@
+schema = 1
+
+[meta]
+id          = "io.github.angellm2.rices.diva-stage"
+name        = "Diva Stage"
+author      = "Ricing Manager"
+version     = "1.0.0"
+license     = "GPL-3.0-or-later"
+description = "A concert stage at night: spotlights, an equalizer and a waveform in teal and pink. The picture moves (a 12 s loop) and falls back to a still on battery."
+
+[palette]
+base   = "#0B1026"
+teal   = "#2CD5C4"
+pink   = "#FF4FA3"
+violet = "#7B5CFF"
+text   = "#E8FCFF"
+
+[appearance]
+mode              = "dark"
+accent            = "#2CD5C4"
+transparency      = true
+accent_on_taskbar = false
+
+[wallpaper]
+background = "#0B1026"
+
+[wallpaper.policy]
+pause_on_fullscreen = true
+pause_on_battery    = true
+pause_when_covered  = true
+fps_limit           = 30
+mute                = true
+
+[[wallpaper.monitor]]
+match          = "all"
+kind           = "video"
+source         = "assets/diva-stage.mp4"
+fallback_image = "assets/diva-stage.png"
+fit            = "fill"
+
+[cursors]
+source = "assets/cursors"
+size   = 32
+
+[cursors.map]
+normal      = "normal.cur"
+help        = "help.cur"
+working     = "working.ani"
+busy        = "busy.ani"
+precision   = "precision.cur"
+text        = "text.cur"
+handwriting = "handwriting.cur"
+unavailable = "unavailable.cur"
+vertical    = "vertical.cur"
+horizontal  = "horizontal.cur"
+diagonal1   = "diagonal1.cur"
+diagonal2   = "diagonal2.cur"
+move        = "move.cur"
+alternate   = "alternate.cur"
+link        = "link.cur"
+location    = "location.cur"
+person      = "person.cur"
+
+[[bar]]
+monitor             = "all"
+position            = "top"
+mode                = "reserve"
+thickness           = 34
+length              = "100%"
+margin              = [6, 8, 0, 8]
+radius              = 12
+background          = { kind = "acrylic", tint = "palette.base", opacity = 0.78 }
+foreground          = "palette.text"
+hide_native_taskbar = true
+left                = ["start", "desktops", "windows"]
+center              = ["clock"]
+right               = ["media", "tray", "volume", "network", "battery"]

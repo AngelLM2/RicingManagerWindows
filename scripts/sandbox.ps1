@@ -13,7 +13,7 @@
 param(
     [ValidateSet('debug', 'release', 'asan')]
     [string] $Preset = 'debug',
-    [ValidateSet('unit', 'system', 'bar', 'plugins', 'tray', 'video', 'settings', 'spike')]
+    [ValidateSet('unit', 'system', 'bar', 'plugins', 'tray', 'video', 'settings', 'packages', 'installer', 'spike')]
     [string] $Suite = 'unit',
     # For -Suite spike: executable path relative to the build folder, e.g. spikes\s3-taskbar\spike_s3_taskbar.exe
     [string] $Spike,
@@ -40,9 +40,15 @@ if (-not (Test-Path (Join-Path $buildDir 'tests'))) {
     throw "Build '$Preset' not found. Run .\scripts\build.ps1 -Preset $Preset first."
 }
 
+# A running sandbox: its window (or the older client) and its VM. WindowsSandboxServer is a broker
+# that may stay idle after the last sandbox has closed, so it does not count.
+function Sandbox-Sessions {
+    Get-Process -Name 'WindowsSandbox', 'WindowsSandboxClient', 'WindowsSandboxRemoteSession', 'vmmemWindowsSandbox' -ErrorAction SilentlyContinue
+}
+
 function Wait-SandboxClosed([int] $Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
-    while (Get-Process -Name 'WindowsSandbox*' -ErrorAction SilentlyContinue) {
+    while (Sandbox-Sessions) {
         if ((Get-Date) -gt $deadline) { return $false }
         Start-Sleep -Seconds 2
     }
@@ -71,6 +77,22 @@ $logon = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\rmw\runner\
 
 function Escape-Xml([string] $text) { [System.Security.SecurityElement]::Escape($text) }
 
+# The installer suite installs what scripts\package.ps1 made (build\package\<version>\).
+$packageDir = Join-Path $root 'build\package'
+$packageMapping = ''
+if ($Suite -eq 'installer') {
+    if (-not (Get-ChildItem $packageDir -Recurse -Filter 'RicingManager-*-setup.exe' -ErrorAction SilentlyContinue)) {
+        throw 'No installer in build\package: run .\scripts\package.ps1 first.'
+    }
+    $packageMapping = @"
+    <MappedFolder>
+      <HostFolder>$(Escape-Xml $packageDir)</HostFolder>
+      <SandboxFolder>C:\rmw\package</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+"@
+}
+
 $wsb = @"
 <Configuration>
   <Networking>Disable</Networking>
@@ -96,6 +118,7 @@ $wsb = @"
       <SandboxFolder>C:\rmw\plugins</SandboxFolder>
       <ReadOnly>true</ReadOnly>
     </MappedFolder>
+$packageMapping
     <MappedFolder>
       <HostFolder>$(Escape-Xml $outDir)</HostFolder>
       <SandboxFolder>C:\rmw\out</SandboxFolder>
@@ -117,19 +140,27 @@ Start-Process -FilePath $sandboxExe -ArgumentList "`"$wsbPath`""
 
 $donePath = Join-Path $outDir 'done.json'
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+# Closes the session this script opened — only its processes started after us, never a sandbox
+# the user opened — and waits for its VM to go.
+function Close-OurSandbox {
+    Get-Process -Name 'WindowsSandbox', 'WindowsSandboxClient', 'WindowsSandboxRemoteSession' -ErrorAction SilentlyContinue |
+        Where-Object { $_.StartTime -ge $startedAt } | Stop-Process -ErrorAction SilentlyContinue
+    [void](Wait-SandboxClosed 300)
+}
+
 while (-not (Test-Path $donePath)) {
-    if ((Get-Date) -gt $deadline) { throw "Timed out after $TimeoutMinutes minutes waiting for $donePath" }
+    if ((Get-Date) -gt $deadline) {
+        if (-not $KeepOpen) { Close-OurSandbox }
+        throw "Timed out after $TimeoutMinutes minutes waiting for $donePath"
+    }
     Start-Sleep -Seconds 3
 }
 
 $result = Get-Content $donePath -Raw | ConvertFrom-Json
 if (-not $KeepOpen -and -not (Wait-SandboxClosed 120)) {
-    # The guest did not shut down (seen after a test restarted its Explorer): close the session we
-    # opened — only processes started after us, never a sandbox the user opened.
+    # The guest did not shut down (seen after a test restarted its Explorer).
     Write-Warning 'The sandbox did not shut down by itself; closing the session this script opened.'
-    Get-Process -Name 'WindowsSandbox*' -ErrorAction SilentlyContinue |
-        Where-Object { $_.StartTime -ge $startedAt } | Stop-Process -ErrorAction SilentlyContinue
-    [void](Wait-SandboxClosed 60)
+    Close-OurSandbox
 }
 Get-Content (Join-Path $outDir "$Suite.log") -ErrorAction SilentlyContinue | Select-Object -Last 40
 Write-Host "Sandbox suite '$Suite' finished with exit code $($result.exitCode)."

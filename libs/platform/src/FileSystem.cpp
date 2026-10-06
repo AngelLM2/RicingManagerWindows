@@ -48,6 +48,8 @@ std::wstring stripVerbatimPrefix(std::wstring path)
     return path;
 }
 
+} // namespace
+
 Result<std::filesystem::path> finalPathOfHandle(HANDLE handle)
 {
     std::wstring buffer(MAX_PATH, L'\0');
@@ -84,8 +86,6 @@ Result<void> writeAll(HANDLE file, std::span<const std::byte> bytes)
     }
     return {};
 }
-
-} // namespace
 
 // ---- SHA-256 ------------------------------------------------------------------------------------
 

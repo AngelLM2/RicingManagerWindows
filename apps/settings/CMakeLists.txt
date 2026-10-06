@@ -21,6 +21,7 @@ add_executable(rmw_settings WIN32
     src/SettingsApp.cpp
     src/Shell.cpp
     src/Thumbnails.cpp
+    ${PROJECT_SOURCE_DIR}/apps/resources/app.rc
 )
 set_target_properties(rmw_settings PROPERTIES
     OUTPUT_NAME "rmw-settings"
@@ -36,6 +37,7 @@ target_link_libraries(rmw_settings PRIVATE
     rmw::domain
     rmw::ipc
     rmw::json
+    rmw::package
     rmw::platform
     rmw::plugins
     rmw::settings_model

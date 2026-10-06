@@ -227,6 +227,13 @@ Check 'settings:every-page-by-name' ($reached -eq $pages.Count) "$reached of $($
 Start-Sleep -Seconds 1
 $named = Named-Count $window
 Check 'settings:rices-readable' ((Find-Named $window 'Apply Night') -ne $null -and $named -ge 20) "$named named elements"
+# M8: packages in and out (the packages suite works them through the core and the CLI).
+Check 'settings:import-and-share' ((Find-Named $window 'Import a .rice…') -ne $null -and (Find-Named $window 'Share Night as a .rice file') -ne $null) ''
+[void](Press $window 'Plugins')
+Start-Sleep -Milliseconds 500
+Check 'settings:install-from-file' ((Find-Named $window 'Install from a file…') -ne $null) ''
+[void](Press $window 'Rices')
+Start-Sleep -Milliseconds 500
 
 # ---- edit a rice, apply it: dark mode -------------------------------------------------------------------
 $light = Light-Apps

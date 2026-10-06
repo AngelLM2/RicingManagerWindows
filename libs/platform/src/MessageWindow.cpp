@@ -89,7 +89,13 @@ Result<std::unique_ptr<MessageWindow>> MessageWindow::create(Handler handler)
     self->m_handler = std::move(handler);
     self->m_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     self->m_explorerPid = explorerPid();
-    self->m_icon = LoadIconW(nullptr, IDI_APPLICATION);
+    // The program's own icon (resource 1, apps/resources/app.rc) at the tray's size; Windows' when none.
+    self->m_icon = LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                              GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR | LR_SHARED);
+    if (self->m_icon == nullptr)
+    {
+        self->m_icon = LoadIconW(nullptr, IDI_APPLICATION);
+    }
     // WS_EX_TOOLWINDOW keeps it off Alt+Tab even if something shows it.
     const auto window = CreateWindowExW(WS_EX_TOOLWINDOW, kClassName, L"Ricing Manager", WS_POPUP, 0, 0, 0, 0,
                                         nullptr, nullptr, instance, self.get());

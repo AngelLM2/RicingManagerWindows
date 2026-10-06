@@ -109,6 +109,29 @@ Seed-Text 'bridge' 'set.json' '{"type":"set","instance":3,"property":"title","va
 Seed-Text 'plans' 'video.json' '{"version":1,"entries":[{"monitor":"primary","file":"C:\\v\\a.mp4","fit":"fill"},{"monitor":"all","file":"","fit":"fill"}],"policy":{"pauseOnFullscreen":true,"pauseOnBattery":true,"pauseWhenCovered":true,"fpsLimit":30,"mute":true}}' 2
 Seed-Text 'plans' 'host.json' '{"version":1,"plugins":[]}' 1
 Seed-Text 'plans' 'bar.json' '{"version":1,"bars":[]}' 0
+Add-Type -AssemblyName System.IO.Compression
+function Seed-Zip([string] $File, [int] $Prefix, [hashtable] $Entries, [bool] $Deflate) {
+    $memory = New-Object IO.MemoryStream
+    $zip = New-Object IO.Compression.ZipArchive($memory, [IO.Compression.ZipArchiveMode]::Create, $true)
+    $level = if ($Deflate) { [IO.Compression.CompressionLevel]::Optimal } else { [IO.Compression.CompressionLevel]::NoCompression }
+    foreach ($name in ($Entries.Keys | Sort-Object)) {
+        $stream = $zip.CreateEntry($name, $level).Open()
+        [byte[]] $bytes = $Entries[$name]
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Dispose()
+    }
+    $zip.Dispose()
+    Seed 'package' $File ([byte[]]@($Prefix) + $memory.ToArray())
+}
+# A 1x1 PNG header and the start of an MP4: what the reader looks at.
+[byte[]] $png = 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+                0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89
+[byte[]] $mp4 = [byte[]]@(0, 0, 0, 24) + $utf8.GetBytes('ftypisom') + (New-Object byte[] 20)
+$riceToml = $utf8.GetBytes("[rice]`nname = `"Seed`"`n")
+$cursor = [byte[]]@(0, 0, 2, 0, 1, 0, 32, 32, 0, 0, 4, 0, 4, 0, 0x30, 1, 0, 0, 22, 0, 0, 0) + (New-Object byte[] 304)
+Seed-Zip 'rice-stored.bin' 0 @{ 'rice.toml' = $riceToml; 'assets/wall.png' = $png; 'assets/loop.mp4' = $mp4 } $false
+Seed-Zip 'rice-deflated.bin' 0 @{ 'Seed/rice.toml' = $riceToml; 'Seed/cursors/arrow.cur' = $cursor; 'Seed/LICENSE' = $utf8.GetBytes('CC0') } $true
+Seed-Zip 'plugin.bin' 1 @{ 'plugin.toml' = $utf8.GetBytes("[plugin]`nid = `"io.github.seed.p`"`n"); 'main.luau' = $utf8.GetBytes('return {}'); 'widget.slint' = $utf8.GetBytes('export component W {}') } $true
 foreach ($message in '{"jsonrpc":"2.0","id":1,"method":"status.get","params":{}}',
                      '{"jsonrpc":"2.0","id":1,"result":{"ok":true}}',
                      '{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"no"}}') {

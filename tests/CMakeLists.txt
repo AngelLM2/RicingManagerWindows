@@ -1,6 +1,7 @@
 find_package(GTest CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(unofficial-luau CONFIG REQUIRED)
+find_package(libzip CONFIG REQUIRED)
 include(GoogleTest)
 
 add_executable(rmw_unit_tests
@@ -19,6 +20,7 @@ add_executable(rmw_unit_tests
     unit/JsonTests.cpp
     unit/LogTests.cpp
     unit/MonitorSelectorTests.cpp
+    unit/PackageTests.cpp
     unit/PathRulesTests.cpp
     unit/PluginManifestTests.cpp
     unit/PluginPlumbingTests.cpp
@@ -51,6 +53,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::ipc
     rmw::json
     rmw::modules
+    rmw::package
     rmw::platform
     rmw::plugins
     rmw::scripting
@@ -59,6 +62,8 @@ target_link_libraries(rmw_unit_tests PRIVATE
     GTest::gtest
     GTest::gtest_main
     unofficial::sqlite3::sqlite3
+    # Zips made the way other tools make them (deflated), for the package tests.
+    libzip::zip
     # Luau's analyzer: type-checks the shipped plugin scripts against rmw.d.luau (tests only).
     unofficial::luau::Luau.Analysis
 )

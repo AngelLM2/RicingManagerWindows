@@ -25,6 +25,10 @@ struct FileFilter
 [[nodiscard]] std::optional<std::filesystem::path> pickFile(void* owner,
                                                             const std::vector<FileFilter>& filters);
 [[nodiscard]] std::optional<std::filesystem::path> pickFolder(void* owner);
+// The Windows save dialog, for one kind of file (the extension is added when missing), starting
+// at `name`. Asks before replacing a file. Empty when cancelled.
+[[nodiscard]] std::optional<std::filesystem::path> pickSaveFile(void* owner, const FileFilter& filter,
+                                                                const std::wstring& name);
 
 // A folder in Explorer, when the user asks for it.
 void openFolder(const std::filesystem::path& folder);

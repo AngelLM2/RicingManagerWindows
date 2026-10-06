@@ -1,0 +1,71 @@
+schema = 1
+
+[meta]
+id          = "io.github.angellm2.rices.mocha-kawaii"
+name        = "Mocha Kawaii"
+author      = "Ricing Manager"
+version     = "1.0.0"
+license     = "GPL-3.0-or-later"
+description = "Pastel lights, a sleepy moon, pixel stars and hearts, kaomoji everywhere, in the Catppuccin Mocha colors."
+
+[palette]
+base   = "#1E1E2E"
+mantle = "#181825"
+text   = "#CDD6F4"
+pink   = "#F5C2E7"
+mauve  = "#CBA6F7"
+teal   = "#94E2D5"
+peach  = "#FAB387"
+
+[appearance]
+mode              = "dark"
+accent            = "#F5C2E7"
+transparency      = true
+accent_on_taskbar = false
+
+[wallpaper]
+background = "#1E1E2E"
+
+[[wallpaper.monitor]]
+match  = "all"
+kind   = "image"
+source = "assets/mocha-kawaii.png"
+fit    = "fill"
+
+[cursors]
+source = "assets/cursors"
+size   = 32
+
+[cursors.map]
+normal      = "normal.cur"
+help        = "help.cur"
+working     = "working.ani"
+busy        = "busy.ani"
+precision   = "precision.cur"
+text        = "text.cur"
+handwriting = "handwriting.cur"
+unavailable = "unavailable.cur"
+vertical    = "vertical.cur"
+horizontal  = "horizontal.cur"
+diagonal1   = "diagonal1.cur"
+diagonal2   = "diagonal2.cur"
+move        = "move.cur"
+alternate   = "alternate.cur"
+link        = "link.cur"
+location    = "location.cur"
+person      = "person.cur"
+
+[[bar]]
+monitor             = "all"
+position            = "bottom"
+mode                = "float"
+thickness           = 38
+length              = "56%"
+margin              = [0, 0, 12, 0]
+radius              = 19
+background          = { kind = "acrylic", tint = "palette.mantle", opacity = 0.85 }
+foreground          = "palette.pink"
+hide_native_taskbar = true
+left                = ["start", "windows"]
+center              = ["clock"]
+right               = ["media", "tray", "volume", "battery"]

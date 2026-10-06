@@ -25,6 +25,8 @@ export enum NoticeKind {
     exported,
     created,
     imported,
+    added,      // a .rice into the library
+    shared,     // a rice packed as a .rice
     installed,
     approved,
     removed,
@@ -238,6 +240,8 @@ export global Api {
     callback duplicate-rice(string /* folder */);
     callback open-folder(string /* folder */);
     callback add-rice-folder();
+    callback import-rice();             // a .rice file, through the core's import worker
+    callback share-rice(string /* folder */);
     callback new-rice();
     callback export-current();
 
@@ -312,6 +316,7 @@ export global Api {
     in property <[ConfigField]> plugin-config;  // the selected plugin's settings in the edited rice
     callback plugin-selected(int);
     callback plugin-install();
+    callback plugin-install-file();     // a .rmwp
     callback plugin-approve(string);
     callback plugin-enable(string, bool);
     callback plugin-remove(string);

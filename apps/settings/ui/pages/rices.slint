@@ -101,6 +101,15 @@ component RiceCard inherits Rectangle {
                 }
 
                 Button {
+                    text: @tr("Share…");
+                    enabled: root.rice.problem == "" && !Api.busy;
+                    accessible-label: @tr("Share {} as a .rice file", root.rice.name);
+                    clicked => {
+                        Api.share-rice(root.rice.folder);
+                    }
+                }
+
+                Button {
                     text: @tr("Open folder");
                     accessible-label: @tr("Open the folder of {}", root.rice.name);
                     clicked => {
@@ -143,6 +152,14 @@ export component RicesPage inherits ScrollView {
             }
 
             Button {
+                text: @tr("Import a .rice…");
+                enabled: !Api.busy;
+                clicked => {
+                    Api.import-rice();
+                }
+            }
+
+            Button {
                 text: @tr("Add a rice folder…");
                 clicked => {
                     Api.add-rice-folder();
@@ -151,7 +168,7 @@ export component RicesPage inherits ScrollView {
         }
 
         if Api.rices.length == 0: Hint {
-            text: @tr("No rices yet. Save your current look, or add a folder with a rice.toml.");
+            text: @tr("No rices yet. Save your current look, import a .rice, or add a folder with a rice.toml.");
         }
 
         for rice in Api.rices: RiceCard {

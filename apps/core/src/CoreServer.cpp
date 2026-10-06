@@ -1,5 +1,6 @@
 #include "CoreServer.hpp"
 
+#include "Import.hpp"
 #include "JsonReports.hpp"
 #include "Resident.hpp"
 #include "WorkQueue.hpp"
@@ -42,12 +43,12 @@ constexpr auto kSendTimeout = 10s;
 // Windows keeps broadcasting our own change for a moment after an operation (docs/03 §5.2).
 constexpr auto kOwnChangesGrace = 4s;
 constexpr auto kWindowAnswer = 10s;
-constexpr std::array<std::string_view, 24> kMethods = {
+constexpr std::array<std::string_view, 25> kMethods = {
     "status.get",       "rice.validate",   "rice.apply",     "restore.original", "snapshot.list",
     "snapshot.restore", "monitors.list",   "action.run",     "action.list",      "module.inspect",
     "rice.export",      "settings.reload", "autostart.get",  "autostart.set",    "plugin.list",
     "plugin.approve",   "plugin.enable",   "plugin.disable", "plugin.dev",       "plugin.install",
-    "plugin.remove",    "plugin.status",   "plugin.report",  "apps.list",
+    "plugin.remove",    "plugin.status",   "plugin.report",  "apps.list",        "rice.import",
 };
 constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
@@ -1290,6 +1291,10 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     {
         return exclusive([&] { return exportRice(request.params); }, false);
     }
+    if (method == "rice.import")
+    {
+        return importRice(request.params);
+    }
     if (method == "settings.reload")
     {
         Resident* resident = m_resident;
@@ -1678,6 +1683,30 @@ Result<Json> CoreServer::inspect(const Json& params)
                 {"managed", std::move(managed)}};
 }
 
+Result<Json> CoreServer::importRice(const Json& params) const
+{
+    auto archive = utf8To16(json::stringOr(params, "path", ""));
+    if (!archive || archive->empty())
+    {
+        return fail(ErrorCode::InvalidArgument, "missing 'path' (the .rice file)");
+    }
+    auto unpacked =
+        unpackInWorker(m_options.dataDirectory, std::filesystem::path(*archive), package::Kind::Rice);
+    if (!unpacked)
+    {
+        return std::unexpected(std::move(unpacked.error()));
+    }
+    auto placed = placeRice(m_options.dataDirectory, *unpacked);
+    if (!placed)
+    {
+        return std::unexpected(std::move(placed.error()));
+    }
+    return Json{{"path", utf16To8Lossy(placed->folder.native())},
+                {"name", placed->name},
+                {"files", unpacked->files},
+                {"bytes", unpacked->bytes}};
+}
+
 Result<Json> CoreServer::exportRice(const Json& params)
 {
     const std::string target = json::stringOr(params, "path", "");
@@ -1945,12 +1974,30 @@ Result<Json> CoreServer::pluginMethod(const ipc::Request& request)
     }
     else if (method == "plugin.install")
     {
-        auto folder = utf8To16(json::stringOr(request.params, "path", ""));
-        if (!folder || folder->empty())
+        auto source = utf8To16(json::stringOr(request.params, "path", ""));
+        if (!source || source->empty())
         {
-            return fail(ErrorCode::InvalidArgument, "missing 'path' (the plugin's folder)");
+            return fail(ErrorCode::InvalidArgument, "missing 'path' (the plugin's folder or .rmwp)");
         }
-        entry = m_plugins->install(std::filesystem::path(*folder));
+        std::filesystem::path folder(*source);
+        std::error_code ec;
+        std::optional<core::Unpacked> unpacked;
+        if (std::filesystem::is_regular_file(folder, ec))
+        {
+            // A .rmwp: unpacked and checked by the import worker first (docs/06 §4).
+            auto worker = core::unpackInWorker(m_options.dataDirectory, folder, package::Kind::Plugin);
+            if (!worker)
+            {
+                return std::unexpected(std::move(worker.error()));
+            }
+            unpacked = std::move(*worker);
+            folder = unpacked->folder;
+        }
+        entry = m_plugins->install(folder);
+        if (unpacked)
+        {
+            std::filesystem::remove_all(unpacked->folder, ec);
+        }
         if (entry && entry->needsApproval() && json::boolOr(request.params, "approve", false))
         {
             entry = m_plugins->approve(entry->id);

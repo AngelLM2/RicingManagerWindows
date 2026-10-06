@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 
 project(
     RicingManagerWindows
-    VERSION 0.7.0
+    VERSION 1.0.0
     DESCRIPTION "Open-source, lightweight and reversible Windows customizer"
     HOMEPAGE_URL "https://github.com/AngelLM2/RicingManagerWindows"
     LANGUAGES CXX
@@ -49,6 +49,8 @@ if(RMW_FUZZ)
     return()
 endif()
 add_subdirectory(apps)
+# The official rices: drawn and packed by the `rices` target (not part of `all`).
+add_subdirectory(rices)
 
 if(RMW_BUILD_TESTS)
     enable_testing()

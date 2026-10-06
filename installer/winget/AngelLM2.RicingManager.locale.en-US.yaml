@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: AngelLM2.RicingManager
+PackageVersion: {{VERSION}}
+PackageLocale: en-US
+Publisher: Ricing Manager for Windows contributors
+PublisherUrl: https://github.com/AngelLM2
+PublisherSupportUrl: https://github.com/AngelLM2/RicingManagerWindows/issues
+PackageName: Ricing Manager
+PackageUrl: https://github.com/AngelLM2/RicingManagerWindows
+License: GPL-3.0-or-later
+LicenseUrl: https://github.com/AngelLM2/RicingManagerWindows/blob/main/LICENSE
+ShortDescription: Open-source, light and reversible Windows customizer — rices, video wallpapers, bars of your own, plugins.
+Description: |-
+  Ricing Manager changes how Windows looks — wallpaper (pictures, slideshows, video), light/dark mode and colors,
+  cursors, Windows' taskbar or bars of your own — as a "rice": one folder with the whole look, that you apply,
+  undo and share. Everything it changes can be put back. No admin rights, nothing sent anywhere; community
+  plugins run in a sandbox with only the permissions you approve.
+Tags:
+  - customization
+  - ricing
+  - theme
+  - wallpaper
+  - taskbar
+  - cursors
+ReleaseNotesUrl: https://github.com/AngelLM2/RicingManagerWindows/releases/tag/v{{VERSION}}
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
