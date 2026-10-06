@@ -1,0 +1,3 @@
+// The app's icon, in rmw-core (its tray icon) and rmw-settings (its window, the Start menu).
+// rmw.ico is drawn by the official rices' art tool: rmw-rice-art --icon apps\resources
+1 ICON "rmw.ico"

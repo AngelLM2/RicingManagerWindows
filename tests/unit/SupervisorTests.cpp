@@ -1,10 +1,15 @@
 #include "rmw/platform/Pipe.hpp"
+#include "rmw/platform/Process.hpp"
 #include "rmw/platform/Supervisor.hpp"
+
+#include <windows.h>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <condition_variable>
+#include <cwctype>
 #include <format>
 #include <memory>
 #include <mutex>
@@ -197,6 +202,23 @@ TEST(Supervisor, AWorkerThatOutlivesTheCoreIsStillEndedOnStop)
     (*supervisor)->stop("test");
     std::this_thread::sleep_for(300ms);
     EXPECT_EQ(events->count(WorkerEventKind::Failed), 0);
+}
+
+TEST(ProcessesFromFolder, FindsOnlyThisFoldersCopies)
+{
+    const auto self = currentExecutable().value();
+    const std::wstring name = self.filename().native();
+    constexpr std::wstring_view kOther = L"no-such-program.exe";
+    const std::array<std::wstring_view, 2> names = {name, kOther};
+    const auto here = rmw::platform::processesFromFolder(self.parent_path(), names);
+    EXPECT_TRUE(std::ranges::contains(here, GetCurrentProcessId()));
+    // Any case for the folder and the name, like Windows.
+    std::wstring upper = self.parent_path().native();
+    std::ranges::transform(upper, upper.begin(), [](wchar_t c) { return static_cast<wchar_t>(towupper(c)); });
+    EXPECT_TRUE(
+        std::ranges::contains(rmw::platform::processesFromFolder(upper, names), GetCurrentProcessId()));
+    EXPECT_FALSE(std::ranges::contains(
+        rmw::platform::processesFromFolder(self.parent_path().parent_path(), names), GetCurrentProcessId()));
 }
 
 TEST(Heartbeat, WithoutTheFlagItDoesNothing)

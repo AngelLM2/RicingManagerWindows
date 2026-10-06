@@ -2,7 +2,7 @@
 
 > 🇧🇷 [Português](#português) · 🇺🇸 [English](#english)
 
-**Status: beta (v0.7.0, milestone M7 "Interface").** A settings window and the command line: apply a rice, edit it, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows and video wallpapers; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. Packaging (installer, official rices) comes next (see [docs/04-mvp.md](docs/04-mvp.md)).
+**Status: v1.0.0 (milestone M8 "Package").** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows and video wallpapers; a custom, fully resizable taskbar with the system tray; community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
 
 ---
 
@@ -18,12 +18,24 @@ Customizador geral do Windows 11, **open source (GPLv3)** e **nativo em C++**: w
 
 Planejamento completo: [docs/README.md](docs/README.md).
 
-### A janela de configurações (v0.7)
+### Instalar
+
+Rode o `RicingManager-<versão>-setup.exe`: sem admin, os programas vão para `%LOCALAPPDATA%\Programs\Ricing Manager` e os seus dados para `%LOCALAPPDATA%\RicingManagerWindows`. Ele já traz quatro **rices oficiais**, com arte original desenhada por código (sem nada baixado nem feito por IA):
+
+- **Diva Stage:** palco, holofotes e equalizador em verde-água e rosa, com vídeo.
+- **Tokyo Midnight:** cidade na chuva com neon, com vídeo.
+- **Sakura Dawn:** manhã clara de primavera.
+- **Mocha Kawaii:** pastel, pixel art e kaomoji.
+- **Your Rice:** um kit com as cores e a barra do Diva Stage, para usar com a sua própria imagem.
+
+Para desinstalar (Configurações → Apps): ele pergunta se você quer o visual do Windows de antes de volta e se mantém os seus dados; a barra do Windows sempre volta. Guia de uso: [docs/user-guide.md](docs/user-guide.md).
+
+### A janela de configurações (v1.0)
 
 `rmw-settings.exe` abre a janela do Ricing Manager (Fluent, claro ou escuro como o Windows, em pt-BR ou inglês):
 
 - **Início:** o rice aplicado, o que está sendo gerenciado, "Desfazer" e "Restaurar o Windows original", e o histórico.
-- **Rices:** aplicar, editar, duplicar, salvar o visual atual como um rice, adicionar uma pasta.
+- **Rices:** aplicar, editar, duplicar, compartilhar (um arquivo `.rice`), importar um `.rice`, salvar o visual atual como um rice, adicionar uma pasta.
 - **Aparência, Wallpapers, Cursores, Barra de tarefas e Plugins:** mudam o rice escolhido.
   - Os arquivos que você escolhe são copiados para dentro do rice, que continua inteiro e compartilhável.
   - As barras próprias têm um editor visual: arraste os widgets entre as zonas, ou use os botões.
@@ -33,7 +45,7 @@ Planejamento completo: [docs/README.md](docs/README.md).
 
 Fechar a janela encerra o processo: ela não fica rodando.
 
-### Usar (linha de comando, v0.7)
+### Usar (linha de comando, v1.0)
 
 Um rice é uma pasta com um `rice.toml` e seus arquivos:
 
@@ -72,6 +84,8 @@ rmw history                    # o que foi feito
 rmw restore --snapshot 3       # volta a antes da operação 3
 rmw restore --original         # volta ao Windows de antes do primeiro apply
 rmw export .\meu-visual        # salva o visual atual como um rice
+rmw pack .\tokyo-night        # faz o tokyo-night.rice para compartilhar
+rmw import .\amigo.rice        # adiciona um rice compartilhado à biblioteca (conferido num processo à parte)
 rmw monitors                   # monitores e suas chaves (para match = "edid:...")
 rmw apps                       # apps instalados e seus ids (para launch.app)
 rmw status                     # o que está gerenciado, agendamento, atalhos, modo seguro
@@ -155,7 +169,7 @@ Pausado, o vídeo não gasta CPU; depois de 2 minutos pausado, a memória dele �
 **Plugins** — widgets da barra, skins, tweaks, ações e regras feitos pela comunidade. Scripts em Luau rodam isolados num processo próprio, só com as permissões que você aprovou; a barra e o core nunca executam código de plugin.
 
 ```powershell
-rmw plugin install .\now-playing     # mostra o que o plugin pede e pergunta
+rmw plugin install .\now-playing     # mostra o que o plugin pede e pergunta (pasta ou .rmwp)
 rmw plugin list                      # instalados, aprovados, ligados, parados
 rmw plugin new widget .\meu-widget   # um plugin novo, com os tipos para o editor
 rmw plugin dev .\meu-widget          # roda da pasta, recarrega ao salvar, mostra o log
@@ -180,7 +194,10 @@ Requisitos: Windows 11, Visual Studio 2022+ ou Build Tools com *Desktop developm
 .\scripts\build.ps1 -Preset release         # build de distribuição
 .\scripts\build.ps1 -Preset asan -Test      # testes com AddressSanitizer
 .\scripts\sandbox.ps1 -Preset debug         # testes dentro do Windows Sandbox
+.\scripts\package.ps1                       # instalador, rices oficiais, plugins .rmwp, SHA256SUMS, SBOM
 ```
+
+Pacotes de fora (`.rice`, `.rmwp`) só são abertos num processo próprio, com teto de memória; nomes, tamanhos, tipos e o conteúdo de cada arquivo são conferidos antes de qualquer gravação (doc 06 §4).
 
 ---
 
@@ -196,11 +213,23 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 
 The planning documents (in Portuguese) are in [docs/](docs/README.md).
 
-### The settings window (v0.7)
+### Install
 
-`rmw-settings.exe` opens Ricing Manager's window (Fluent, light or dark like Windows, in English or Portuguese). Home shows the applied rice, what is managed, Undo, Restore the original Windows and the history; Rices applies, edits, duplicates and saves your current look as a rice. Appearance, Wallpapers, Cursors, Taskbar (with a visual editor of your own bars: drag widgets between zones, or use the buttons) and Plugins change the chosen rice; the files you pick are copied into it, so it stays whole and shareable. Hotkeys and rules include `Open an app` (`launch.app`, picked from the installed apps); Diagnostics shows processes, memory, recent problems and makes a support bundle. Closing the window ends the process.
+Run `RicingManager-<version>-setup.exe`: no admin rights; the programs go to `%LOCALAPPDATA%\Programs\Ricing Manager`, your data to `%LOCALAPPDATA%\RicingManagerWindows`. It brings four **official rices**, with original art drawn from code (nothing downloaded, nothing made by AI):
 
-### Use (command line, v0.7)
+- **Diva Stage:** a concert stage, spotlights and an equalizer in teal and pink, with video.
+- **Tokyo Midnight:** a city in the rain with neon signs, with video.
+- **Sakura Dawn:** a light spring morning.
+- **Mocha Kawaii:** pastel, pixel art and kaomoji.
+- **Your Rice:** a kit with Diva Stage's colors and bar, for your own picture.
+
+Uninstalling (Settings → Apps) asks whether to bring back the Windows look you had before and whether to keep your data; Windows' taskbar always comes back. User guide: [docs/user-guide.md](docs/user-guide.md).
+
+### The settings window (v1.0)
+
+`rmw-settings.exe` opens Ricing Manager's window (Fluent, light or dark like Windows, in English or Portuguese). Home shows the applied rice, what is managed, Undo, Restore the original Windows and the history; Rices applies, edits, duplicates, shares (a `.rice` file), imports a `.rice` and saves your current look as a rice. Appearance, Wallpapers, Cursors, Taskbar (with a visual editor of your own bars: drag widgets between zones, or use the buttons) and Plugins change the chosen rice; the files you pick are copied into it, so it stays whole and shareable. Hotkeys and rules include `Open an app` (`launch.app`, picked from the installed apps); Diagnostics shows processes, memory, recent problems and makes a support bundle. Closing the window ends the process.
+
+### Use (command line, v1.0)
 
 A rice is a folder with a `rice.toml` (example above) and its files.
 
@@ -211,6 +240,8 @@ rmw history                    # what was done
 rmw restore --snapshot 3       # back to before operation 3
 rmw restore --original         # back to the Windows you had before the first apply
 rmw export .\my-look           # save the current look as a rice
+rmw pack .\tokyo-night        # make tokyo-night.rice to share
+rmw import .\friend.rice       # add a shared rice to your library (checked in a process of its own)
 rmw monitors                   # monitors and their keys (for match = "edid:...")
 rmw apps                       # installed apps and their ids (for launch.app)
 rmw status                     # what is managed, schedule, hotkeys, safe mode
@@ -231,7 +262,7 @@ If the app stops unexpectedly 3 starts in a row (or `Shift` is held at sign-in),
 
 **Video wallpapers** — MP4 (H.264; HEVC/AV1 with the Microsoft Store extension installed) behind the desktop icons, per monitor, decoded by the GPU: `kind = "video"` with a `fallback_image` in a `[[wallpaper.monitor]]` (example above), and a `[wallpaper.policy]` to pause on fullscreen apps, on battery or when the desktop is covered, with an FPS limit. Paused, it costs no CPU; paused for 2 minutes, its memory is freed and the fallback image shows. If the video process crashes or hangs it comes back by itself in seconds, and the fallback image is always underneath. `rmw status` shows what plays on each monitor and, when something does not, why.
 
-**Plugins** — bar widgets, skins, tweaks, actions and rules made by the community. Luau scripts run isolated in a process of their own, with only the permissions you approved; the bar and the core never run plugin code. `rmw plugin install <folder>` shows what a plugin asks for and asks you; `rmw plugin new widget <folder>` starts one (with the API's types for your editor) and `rmw plugin dev <folder>` runs it from the folder, reloading on save. A rice asks for plugins in `[plugins] requires` and puts widgets in a `[[bar]]` by their id. Eight examples are in [`plugins/examples`](plugins/examples); the plugin author's guide (in Portuguese) is in [docs/plugins](docs/plugins/README.md).
+**Plugins** — bar widgets, skins, tweaks, actions and rules made by the community. Luau scripts run isolated in a process of their own, with only the permissions you approved; the bar and the core never run plugin code. `rmw plugin install <folder or .rmwp>` shows what a plugin asks for and asks you; `rmw plugin new widget <folder>` starts one (with the API's types for your editor) and `rmw plugin dev <folder>` runs it from the folder, reloading on save. A rice asks for plugins in `[plugins] requires` and puts widgets in a `[[bar]]` by their id. Eight examples are in [`plugins/examples`](plugins/examples); the plugin author's guide (in Portuguese) is in [docs/plugins](docs/plugins/README.md).
 
 ### Build
 
@@ -242,7 +273,10 @@ Requirements: Windows 11, Visual Studio 2022+ or Build Tools with *Desktop devel
 .\scripts\build.ps1 -Preset release
 .\scripts\build.ps1 -Preset asan -Test
 .\scripts\sandbox.ps1 -Preset debug
+.\scripts\package.ps1          # installer, official rices, .rmwp plugins, SHA256SUMS, SBOM
 ```
+
+Packages from outside (`.rice`, `.rmwp`) are only opened in a process of their own with a memory cap; every file's name, size, type and content is checked before anything is written (docs/06 §4).
 
 ## License
 

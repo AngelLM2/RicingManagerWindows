@@ -30,8 +30,4 @@ struct PluginCheck
 [[nodiscard]] Result<void> newPlugin(std::string_view kind, const std::filesystem::path& folder,
                                      std::string_view id);
 
-// <folder> as a .rmwp (a zip): every file but hidden ones, names checked, no links.
-[[nodiscard]] Result<std::uint64_t> packPlugin(const std::filesystem::path& folder,
-                                               const std::filesystem::path& out);
-
 } // namespace rmw::cli

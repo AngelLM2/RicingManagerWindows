@@ -2,12 +2,16 @@
 
 #include "PluginTools.hpp"
 
+#include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
 #include "rmw/client/CoreClient.hpp"
+#include "rmw/domain/RiceParser.hpp"
 #include "rmw/ipc/JsonRpc.hpp"
+#include "rmw/package/Package.hpp"
 #include "rmw/platform/Console.hpp"
+#include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/Pipe.hpp"
 #include "rmw/platform/Process.hpp"
 #include "rmw/platform/ProcessHardening.hpp"
@@ -46,6 +50,9 @@ Commands:
   restore --original [--force]          Back to the Windows you had before the first apply
   restore --snapshot <id> [--force]     Back to how things were before operation <id>
   export <folder> [--name <name>]       Save the current look as a rice in a new folder
+  pack <folder> [--out <file>]          Make the .rice to share the rice in <folder>
+  import <file.rice>                    Add a shared rice to your library (every file is
+                                        checked first, in a process of its own)
   monitors                              Connected monitors and their keys (for edid:<key>)
   apps                                  Installed apps and their ids (for launch.app)
   inspect <module>                      What Windows has now for a module (appearance,
@@ -58,7 +65,8 @@ Commands:
   settings reload                       Re-read config\settings.toml (hotkeys, rules, tray)
   autostart on|off|status               Start with Windows (a per-user Run entry; off until
                                         you turn it on)
-  shutdown                              Stop the background core
+  shutdown [--wait]                     Stop the background core (--wait: until it and its
+                                        helpers have ended)
   plugin list                           Installed plugins, what they ask for, whether they run
   plugin new <kind> <folder> [--id <id>]
                                         Start a plugin from a template: widget, action, rule,
@@ -69,7 +77,8 @@ Commands:
                                         and its log shows here (Ctrl+C stops showing it)
   plugin dev <id> --stop                Stop running it from its folder
   plugin pack <folder> [--out <file>]   Make the .rmwp to share it
-  plugin install <folder> [--yes]       Install a plugin folder (shows what it asks for)
+  plugin install <folder|file.rmwp> [--yes]
+                                        Install a plugin (shows what it asks for)
   plugin approve <id> [--yes]           Approve what an installed plugin asks for
   plugin enable|disable <id>            Run an action or rule plugin without a rice, or stop it
   plugin remove <id>                    Uninstall a plugin and its data
@@ -441,6 +450,78 @@ void followLogs(const std::filesystem::path& dataDirectory, const std::string& i
     }
 }
 
+// Unpacking a package from anyone takes the core's import worker (docs/06 §4); a 1 GB one, a while.
+constexpr auto kImportTimeout = std::chrono::minutes(11);
+
+// A .rmwp: the core unpacks and checks it, installs it unapproved, and it is approved here once
+// what it asks for was shown.
+int installPackage(CoreClient& client, const std::string& file, const Options& options)
+{
+    auto entry = client.call("plugin.install", Json{{"path", file}, {"approve", false}}, kImportTimeout);
+    if (!entry)
+    {
+        return failure(entry.error());
+    }
+    const std::string id = json::stringOr(*entry, "id", "?");
+    out(std::format("{} {} — {}", json::stringOr(*entry, "name", id), json::stringOr(*entry, "version", "?"),
+                    id));
+    if (auto permissions =
+            plugins::permissionsFromJson(json::memberOr(*entry, "permissions", Json::object())))
+    {
+        printPermissions(*permissions);
+    }
+    if (json::boolOr(*entry, "needsApproval", false))
+    {
+        if (!options.yes && !confirm("Allow it?"))
+        {
+            out("Not approved: it is installed but its script will not run until `rmw plugin approve " + id +
+                "`.");
+            return Ok;
+        }
+        if (auto approved = client.call("plugin.approve", Json{{"id", id}}, 60s); !approved)
+        {
+            return failure(approved.error());
+        }
+    }
+    out(std::format("Installed {}.", id));
+    return Ok;
+}
+
+// The .rice of a rice folder, made here (no core): what an import would refuse is refused now.
+int packRice(const std::string& where, const std::string& target)
+{
+    auto folder = absoluteFolder(where);
+    if (!folder)
+    {
+        err("rmw: " + folder.error().message());
+        return Usage;
+    }
+    const std::filesystem::path root(utf8To16Lossy(*folder));
+    auto bytes = platform::readFileLimited(root / L"rice.toml", limits::kManifestMaxBytes);
+    if (!bytes)
+    {
+        return failure(std::move(bytes.error()).withContext("read rice.toml"));
+    }
+    domain::Diagnostics diagnostics;
+    if (auto rice = domain::parseRice(
+            std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), diagnostics);
+        !rice)
+    {
+        err("rmw: rice.toml: " + rice.error().message());
+        return InvalidRice;
+    }
+    const std::filesystem::path archive = target.empty()
+                                              ? root.parent_path() / (root.filename().native() + L".rice")
+                                              : std::filesystem::absolute(utf8To16Lossy(target));
+    auto packed = package::pack(root, package::Kind::Rice, archive);
+    if (!packed)
+    {
+        return failure(packed.error());
+    }
+    out(std::format("Packed {} ({} KB)", utf16To8Lossy(archive.native()), (*packed + 1023) / 1024));
+    return Ok;
+}
+
 int pluginCommand(const Options& options)
 {
     const auto& args = options.positional;
@@ -489,7 +570,7 @@ int pluginCommand(const Options& options)
                 ? folder->parent_path() /
                       utf8To16Lossy(std::format("{}-{}.rmwp", manifest.id, manifest.version.toString()))
                 : std::filesystem::absolute(utf8To16Lossy(options.out));
-        auto packed = cli::packPlugin(*folder, target);
+        auto packed = package::pack(*folder, package::Kind::Plugin, target);
         if (!packed)
         {
             return failure(packed.error());
@@ -609,6 +690,15 @@ int pluginCommand(const Options& options)
             }
             out(std::format("{} no longer runs from its folder.", args[1]));
             return Ok;
+        }
+        if (sub == "install" && args.size() == 2)
+        {
+            auto file = absoluteFolder(args[1]);
+            std::error_code ec;
+            if (file && std::filesystem::is_regular_file(utf8To16Lossy(*file), ec))
+            {
+                return installPackage(client, *file, options);
+            }
         }
         auto folder = folderAt(1);
         if (!folder)
@@ -736,9 +826,9 @@ int run(std::span<const std::string> args)
     {
         return pluginCommand(*options);
     }
-    constexpr std::array<std::string_view, 13> kCommands = {
-        "apps",     "apply",   "validate", "status",   "history",   "restore",  "export",
-        "monitors", "inspect", "action",   "settings", "autostart", "shutdown",
+    constexpr std::array<std::string_view, 15> kCommands = {
+        "apps",     "apply",   "validate", "status",   "history",   "restore",  "export", "import",
+        "monitors", "inspect", "action",   "settings", "autostart", "shutdown", "pack",
     };
     if (std::ranges::find(kCommands, command) == kCommands.end())
     {
@@ -746,11 +836,17 @@ int run(std::span<const std::string> args)
         err(std::format("rmw: unknown command '{}'\n\n{}", command, kUsage));
         return Usage;
     }
-    const auto needsFolder = command == "apply" || command == "validate" || command == "export";
+    const auto needsFolder = command == "apply" || command == "validate" || command == "export" ||
+                             command == "pack" || command == "import";
     if (needsFolder && options->positional.size() != 1)
     {
-        err(std::format("rmw: '{}' needs exactly one folder\n\n{}", command, kUsage));
+        err(std::format("rmw: '{}' needs exactly one {}\n\n{}", command,
+                        command == "import" ? "file" : "folder", kUsage));
         return Usage;
+    }
+    if (command == "pack")
+    {
+        return packRice(options->positional[0], options->out);
     }
 
     CoreClient client(options->dataDirectory);
@@ -1017,6 +1113,25 @@ int run(std::span<const std::string> args)
         printDiagnostics(json::memberOr(*exported, "diagnostics", Json::array()));
         return json::boolOr(*exported, "valid", false) ? Ok : Failed;
     }
+    if (command == "import")
+    {
+        auto file = absoluteFolder(options->positional[0]);
+        if (!file)
+        {
+            err("rmw: " + file.error().message());
+            return Usage;
+        }
+        auto imported = client.call("rice.import", Json{{"path", *file}}, kImportTimeout);
+        if (!imported)
+        {
+            return failure(imported.error());
+        }
+        const std::string folder = json::stringOr(*imported, "path", "");
+        out(std::format("Imported \"{}\" into {} ({} files).", json::stringOr(*imported, "name", ""), folder,
+                        json::intOr(*imported, "files", 0)));
+        out(std::format("Apply it with: rmw apply \"{}\"", folder));
+        return Ok;
+    }
     if (command == "inspect")
     {
         if (options->positional.size() != 1)
@@ -1131,6 +1246,47 @@ int run(std::span<const std::string> args)
             return failure(stopped.error());
         }
         out("The core is stopping.");
+        if (!options->wait)
+        {
+            return Ok;
+        }
+        // Until the core and its helpers from this installation are gone (the installer replaces
+        // or removes their files next). The bar first hands Windows' taskbar back.
+        auto self = platform::currentExecutable();
+        if (!self)
+        {
+            return failure(self.error());
+        }
+        constexpr std::array<std::wstring_view, 5> kPrograms = {L"rmw-core.exe", L"rmw-bar.exe",
+                                                                L"rmw-wallpaper.exe", L"rmw-plugin-host.exe",
+                                                                L"rmw-settings.exe"};
+        // The settings window closes like when its X is clicked.
+        constexpr std::array<std::wstring_view, 1> kWindows = {L"rmw-settings.exe"};
+        auto windows = platform::processesFromFolder(self->parent_path(), kWindows);
+        EnumWindows(
+            [](HWND window, LPARAM pids) -> BOOL {
+                DWORD pid = 0;
+                GetWindowThreadProcessId(window, &pid);
+                // NOLINTNEXTLINE(performance-no-int-to-ptr): EnumWindows hands its context back as an LPARAM
+                if (std::ranges::contains(*reinterpret_cast<std::vector<std::uint32_t>*>(pids), pid) &&
+                    IsWindowVisible(window) != FALSE)
+                {
+                    PostMessageW(window, WM_CLOSE, 0, 0);
+                }
+                return TRUE;
+            },
+            reinterpret_cast<LPARAM>(&windows));
+        const auto deadline = std::chrono::steady_clock::now() + 30s;
+        while (!platform::processesFromFolder(self->parent_path(), kPrograms).empty())
+        {
+            if (std::chrono::steady_clock::now() > deadline)
+            {
+                err("rmw: the core or one of its helpers is still running after 30 s");
+                return Failed;
+            }
+            std::this_thread::sleep_for(100ms);
+        }
+        out("Stopped.");
         return Ok;
     }
 

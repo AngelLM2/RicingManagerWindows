@@ -36,12 +36,6 @@ Result<void> writeText(const std::filesystem::path& file, std::string_view conte
     return platform::writeFileAtomic(file, std::as_bytes(std::span(content)));
 }
 
-bool isReparsePoint(const std::filesystem::path& path)
-{
-    const DWORD attributes = GetFileAttributesW(path.c_str());
-    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-}
-
 // ---- templates ------------------------------------------------------------------------------------
 
 constexpr std::string_view kActionToml = R"(schema = 1
@@ -166,51 +160,6 @@ std::string fill(std::string_view text, std::string_view id, std::string_view na
         }
     }
     return out;
-}
-
-// ---- zip (store, no compression: what a .rmwp needs) ---------------------------------------------
-
-std::uint32_t crc32(std::span<const std::byte> bytes)
-{
-    static const auto table = [] {
-        std::array<std::uint32_t, 256> t{};
-        for (std::uint32_t i = 0; i < 256; ++i)
-        {
-            std::uint32_t c = i;
-            for (int k = 0; k < 8; ++k)
-            {
-                c = (c & 1U) != 0 ? 0xEDB88320U ^ (c >> 1U) : c >> 1U;
-            }
-            t[i] = c;
-        }
-        return t;
-    }();
-    std::uint32_t crc = 0xFFFFFFFFU;
-    for (const std::byte b : bytes)
-    {
-        crc = table[(crc ^ static_cast<std::uint32_t>(b)) & 0xFFU] ^ (crc >> 8U);
-    }
-    return crc ^ 0xFFFFFFFFU;
-}
-
-void put16(std::vector<std::byte>& out, std::uint32_t value)
-{
-    out.push_back(static_cast<std::byte>(value & 0xFFU));
-    out.push_back(static_cast<std::byte>((value >> 8U) & 0xFFU));
-}
-
-void put32(std::vector<std::byte>& out, std::uint32_t value)
-{
-    put16(out, value & 0xFFFFU);
-    put16(out, value >> 16U);
-}
-
-void putText(std::vector<std::byte>& out, std::string_view text)
-{
-    for (const char c : text)
-    {
-        out.push_back(static_cast<std::byte>(c));
-    }
 }
 
 } // namespace
@@ -416,122 +365,6 @@ Result<void> newPlugin(std::string_view kind, const std::filesystem::path& folde
         }
     }
     return {};
-}
-
-Result<std::uint64_t> packPlugin(const std::filesystem::path& folder, const std::filesystem::path& out)
-{
-    auto root = platform::finalPath(folder);
-    if (!root)
-    {
-        return std::unexpected(std::move(root.error()));
-    }
-    std::vector<std::pair<std::string, std::filesystem::path>> files;
-    std::error_code ec;
-    for (auto it = std::filesystem::recursive_directory_iterator(*root, ec); !ec && it != decltype(it){};
-         it.increment(ec))
-    {
-        const std::string name = text(it->path().filename());
-        // Editor files (.vscode, .luaurc, rmw.d.luau) and packages stay out.
-        if (name.starts_with('.') || name.ends_with(".d.luau") || it->path().extension() == L".rmwp")
-        {
-            if (it->is_directory(ec))
-            {
-                it.disable_recursion_pending(); // .git, .vscode...
-            }
-            continue;
-        }
-        if (isReparsePoint(it->path()))
-        {
-            return fail(ErrorCode::AccessDenied, std::format("{}: links are not allowed in a plugin", name));
-        }
-        if (it->is_directory(ec))
-        {
-            continue;
-        }
-        const std::string relative =
-            utf16To8Lossy(std::filesystem::relative(it->path(), *root, ec).generic_wstring());
-        auto valid = domain::validatePackagePath(relative);
-        if (!valid)
-        {
-            return fail(ErrorCode::InvalidData, std::format("{}: {}", relative, valid.error().message()));
-        }
-        files.emplace_back(std::move(*valid), it->path());
-    }
-    if (ec)
-    {
-        return fail(ErrorCode::Io, ec.message());
-    }
-    if (files.size() > limits::kPackageMaxEntries)
-    {
-        return fail(ErrorCode::LimitExceeded, std::format("more than {} files", limits::kPackageMaxEntries));
-    }
-    std::ranges::sort(files);
-    std::vector<std::byte> zip;
-    std::vector<std::byte> directory;
-    constexpr std::uint32_t kUtf8Names = 0x0800;
-    constexpr std::uint32_t kDosDate = 0x0021; // 1980-01-01: the same files make the same package
-    for (const auto& [name, path] : files)
-    {
-        auto bytes = platform::readFileLimited(path, std::uint64_t{64} << 20);
-        if (!bytes)
-        {
-            return std::unexpected(std::move(bytes.error()).withContext(name));
-        }
-        const std::uint32_t crc = crc32(*bytes);
-        const auto size = static_cast<std::uint32_t>(bytes->size());
-        const auto offset = static_cast<std::uint32_t>(zip.size());
-        put32(zip, 0x04034b50);
-        put16(zip, 10);
-        put16(zip, kUtf8Names);
-        put16(zip, 0); // stored
-        put16(zip, 0);
-        put16(zip, kDosDate);
-        put32(zip, crc);
-        put32(zip, size);
-        put32(zip, size);
-        put16(zip, static_cast<std::uint32_t>(name.size()));
-        put16(zip, 0);
-        putText(zip, name);
-        zip.insert(zip.end(), bytes->begin(), bytes->end());
-
-        put32(directory, 0x02014b50);
-        put16(directory, 20);
-        put16(directory, 10);
-        put16(directory, kUtf8Names);
-        put16(directory, 0);
-        put16(directory, 0);
-        put16(directory, kDosDate);
-        put32(directory, crc);
-        put32(directory, size);
-        put32(directory, size);
-        put16(directory, static_cast<std::uint32_t>(name.size()));
-        put16(directory, 0);
-        put16(directory, 0);
-        put16(directory, 0);
-        put16(directory, 0);
-        put32(directory, 0);
-        put32(directory, offset);
-        putText(directory, name);
-        if (zip.size() > limits::kPackageMaxTotalBytes / 16)
-        {
-            return fail(ErrorCode::LimitExceeded, "the plugin is larger than 64 MB");
-        }
-    }
-    const auto directoryOffset = static_cast<std::uint32_t>(zip.size());
-    zip.insert(zip.end(), directory.begin(), directory.end());
-    put32(zip, 0x06054b50);
-    put16(zip, 0);
-    put16(zip, 0);
-    put16(zip, static_cast<std::uint32_t>(files.size()));
-    put16(zip, static_cast<std::uint32_t>(files.size()));
-    put32(zip, static_cast<std::uint32_t>(directory.size()));
-    put32(zip, directoryOffset);
-    put16(zip, 0);
-    if (auto written = platform::writeFileAtomic(out, zip); !written)
-    {
-        return std::unexpected(std::move(written.error()));
-    }
-    return zip.size();
 }
 
 } // namespace rmw::cli

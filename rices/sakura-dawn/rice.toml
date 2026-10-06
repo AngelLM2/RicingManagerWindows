@@ -1,0 +1,71 @@
+schema = 1
+
+[meta]
+id          = "io.github.angellm2.rices.sakura-dawn"
+name        = "Sakura Dawn"
+author      = "Ricing Manager"
+version     = "1.0.0"
+license     = "GPL-3.0-or-later"
+description = "A light spring morning: a blossoming branch and petals on the wind over soft hills, in the Rosé Pine Dawn colors."
+
+[palette]
+base    = "#FAF4ED"
+surface = "#FFFAF3"
+text    = "#575279"
+rose    = "#D7827E"
+love    = "#B4637A"
+iris    = "#907AA9"
+pine    = "#286983"
+
+[appearance]
+mode              = "light"
+accent            = "#B4637A"
+transparency      = true
+accent_on_taskbar = false
+
+[wallpaper]
+background = "#FAF4ED"
+
+[[wallpaper.monitor]]
+match  = "all"
+kind   = "image"
+source = "assets/sakura-dawn.png"
+fit    = "fill"
+
+[cursors]
+source = "assets/cursors"
+size   = 32
+
+[cursors.map]
+normal      = "normal.cur"
+help        = "help.cur"
+working     = "working.ani"
+busy        = "busy.ani"
+precision   = "precision.cur"
+text        = "text.cur"
+handwriting = "handwriting.cur"
+unavailable = "unavailable.cur"
+vertical    = "vertical.cur"
+horizontal  = "horizontal.cur"
+diagonal1   = "diagonal1.cur"
+diagonal2   = "diagonal2.cur"
+move        = "move.cur"
+alternate   = "alternate.cur"
+link        = "link.cur"
+location    = "location.cur"
+person      = "person.cur"
+
+[[bar]]
+monitor             = "all"
+position            = "top"
+mode                = "reserve"
+thickness           = 32
+length              = "100%"
+margin              = [0, 0, 0, 0]
+radius              = 0
+background          = { kind = "solid", tint = "palette.surface", opacity = 0.92 }
+foreground          = "palette.text"
+hide_native_taskbar = true
+left                = ["start", "desktops", "windows"]
+center              = ["clock"]
+right               = ["tray", "volume", "network", "battery", "notifications"]

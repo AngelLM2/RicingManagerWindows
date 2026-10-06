@@ -9,6 +9,7 @@
 #include <wil/resource.h>
 
 #include <sddl.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <array>
@@ -238,6 +239,13 @@ void ChildProcess::terminate() noexcept
     {
         TerminateProcess(m_process, 1);
     }
+    // Termination is asynchronous: wait (briefly) until it is done, so what comes next — showing
+    // Windows' taskbar again, which a dying bar's hook would hide once more; replacing its files —
+    // does not race the process.
+    if (m_process != nullptr)
+    {
+        WaitForSingleObject(m_process, 2000);
+    }
 }
 
 void ChildProcess::detach() noexcept
@@ -375,6 +383,49 @@ SingleInstance::SingleInstance(SingleInstance&& other) noexcept
     : m_mutex(std::exchange(other.m_mutex, nullptr))
     , m_owned(std::exchange(other.m_owned, false))
 {
+}
+
+std::vector<std::uint32_t> processesFromFolder(const std::filesystem::path& folder,
+                                               std::span<const std::wstring_view> names)
+{
+    std::vector<std::uint32_t> found;
+    const wil::unique_handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+    if (!snapshot || snapshot.get() == INVALID_HANDLE_VALUE)
+    {
+        return found;
+    }
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    for (BOOL more = Process32FirstW(snapshot.get(), &entry); more != FALSE;
+         more = Process32NextW(snapshot.get(), &entry))
+    {
+        const std::wstring_view exe(entry.szExeFile);
+        if (std::ranges::none_of(names, [&](std::wstring_view name) {
+                return CompareStringOrdinal(exe.data(), static_cast<int>(exe.size()), name.data(),
+                                            static_cast<int>(name.size()), TRUE) == CSTR_EQUAL;
+            }))
+        {
+            continue;
+        }
+        // The same name from another folder (another installation, a build) is not ours.
+        const wil::unique_handle process(
+            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID));
+        std::wstring path(MAX_PATH, L'\0');
+        auto size = static_cast<DWORD>(path.size());
+        if (!process || QueryFullProcessImageNameW(process.get(), 0, path.data(), &size) == FALSE)
+        {
+            continue;
+        }
+        path.resize(size);
+        const std::wstring parent = std::filesystem::path(path).parent_path().native();
+        const std::wstring& wanted = folder.native();
+        if (CompareStringOrdinal(parent.data(), static_cast<int>(parent.size()), wanted.data(),
+                                 static_cast<int>(wanted.size()), TRUE) == CSTR_EQUAL)
+        {
+            found.push_back(entry.th32ProcessID);
+        }
+    }
+    return found;
 }
 
 Result<std::filesystem::path> defaultDataDirectory()

@@ -59,6 +59,11 @@ struct HashedCopy
 [[nodiscard]] Result<std::vector<std::byte>> readFileLimited(const std::filesystem::path& path,
                                                              std::uint64_t maxBytes);
 
+// The final path of an open file (a HANDLE), every link resolved and \\?\ removed.
+[[nodiscard]] Result<std::filesystem::path> finalPathOfHandle(void* handle);
+// Writes every byte to an open file (a HANDLE).
+[[nodiscard]] Result<void> writeAll(void* file, std::span<const std::byte> bytes);
+
 // Renames `from` over `to` atomically (POSIX semantics where the volume supports them).
 [[nodiscard]] Result<void> replaceFile(const std::filesystem::path& from, const std::filesystem::path& to);
 
