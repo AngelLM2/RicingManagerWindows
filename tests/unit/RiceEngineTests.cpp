@@ -151,7 +151,7 @@ TEST_F(RiceEngineTest, CrashMidOperationIsUndoneOnTheNextStart)
     EXPECT_FALSE(m_engine->recover().value()); // nothing left
 }
 
-TEST_F(RiceEngineTest, FailedUndoIsFlaggedAndRetried)
+TEST_F(RiceEngineTest, FailedUndoIsFlaggedAndARestoreBringsItBack)
 {
     m_appearance.desired = wants({{"dark", true}});
     m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
@@ -161,15 +161,208 @@ TEST_F(RiceEngineTest, FailedUndoIsFlaggedAndRetried)
 
     const auto report = m_engine->apply(m_rice, package());
     ASSERT_FALSE(report.has_value());
-    EXPECT_NE(report.error().message().find("undo also failed"), std::string::npos)
+    EXPECT_NE(report.error().message().find("undo also failed for appearance"), std::string::npos)
         << report.error().message();
     EXPECT_TRUE(m_engine->needsRestore().value());
-    EXPECT_TRUE(m_state->openJournal().value().has_value());
+    // Closed anyway: nothing waits for an undo that may never work.
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg");                // undone
+    EXPECT_EQ(m_state->applied("appearance").value(), (Json{{"dark", true}})); // not undone: ours
+    const auto history = m_state->history().value();
+    ASSERT_EQ(history.size(), 1u);
+    EXPECT_NE(history[0].label.find("not fully undone"), std::string::npos);
 
     m_appearance.failEveryApplyFrom = 0; // whatever blocked it is gone
-    ASSERT_TRUE(m_engine->recover().value_or(false));
-    EXPECT_FALSE(m_engine->needsRestore().value());
+    const auto restored = m_engine->restoreOriginal();
+    ASSERT_TRUE(restored.has_value()) << restored.error().toString();
     EXPECT_EQ(m_appearance.fields()["dark"], false);
+    EXPECT_FALSE(m_engine->needsRestore().value());
+}
+
+// The review of v1.7: an undo that kept failing refused every later operation, restore included.
+TEST_F(RiceEngineTest, AnUndoThatKeepsFailingBlocksNothing)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
+    m_wallpaper.crashApplyAt = 1;
+    build();
+    EXPECT_THROW(
+        { [[maybe_unused]] const auto ignored = m_engine->apply(m_rice, package()); }, std::runtime_error);
+
+    // Next start: appearance cannot be put back.
+    m_appearance.failEveryApplyFrom = m_appearance.applyCount + 1;
+    m_engine.emplace(*m_state, *m_store, *m_catalog, *m_runner);
+    const auto recovered = m_engine->recover();
+    ASSERT_TRUE(recovered.has_value()) << recovered.error().toString();
+    EXPECT_TRUE(*recovered);
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+    EXPECT_TRUE(m_engine->needsRestore().value());
+
+    // Another rice still applies.
+    m_appearance.desired = nullptr;
+    m_wallpaper.desired = wants({{"monitor:B", "new-b.jpg"}});
+    const auto applied = m_engine->apply(m_rice, package());
+    ASSERT_TRUE(applied.has_value()) << applied.error().toString();
+    EXPECT_EQ(m_wallpaper.fields()["monitor:B"], "new-b.jpg");
+
+    // And the restore goes as far as it can, then all the way once appearance works again.
+    const auto partly = m_engine->restoreOriginal();
+    ASSERT_TRUE(partly.has_value()) << partly.error().toString();
+    ASSERT_EQ(partly->failed.size(), 1u);
+    EXPECT_EQ(partly->failed[0].module, "appearance");
+    EXPECT_EQ(m_wallpaper.fields()["monitor:B"], "orig-b.jpg");
+    EXPECT_TRUE(m_engine->needsRestore().value());
+    m_appearance.failEveryApplyFrom = 0;
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+    EXPECT_FALSE(m_engine->needsRestore().value());
+}
+
+TEST_F(RiceEngineTest, DiscardForgetsAnInterruptedOperationWithoutUndoingIt)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
+    m_wallpaper.crashApplyAt = 1;
+    build();
+    EXPECT_THROW(
+        { [[maybe_unused]] const auto ignored = m_engine->apply(m_rice, package()); }, std::runtime_error);
+    const int applies = m_appearance.applyCount + m_wallpaper.applyCount;
+    const auto calls = m_world.calls.size();
+
+    m_engine.emplace(*m_state, *m_store, *m_catalog, *m_runner);
+    const auto discarded = m_engine->discardJournal();
+    ASSERT_TRUE(discarded.has_value()) << discarded.error().toString();
+    EXPECT_TRUE(*discarded);
+    EXPECT_EQ(m_appearance.applyCount + m_wallpaper.applyCount, applies); // nothing was undone
+    EXPECT_EQ(m_world.calls.size(), calls);                              // no module code ran at all
+    EXPECT_EQ(m_appearance.fields()["dark"], true);
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+    EXPECT_FALSE(m_engine->needsRestore().value());
+    EXPECT_FALSE(m_engine->discardJournal().value()); // nothing left
+
+    // What it changed counts as ours: the original comes back.
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+}
+
+// The review of v1.7: a crash in the middle of a restore applied the rice again on the next start.
+TEST_F(RiceEngineTest, AnInterruptedRestoreIsFinishedNotUndone)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    m_wallpaper.crashApplyAt = m_wallpaper.applyCount + 1; // appearance is back, then the crash
+    EXPECT_THROW(
+        { [[maybe_unused]] const auto ignored = m_engine->restoreOriginal(); }, std::runtime_error);
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+    EXPECT_EQ(m_state->openJournal().value()->operation, "restore");
+
+    m_engine.emplace(*m_state, *m_store, *m_catalog, *m_runner);
+    const auto recovered = m_engine->recover();
+    ASSERT_TRUE(recovered.has_value()) << recovered.error().toString();
+    EXPECT_TRUE(*recovered);
+    EXPECT_EQ(m_appearance.fields()["dark"], false); // not riced again
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg");
+    EXPECT_TRUE(m_state->appliedModules().value().empty());
+    EXPECT_EQ(m_state->history().value().size(), 2u);
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+}
+
+TEST_F(RiceEngineTest, ARestoreGoesOnPastAModuleItCannotRead)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    m_wallpaper.failCapture = true;
+
+    const auto report = m_engine->restoreOriginal();
+    ASSERT_TRUE(report.has_value()) << report.error().toString();
+    ASSERT_EQ(report->failed.size(), 1u);
+    EXPECT_EQ(report->failed[0].module, "wallpaper");
+    EXPECT_EQ(report->modules, (std::vector<std::string>{"appearance"}));
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+    EXPECT_FALSE(m_state->applied("wallpaper").value().empty()); // still ours
+
+    // Nothing at all comes back: that is a failure.
+    EXPECT_FALSE(m_engine->restoreOriginal().has_value());
+}
+
+// The review of v1.7: a wallpaper on a monitor that was not connected was recorded as restored.
+TEST_F(RiceEngineTest, AFieldWindowsDoesNotShowStaysOursUntilItComesBack)
+{
+    m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    m_wallpaper.unplugged = {"monitor:A"};
+
+    const auto report = m_engine->restoreOriginal();
+    ASSERT_TRUE(report.has_value()) << report.error().toString();
+    ASSERT_EQ(report->skipped.size(), 1u);
+    EXPECT_EQ(report->skipped[0].field, "monitor:A");
+    // Ours still, with the original: when the monitor is back, the original goes on it.
+    EXPECT_EQ(m_state->applied("wallpaper").value(), (Json{{"monitor:A", "orig-a.jpg"}}));
+
+    m_wallpaper.unplugged.clear();
+    const std::vector<std::string> onlyWallpaper{"wallpaper"};
+    ASSERT_TRUE(m_engine->reapplyManaged(onlyWallpaper).has_value());
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg");
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_TRUE(m_state->applied("wallpaper").value().empty());
+}
+
+// The review of v1.7: going back to before "Restored the original Windows" did nothing.
+TEST_F(RiceEngineTest, GoingBackPastARestoreBringsTheRiceBack)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    m_engine->setCoreState([] { return Json{{"bars", "the rice's"}}; });
+    const auto restored = m_engine->restoreOriginal();
+    ASSERT_TRUE(restored.has_value()) << restored.error().toString();
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+    m_engine->setCoreState([] { return Json{{"bars", "none"}}; });
+
+    const auto back = m_engine->restoreHistory(restored->historyId);
+    ASSERT_TRUE(back.has_value()) << back.error().toString();
+    EXPECT_EQ(m_appearance.fields()["dark"], true);
+    EXPECT_EQ(m_state->applied("appearance").value(), (Json{{"dark", true}})); // ours again
+    EXPECT_EQ(back->core, (Json{{"bars", "the rice's"}}));                    // as it was then
+
+    // A field the user changed since that restore stays theirs.
+    const auto second = m_engine->restoreOriginal();
+    ASSERT_TRUE(second.has_value()) << second.error().toString();
+    m_appearance.fields()["dark"] = "by hand";
+    const auto kept = m_engine->restoreHistory(second->historyId);
+    ASSERT_TRUE(kept.has_value()) << kept.error().toString();
+    ASSERT_EQ(kept->skipped.size(), 1u);
+    EXPECT_EQ(kept->skipped[0].reason, "changed after it was applied");
+    EXPECT_EQ(m_appearance.fields()["dark"], "by hand");
+}
+
+TEST_F(RiceEngineTest, TheOriginalComesBackFromItsCopyWhenStateDbLosesIt)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    const auto backup = m_dir.path() / "original.json";
+    m_engine->setOriginalBackup(backup);
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    ASSERT_TRUE(std::filesystem::exists(backup));
+
+    // A new, empty state.db (the old one was damaged): Windows is riced now.
+    auto fresh = StateDb::open(m_dir.path() / "fresh.db", {.synchronous = rmw::storage::Synchronous::Off});
+    ASSERT_TRUE(fresh.has_value()) << fresh.error().toString();
+    RiceEngine engine(*fresh, *m_store, *m_catalog, *m_runner);
+    engine.setOriginalBackup(backup);
+    m_appearance.desired = wants({{"accent", "#ff0000"}});
+    ASSERT_TRUE(engine.apply(m_rice, package()).has_value());
+    const auto base = fresh->baseSnapshot().value();
+    ASSERT_TRUE(base.has_value());
+    EXPECT_EQ(base->modules["appearance"]["state"]["dark"], false); // the real original, not the rice
+
+    ASSERT_TRUE(engine.restoreOriginal({.force = true}).has_value());
+    EXPECT_EQ(m_appearance.fields()["accent"], "#000000");
 }
 
 TEST_F(RiceEngineTest, CaptureFailureStopsBeforeAnythingChanges)
