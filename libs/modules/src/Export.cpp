@@ -358,7 +358,10 @@ void exportWallpaper(const Json& state, const std::vector<ports::MonitorInfo>& m
         {
             continue;
         }
-        const std::string source = json::stringOr(field, "file", "");
+        // Our copy first: it is there for sure (the user's file may be gone since).
+        const std::string file = json::stringOr(field, "file", "");
+        const std::string copy = json::stringOr(field, "copy", "");
+        const std::string& source = file.empty() || copy.empty() ? file : copy;
         if (source.empty())
         {
             if (domain::Color::parse(background))

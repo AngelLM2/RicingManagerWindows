@@ -43,7 +43,9 @@ export component TilingPage inherits ScrollView {
                 label: @tr("Workspaces");
                 description: @tr("Like Linux: workspaces 1 to 9 on each monitor. Like a Mac: Windows' own virtual desktops, which slide.");
                 ComboBox {
-                    width: 260px;
+                    min-width: 140px;
+                    preferred-width: 260px;
+                    max-width: 260px;
                     model: [@tr("Like Linux (each monitor)"), @tr("Like a Mac (Windows' desktops)")];
                     current-index <=> Api.tiling-mode;
                     accessible-label: @tr("Workspaces");
@@ -57,7 +59,9 @@ export component TilingPage inherits ScrollView {
                 label: @tr("How many workspaces");
                 description: @tr("Ctrl+Win+1 to 9 go to them; the bar's \"Workspaces (tiling)\" widget shows the ones in use.");
                 SpinBox {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     minimum: 1;
                     maximum: 9;
                     value <=> Api.tiling-workspaces;
@@ -72,7 +76,9 @@ export component TilingPage inherits ScrollView {
                 label: @tr("Layout");
                 description: @tr("How the windows of a workspace share it. Ctrl+Alt+Space changes it for a while.");
                 ComboBox {
-                    width: 260px;
+                    min-width: 140px;
+                    preferred-width: 260px;
+                    max-width: 260px;
                     model: [@tr("Halves that turn (dwindle)"), @tr("A main window and a stack"), @tr("Columns"), @tr("One at a time (monocle)"), @tr("Free (floating)")];
                     current-index <=> Api.tiling-layout;
                     accessible-label: @tr("Layout");
@@ -85,7 +91,9 @@ export component TilingPage inherits ScrollView {
             if Api.tiling-layout == 1: SettingRow {
                 label: @tr("Size of the main window (%)");
                 SpinBox {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     minimum: 10;
                     maximum: 90;
                     step-size: 5;
@@ -101,7 +109,9 @@ export component TilingPage inherits ScrollView {
                 label: @tr("Space between the windows");
                 description: @tr("In pixels at 100% scale.");
                 SpinBox {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     minimum: 0;
                     maximum: 64;
                     value <=> Api.tiling-gap;
@@ -115,7 +125,9 @@ export component TilingPage inherits ScrollView {
             SettingRow {
                 label: @tr("Space at the edges of the screen");
                 SpinBox {
-                    width: 120px;
+                    min-width: 90px;
+                    preferred-width: 120px;
+                    max-width: 120px;
                     minimum: 0;
                     maximum: 64;
                     value <=> Api.tiling-outer-gap;
@@ -179,7 +191,9 @@ export component TilingPage inherits ScrollView {
                     spacing: 8px;
 
                     Text {
-                        width: 300px;
+                        min-width: 140px;
+                        preferred-width: 300px;
+                        max-width: 300px;
                         text: Words.tiling-command(key.command);
                         vertical-alignment: center;
                         color: Palette.foreground;
@@ -187,7 +201,9 @@ export component TilingPage inherits ScrollView {
                     }
 
                     LineEdit {
-                        width: 200px;
+                        min-width: 110px;
+                        preferred-width: 200px;
+                        max-width: 200px;
                         text: key.keys;
                         accessible-label: Words.tiling-command(key.command);
                         accepted(text) => {
@@ -225,7 +241,9 @@ export component TilingPage inherits ScrollView {
                 spacing: 8px;
 
                 LineEdit {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     text: rule.app;
                     placeholder-text: "Calculator.exe";
                     accessible-label: @tr("App");
@@ -235,7 +253,9 @@ export component TilingPage inherits ScrollView {
                 }
 
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Floats"), @tr("Left alone"), @tr("Opens on workspace")];
                     current-index: rule.action;
                     accessible-label: @tr("What its windows do");

@@ -96,6 +96,7 @@ public:
     [[nodiscard]] Result<void> applyLook(const ports::ThemeLook& look) override;
     [[nodiscard]] Result<void> applyThemeFile(const std::string& file) override;
     [[nodiscard]] Result<void> nameCurrentTheme(const std::string& file) override;
+    [[nodiscard]] std::string windowsThemeFile(bool dark) override;
 
 private:
     std::chrono::milliseconds m_wait;
@@ -123,6 +124,7 @@ public:
     [[nodiscard]] Result<ports::SlideshowState> slideshow() override;
     [[nodiscard]] Result<void> setSlideshow(const ports::SlideshowState& state) override;
     [[nodiscard]] Result<std::string> transcodedWallpaper() override;
+    [[nodiscard]] std::string defaultWallpaper() override;
     [[nodiscard]] Result<std::string> sniffImageType(std::string_view file) override;
     [[nodiscard]] bool isWindowsFile(std::string_view file) override;
 };

@@ -498,6 +498,13 @@ Result<OperationReport> RiceEngine::restoreTo(const Json& targetModules, const s
             continue; // we never changed this module
         }
         const Json* target = stateIn(targetModules, id);
+        std::optional<Json> original;
+        if (target != nullptr && update == AppliedUpdate::Remove)
+        {
+            original = *target;
+            module->forOriginal(*original);
+            target = &*original;
+        }
 
         auto current = captureInternalized(*module);
         if (!current)
@@ -673,8 +680,10 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         }
     }
 
-    // 4. apply in dependency order; undo everything touched on the first failure
+    // 4. apply in dependency order; undo everything touched on the first failure (a restore goes on)
+    const bool bestEffort = operation == "restore";
     std::vector<std::string> touched;
+    std::optional<Error> firstFailure;
     for (const auto& step : steps)
     {
         const std::string id(step.module->id());
@@ -689,6 +698,16 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
             continue;
         }
         Error error = std::move(applied.error()).withContext(std::format("apply {}", id));
+        if (bestEffort)
+        {
+            log::warn("{}: {} stays as it is: {}", operation, id, error.toString());
+            report.failed.push_back({id, error.message()});
+            if (!firstFailure)
+            {
+                firstFailure = std::move(error);
+            }
+            continue;
+        }
         log::error("{} failed: {}; undoing", operation, error.toString());
         if (auto undone = undo(beforeModules, desiredAll, touched); !undone)
         {
@@ -711,11 +730,32 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         return std::unexpected(std::move(error));
     }
 
+    if (firstFailure && report.failed.size() == steps.size())
+    {
+        // Nothing came back: nothing to record.
+        if (auto transaction = m_state.transaction())
+        {
+            const bool closed = m_state.closeJournal() && m_state.deleteSnapshot(snapshotId);
+            if (!closed || !transaction->commit())
+            {
+                log::error("cannot close the journal; the operation will be undone on the next start");
+            }
+        }
+        return std::unexpected(std::move(*firstFailure));
+    }
+    const auto failed = [&](const std::string& id) {
+        return std::ranges::any_of(report.failed, [&](const FailedModule& entry) { return entry.module == id; });
+    };
+
     // 5. lastApplied per field, history, journal closed — in one database transaction
     std::vector<std::pair<std::string, Json>> appliedUpdates;
     for (const auto& step : steps)
     {
         const std::string id(step.module->id());
+        if (failed(id))
+        {
+            continue; // still ours: the next restore tries again
+        }
         auto existing = m_state.applied(id);
         if (!existing)
         {

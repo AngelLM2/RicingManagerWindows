@@ -385,6 +385,15 @@ SingleInstance::SingleInstance(SingleInstance&& other) noexcept
 {
 }
 
+void closeSettingsWindow() noexcept
+{
+    const wil::unique_event_nothrow close(OpenEventW(EVENT_MODIFY_STATE, FALSE, kSettingsCloseEvent));
+    if (close)
+    {
+        SetEvent(close.get());
+    }
+}
+
 std::vector<std::uint32_t> processesFromFolder(const std::filesystem::path& folder,
                                                std::span<const std::wstring_view> names)
 {

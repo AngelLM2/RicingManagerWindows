@@ -12,12 +12,15 @@
 #include "rmw/package/Package.hpp"
 #include "rmw/platform/Console.hpp"
 #include "rmw/platform/FileSystem.hpp"
+#include "rmw/platform/NativeTaskbar.hpp"
 #include "rmw/platform/Pipe.hpp"
 #include "rmw/platform/Process.hpp"
 #include "rmw/platform/ProcessHardening.hpp"
 #include "rmw/plugins/HostPlan.hpp"
 
 #include <windows.h>
+
+#include <wil/resource.h>
 
 #include <algorithm>
 #include <array>
@@ -307,6 +310,11 @@ void printReport(const Json& report, std::string_view done)
     for (const auto& warning : json::memberOr(report, "warnings", Json::array()))
     {
         out("  note: " + (warning.is_string() ? warning.get<std::string>() : std::string("?")));
+    }
+    for (const auto& failed : json::memberOr(report, "failed", Json::array()))
+    {
+        out(std::format("  could not bring back {}: {}", json::stringOr(failed, "module", ""),
+                        json::stringOr(failed, "reason", "")));
     }
 }
 
@@ -1343,12 +1351,40 @@ int run(std::span<const std::string> args)
             },
             reinterpret_cast<LPARAM>(&windows));
         const auto deadline = std::chrono::steady_clock::now() + 30s;
+        auto askAgain = std::chrono::steady_clock::now() + 1s;
         while (!platform::processesFromFolder(self->parent_path(), kPrograms).empty())
         {
-            if (std::chrono::steady_clock::now() > deadline)
+            const auto now = std::chrono::steady_clock::now();
+            if (now > askAgain)
             {
-                err("rmw: the core or one of its helpers is still running after 30 s");
-                return Failed;
+                // A core started again meanwhile (an open settings window did, before v1.7): it stops too.
+                CoreClient again(options->dataDirectory);
+                if (again.connect(false))
+                {
+                    [[maybe_unused]] const auto ignored = again.call("shutdown", Json::object(), 5s);
+                }
+                askAgain = now + 1s;
+            }
+            if (now > deadline)
+            {
+                // The installer replaces or deletes these files next: what is left is ended, and Windows'
+                // taskbar comes back (the bar could not hand it back itself).
+                for (const std::uint32_t pid : platform::processesFromFolder(self->parent_path(), kPrograms))
+                {
+                    const wil::unique_handle process(OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid));
+                    if (process && TerminateProcess(process.get(), 1) != FALSE)
+                    {
+                        WaitForSingleObject(process.get(), 2000);
+                    }
+                }
+                platform::showNativeTaskbars();
+                if (!platform::processesFromFolder(self->parent_path(), kPrograms).empty())
+                {
+                    err("rmw: the core or one of its helpers is still running after 30 s");
+                    return Failed;
+                }
+                err("rmw: the core or one of its helpers did not stop in 30 s; it was ended");
+                break;
             }
             std::this_thread::sleep_for(100ms);
         }

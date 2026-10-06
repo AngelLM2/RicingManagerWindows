@@ -60,6 +60,10 @@ private:
     void untuck();
     // A Reserve bar's strip is out of the work area: logged when Explorer left it in.
     void checkStrip();
+    // Windows left our strip in the work area: set it aside ourselves (`work`: the area it has now),
+    // and maximized windows under the strip move out of it.
+    void claimWorkArea(const bar::Rect& work);
+    void refitMaximized(const bar::Rect& before, const bar::Rect& after) const;
     [[nodiscard]] bar::Rect tuckedRect() const noexcept;
     // Where the window is now: between tucked (0) and shown (1), as the slide goes (M10).
     [[nodiscard]] bar::Rect currentRect() const noexcept;
@@ -77,7 +81,11 @@ private:
     bar::Rect m_rect;   // where the bar is when shown
     bar::Rect m_screen; // the monitor's full rectangle (auto-hide hides past its edge)
     bar::Rect m_reserved; // the strip the shell granted (Reserve), as last logged
+    bool m_claimed = false; // the bar set the work area itself (Explorer left the strip in it)
+    int m_claims = 0;       // how often in the last minute: Explorer and the bar never take turns forever
+    std::chrono::steady_clock::time_point m_claimsSince;
     double m_scale = 1.0;
+    std::uint32_t m_factor = 1; // supersampling (Surface): 2 below 175%, where it smooths what Slint draws
     bool m_layered = true;
     bool m_translucent = true;
     bool m_appBar = false;

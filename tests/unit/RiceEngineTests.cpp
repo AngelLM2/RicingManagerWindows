@@ -235,6 +235,63 @@ TEST_F(RiceEngineTest, ThreeWayRestoreSkipsFieldsTheUserChangedUnlessForced)
     EXPECT_EQ(m_appearance.fields()["accent"], "#000000");
 }
 
+// The owner's PC (v1.6): the wallpaper of the original was gone, and the whole restore was undone.
+TEST_F(RiceEngineTest, ARestoreGoesOnPastAModuleThatFails)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    m_wallpaper.failEveryApplyFrom = m_wallpaper.applyCount + 1;
+
+    const auto report = m_engine->restoreOriginal();
+    ASSERT_TRUE(report.has_value()) << report.error().toString();
+    EXPECT_EQ(report->modules, (std::vector<std::string>{"appearance"}));
+    ASSERT_EQ(report->failed.size(), 1u);
+    EXPECT_EQ(report->failed[0].module, "wallpaper");
+    EXPECT_NE(report->failed[0].reason.find("injected"), std::string::npos);
+    EXPECT_EQ(m_appearance.fields()["dark"], false);              // back
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "new-a.jpg");     // stays as it was
+    EXPECT_TRUE(m_state->applied("appearance").value().empty());  // no longer ours
+    EXPECT_FALSE(m_state->applied("wallpaper").value().empty());  // still ours: tried again next time
+    EXPECT_EQ(m_state->history().value().size(), 2u);
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+
+    // Whatever blocked it is gone: the next restore brings the rest back.
+    m_wallpaper.failEveryApplyFrom = 0;
+    const auto again = m_engine->restoreOriginal();
+    ASSERT_TRUE(again.has_value()) << again.error().toString();
+    EXPECT_EQ(again->modules, (std::vector<std::string>{"wallpaper"}));
+    EXPECT_TRUE(again->failed.empty());
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg");
+}
+
+TEST_F(RiceEngineTest, ARestoreWhereNothingComesBackFailsAndRecordsNothing)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    m_appearance.failEveryApplyFrom = m_appearance.applyCount + 1;
+
+    const auto report = m_engine->restoreOriginal();
+    ASSERT_FALSE(report.has_value());
+    EXPECT_NE(report.error().message().find("injected"), std::string::npos);
+    EXPECT_EQ(m_state->history().value().size(), 1u);
+    EXPECT_FALSE(m_state->openJournal().value().has_value());
+    EXPECT_FALSE(m_engine->needsRestore().value());
+}
+
+TEST_F(RiceEngineTest, AnApplyStaysAllOrNothing)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "new-a.jpg"}});
+    m_wallpaper.failEveryApplyFrom = 1;
+    build();
+    const auto report = m_engine->apply(m_rice, package());
+    ASSERT_FALSE(report.has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], false); // undone
+}
+
 TEST_F(RiceEngineTest, RestoreHistoryGoesBackOneStep)
 {
     build();

@@ -56,6 +56,12 @@ public static extern bool SystemParametersInfoW(uint action, uint param, ref REC
 public static extern System.IntPtr GetDC(System.IntPtr window);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern int ReleaseDC(System.IntPtr window, System.IntPtr dc);
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+public struct POINT { public int X; public int Y; }
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern System.IntPtr WindowFromPoint(POINT point);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern System.IntPtr GetAncestor(System.IntPtr window, uint flags);
 [System.Runtime.InteropServices.DllImport("gdi32.dll")]
 public static extern bool BitBlt(System.IntPtr target, int x, int y, int width, int height, System.IntPtr source, int sourceX, int sourceY, uint operation);
 '@
@@ -247,6 +253,72 @@ Check 'tiler:workspace-1-tiled' (Wait-Until { Tiled $windows } 3) (Describe $win
 Start-Sleep -Milliseconds 500
 Shot 'tiler-4-workspace-1'
 
+# Smooth switches (v1.7): the windows that come show in their slots, above the ones that go. Sampled
+# every 10 ms: a coming window seen in two places (it moved after showing), or covered by a going one.
+# The other app windows on the screen (not the ones the switch shows or hides): a switch during which one
+# came or went is not counted (the layout changed for a good reason: the windows made room).
+function Apps-Shown([IntPtr[]] $Except) {
+    @(Get-Process | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero -and $Except -notcontains $_.MainWindowHandle -and [Rmw.Win]::IsWindowVisible($_.MainWindowHandle) } |
+        ForEach-Object { "$($_.ProcessName):$($_.MainWindowHandle)" } | Sort-Object) -join ' '
+}
+function Sample-Switch([byte] $Key, [IntPtr[]] $Coming, [IntPtr[]] $Going) {
+    $appsBefore = Apps-Shown ($Coming + $Going)
+    Chord @($Ctrl, $Win, $Key)
+    $seen = @{}
+    $covered = 0
+    $until = (Get-Date).AddMilliseconds(700)
+    while ((Get-Date) -lt $until) {
+        foreach ($w in $Coming) {
+            if (-not (Visible $w)) { continue }
+            $f = Frame $w
+            if (-not $seen.ContainsKey("$w")) { $seen["$w"] = New-Object System.Collections.Generic.HashSet[string] }
+            [void]$seen["$w"].Add("$($f.X),$($f.Y),$($f.Width),$($f.Height)")
+            $point = New-Object Rmw.Win+POINT
+            $point.X = $f.X + [int]($f.Width / 2); $point.Y = $f.Y + [int]($f.Height / 2)
+            $top = [Rmw.Win]::GetAncestor([Rmw.Win]::WindowFromPoint($point), 2) # GA_ROOT
+            if ($Going -contains $top) { $covered++ }
+        }
+        Start-Sleep -Milliseconds 10
+    }
+    $moved = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 }).Count
+    $where = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 } | ForEach-Object { "$(Title ([IntPtr][long]$_)) at $(@($seen[$_]) -join ' then ')" }) -join ', '
+    $appsAfter = Apps-Shown ($Coming + $Going)
+    if ($moved -gt 0 -and $appsAfter -ne $appsBefore) {
+        # Another window came or went meanwhile: the move was the tiler making room, not a jolt.
+        $where += " (not counted: the windows changed from [$appsBefore] to [$appsAfter])"
+        $moved = 0
+    }
+    [pscustomobject]@{ moved = $moved; covered = $covered; seen = $seen.Count; where = $where }
+}
+# The layout of workspace 2 changes while it is hidden (a window sent there): its windows get new slots.
+Click-On $windows[1]
+$travel = [Rmw.Win]::GetForegroundWindow()
+Chord @($Ctrl, $Win, $Shift, 0x32)
+[void](Wait-Until { -not (Visible $travel) } 3)
+Start-Sleep -Milliseconds 500
+$stay = [IntPtr[]]@($windows | Where-Object { $_ -ne $travel })
+$jolts = @()
+$s = Sample-Switch 0x32 @($t5, $travel) $stay
+$jolts += "to 2 (new slots): moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"
+$moved = $s.moved; $covered = $s.covered
+foreach ($round in 1..2) {
+    $s = Sample-Switch 0x31 $stay @($t5, $travel)
+    $jolts += "to 1: moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered
+    $s = Sample-Switch 0x32 @($t5, $travel) $stay
+    $jolts += "to 2: moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered
+}
+Check 'tiler:switch-without-jolts' ($moved -eq 0) ($jolts -join '; ')
+# Each app takes the show in its own time (all asynchronous: a hung app never stops the tiler): up to two
+# samples (~20 ms) per switch.
+Check 'tiler:switch-covers-first' ($covered -le 2 * 5) ($jolts -join '; ')
+# Back as it was: the traveller to workspace 1 again, and workspace 1 shown.
+Click-On $travel
+Chord @($Ctrl, $Win, $Shift, 0x31)
+[void](Wait-Until { -not (Visible $travel) } 3)
+Chord @($Ctrl, $Win, 0x31)
+[void](Wait-Until { @($windows | Where-Object { Visible $_ }).Count -eq 4 } 3)
+[void](Wait-Until { Tiled $windows } 3)
+
 # Send the focused window to workspace 3: it hides, the other three share the screen.
 Click-On $windows[0]
 $sent = [Rmw.Win]::GetForegroundWindow()
@@ -264,6 +336,52 @@ Chord @($Ctrl, $Win, 0x34)
 Check 'tiler:dialog-hides-with-its-window' (Wait-Until { -not (Visible $t6) -and -not (Visible $t6Dialog) } 3) "window=$(Visible $t6) dialog=$(Visible $t6Dialog)"
 Chord @($Ctrl, $Win, 0x31)
 Check 'tiler:dialog-comes-back' (Wait-Until { (Visible $t6) -and (Visible $t6Dialog) } 3) "window=$(Visible $t6) dialog=$(Visible $t6Dialog)"
+
+# ---- 3a. the settings window on a workspace: whole when it comes back (v1.6 on the owner's PC: white
+# until a page changed)
+function Frame-Shot([IntPtr] $Window) {
+    $f = Frame $Window
+    if ($f.Width -le 0 -or $f.Height -le 0) { return $null }
+    $bitmap = New-Object System.Drawing.Bitmap $f.Width, $f.Height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.CopyFromScreen($f.X, $f.Y, 0, 0, $bitmap.Size)
+    $graphics.Dispose()
+    $bitmap
+}
+function Shot-Difference($A, $B) {
+    if ($null -eq $A -or $null -eq $B -or $A.Width -ne $B.Width -or $A.Height -ne $B.Height) { return 255 }
+    $total = 0.0; $count = 0
+    for ($y = 4; $y -lt $A.Height - 4; $y += [math]::Max(1, [int]($A.Height / 40))) {
+        for ($x = 4; $x -lt $A.Width - 4; $x += [math]::Max(1, [int]($A.Width / 40))) {
+            $p = $A.GetPixel($x, $y); $q = $B.GetPixel($x, $y)
+            $total += ([math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B)) / 3.0
+            $count++
+        }
+    }
+    $total / [math]::Max(1, $count)
+}
+$settingsApp = Start-Process (Join-Path $Bin 'rmw-settings.exe') -ArgumentList @('--data-dir', "`"$data`"") -PassThru
+# The window itself (a small helper window can come first): the one that is wide.
+[void](Wait-Until { $settingsApp.Refresh(); $settingsApp.MainWindowHandle -ne [IntPtr]::Zero -and (Frame $settingsApp.MainWindowHandle).Width -gt 300 } 20)
+$settingsWindow = $settingsApp.MainWindowHandle
+Start-Sleep -Seconds 5 # tiled with the others, connected, painted
+$beforeTrips = Frame-Shot $settingsWindow
+foreach ($trip in 1..3) {
+    Chord @($Ctrl, $Win, 0x32)
+    Start-Sleep -Milliseconds 700
+    Chord @($Ctrl, $Win, 0x31)
+    Start-Sleep -Milliseconds 1200
+}
+$afterTrips = Frame-Shot $settingsWindow
+$tripDiff = Shot-Difference $beforeTrips $afterTrips
+if ($tripDiff -ge 8) {
+    if ($null -ne $beforeTrips) { $beforeTrips.Save((Join-Path $Out 'tiler-settings-before-trips.png')) }
+    if ($null -ne $afterTrips) { $afterTrips.Save((Join-Path $Out 'tiler-settings-after-trips.png')) }
+}
+Check 'tiler:settings-whole-after-workspaces' ($tripDiff -lt 8) ('{0:N1} average difference; frame {1}' -f $tripDiff, (Frame $settingsWindow))
+if (-not $settingsApp.HasExited) { [void]$settingsApp.CloseMainWindow() }
+if (-not (Wait-Until { $settingsApp.HasExited } 10)) { Stop-Process -Id $settingsApp.Id -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Seconds 1
 
 # ---- 3b. the bar's workspaces widget: 1, 2 and 3 in use; a click on 2 goes there -------------------
 $riceDir = Join-Path $Work 'rice-workspaces'
@@ -451,13 +569,17 @@ Start-Process $app 'D2' | Out-Null
 $d2 = Find 'D2'
 Check 'tiler:mac-desktop-2-alone' (Wait-Until { (Tiled @($d2)) -and -not (Cloaked $d2) } 10) "D2=$(Frame $d2) cloaked=$(Cloaked $d2)"
 Shot 'tiler-9-mac-desktop-2'
+# Windows' slide between desktops takes its time: a switch sent while one still slides gets mixed up with
+# it (seen: desktop 2 shown, then 1 again 12 ms later). A person never switches twice within 20 ms.
+Start-Sleep -Milliseconds 800
 $watch.Restart()
 Chord @($Ctrl, $Win, 0x31) # ours: to desktop 1, with Windows' slide
-$slid = Wait-Until { (Cloaked $d2) -and -not (Cloaked $macOne[0]) } 5
+$slid = Wait-Until { (Cloaked $d2) -and -not (Cloaked $macOne[0]) } 8
 Check 'tiler:mac-go-to-1' $slid "$($watch.ElapsedMilliseconds) ms (with Windows' animation)"
 Check 'tiler:mac-desktop-1-still-tiled' (Wait-Until { Tiled $macOne } 5) (Describe $macOne)
+Start-Sleep -Milliseconds 800 # the slide ends
 Chord @($Ctrl, $Win, 0x32) # to desktop 2
-Check 'tiler:mac-go-to-2' (Wait-Until { -not (Cloaked $d2) -and (Cloaked $macOne[0]) } 5) ''
+Check 'tiler:mac-go-to-2' (Wait-Until { -not (Cloaked $d2) -and (Cloaked $macOne[0]) } 8) ''
 $desktops = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops' -ErrorAction SilentlyContinue
 Note 'mac-registry' "ids=$(@($desktops.VirtualDesktopIDs).Count) bytes, current=$(@($desktops.CurrentVirtualDesktop).Count) bytes"
 $adminLog = Join-Path $data 'logs\tiler-admin.log'

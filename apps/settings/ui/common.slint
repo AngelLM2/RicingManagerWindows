@@ -100,6 +100,7 @@ export component NavItem inherits Rectangle {
     in property <string> text;
     in property <string> glyph;
     in property <bool> selected;
+    in property <bool> compact; // a narrow window: the icon only (the name stays for screen readers)
     callback clicked;
 
     height: 38px;
@@ -148,7 +149,7 @@ export component NavItem inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 14px;
+        padding-left: 14px; // compact: 64 px wide, the icon centered
         spacing: 12px;
 
         Text {
@@ -160,11 +161,12 @@ export component NavItem inherits Rectangle {
             color: Palette.foreground;
         }
 
-        Text {
+        if !root.compact: Text {
             text: root.text;
             vertical-alignment: center;
             color: Palette.foreground;
             font-size: Metrics.body-text;
+            overflow: elide;
         }
     }
 }
@@ -200,7 +202,10 @@ export component Swatch inherits Rectangle {
     in property <bool> selected;
     in property <string> name;
     callback clicked;
-    width: 32px;
+    // A narrow window: a row of them narrows instead of running past it.
+    min-width: 20px;
+    preferred-width: 32px;
+    max-width: 32px;
     height: 32px;
     border-radius: 6px;
     background: root.swatch-color;

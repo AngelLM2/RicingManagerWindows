@@ -33,6 +33,11 @@ constexpr std::uint32_t kDefaultSlideSeconds = 30 * 60;
 constexpr std::string_view kDesktopKey = R"(Control Panel\Desktop)";
 constexpr std::string_view kWallPaperField = "wallPaperValue";
 constexpr std::string_view kWhateverWindowsWrites = "windows";
+// Settings' recent pictures (Explorer\Wallpapers\BackgroundHistoryPath0..4): Windows adds every picture set,
+// ours too, and they would point at nothing once Ricing Manager's data is gone. A restore puts the list back.
+constexpr std::string_view kWallpapersKey = R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers)";
+constexpr std::string_view kHistoryField = "history";
+constexpr int kHistoryLength = 5;
 
 bool whateverWindowsWrites(const Json& value)
 {
@@ -290,6 +295,7 @@ Result<Json> WallpaperLogic::desiredFromRice(const domain::Rice& rice, engine::I
     if (desired && desired->contains("backgroundType"))
     {
         (*desired)[std::string(kWallPaperField)] = kWhateverWindowsWrites;
+        (*desired)[std::string(kHistoryField)] = kWhateverWindowsWrites;
     }
     return desired;
 }
@@ -483,13 +489,21 @@ Result<void> WallpaperLogic::internalize(Json& state, engine::IAssetSink& assets
             log::warn("wallpaper: cannot keep a copy of {}: {}", file, stored.error().message());
             continue;
         }
-        value["file"] = utf8Path(*stored);
+        // The user's path stays (a restore names their file again, never our store, which goes when
+        // Ricing Manager is uninstalled), with the copy beside it for when the file is gone. Windows'
+        // own copy (`ext`: the original was gone already) changes with every wallpaper: only ours lasts.
+        value["copy"] = utf8Path(*stored);
+        if (!extension.empty())
+        {
+            value["file"] = value["copy"];
+        }
     }
     return {};
 }
 
 bool WallpaperLogic::fieldEquivalent(std::string_view field, const Json& a, const Json& b) const
 {
+    // Only `file` counts: `copy` is where we keep the picture, not something Windows shows.
     if (field.starts_with(kMonitorFieldPrefix) && a.is_object() && b.is_object() && a.contains("file") &&
         b.contains("file") && a["file"].is_string() && b["file"].is_string())
     {
@@ -500,9 +514,9 @@ bool WallpaperLogic::fieldEquivalent(std::string_view field, const Json& a, cons
     {
         return rgbOf(a) == rgbOf(b);
     }
-    if (field == kWallPaperField)
+    if (field == kWallPaperField || field == kHistoryField)
     {
-        // It follows the picture (Explorer writes it a moment after an apply): never "changed".
+        // They follow the picture (Explorer writes them a moment after an apply): never "changed".
         return true;
     }
     return a == b;
@@ -603,6 +617,18 @@ Result<engine::CaptureResult> WallpaperSystem::capture()
     }
     result.state[std::string(kWallPaperField)] =
         *wallPaper && (*wallPaper)->type == ports::RegistryValue::Type::String ? Json((*wallPaper)->text) : Json(nullptr);
+    Json history = Json::array();
+    for (int i = 0; i < kHistoryLength; ++i)
+    {
+        auto entry = m_registry.read(kWallpapersKey, std::format("BackgroundHistoryPath{}", i));
+        if (!entry)
+        {
+            return std::unexpected(std::move(entry.error()));
+        }
+        history.push_back(*entry && (*entry)->type == ports::RegistryValue::Type::String ? Json((*entry)->text)
+                                                                                         : Json(nullptr));
+    }
+    result.state[std::string(kHistoryField)] = std::move(history);
     if (backgroundType->is_number_integer() && backgroundType->get<std::uint32_t>() == kSpotlight)
     {
         result.fidelity = engine::Fidelity::Lossy;
@@ -611,6 +637,35 @@ Result<engine::CaptureResult> WallpaperSystem::capture()
             "the network) to show it again";
     }
     return result;
+}
+
+std::optional<std::string> WallpaperSystem::resolve(const Json& monitor)
+{
+    std::string file = json::stringOr(monitor, "file", "");
+    if (file.empty())
+    {
+        return file; // no picture: the background color
+    }
+    const auto there = [&](const std::string& candidate) {
+        auto type = m_wallpaper.sniffImageType(candidate);
+        return !candidate.empty() && type && !type->empty();
+    };
+    if (there(file))
+    {
+        return file;
+    }
+    if (std::string copy = json::stringOr(monitor, "copy", ""); there(copy))
+    {
+        log::info("wallpaper: {} is gone; its copy comes back", file);
+        return copy;
+    }
+    if (std::string windows = m_wallpaper.defaultWallpaper(); there(windows))
+    {
+        log::warn("wallpaper: {} and its copy are gone; Windows' own picture comes back", file);
+        return windows;
+    }
+    log::warn("wallpaper: {} is gone; that monitor keeps its picture", file);
+    return std::nullopt;
 }
 
 Result<void> WallpaperSystem::apply(const Json& desired)
@@ -654,8 +709,10 @@ Result<void> WallpaperSystem::apply(const Json& desired)
             anyMonitor = anyMonitor || field.starts_with(kMonitorFieldPrefix);
         }
         // A restore of one picture on every monitor: set the way Settings sets it, and only so (a per-monitor
-        // set finishes in the background and makes Windows name its own copy, after us).
-        if (const auto named = everywhereFile(desired); anyMonitor && named)
+        // set finishes in the background and makes Windows name its own copy, after us). Only while that
+        // file is there.
+        if (const auto named = everywhereFile(desired);
+            anyMonitor && named && resolve(Json{{"file", *named}}) == named)
         {
             if (auto set = m_wallpaper.setDesktopWallpaper(*named); !set)
             {
@@ -688,9 +745,12 @@ Result<void> WallpaperSystem::apply(const Json& desired)
                     log::warn("wallpaper: monitor {} is not connected; skipped", key);
                     continue;
                 }
-                if (auto set =
-                        m_wallpaper.setWallpaper(slot->wallpaperPath, value["file"].get<std::string>());
-                    !set)
+                const auto picture = resolve(value);
+                if (!picture)
+                {
+                    continue;
+                }
+                if (auto set = m_wallpaper.setWallpaper(slot->wallpaperPath, *picture); !set)
                 {
                     return set;
                 }
@@ -730,6 +790,25 @@ Result<void> WallpaperSystem::apply(const Json& desired)
         if (auto written = writeDwordField(m_registry, kBackgroundType, *type); !written)
         {
             return written;
+        }
+    }
+    // The recent pictures as they were (a restore; from a rice, whatever Windows writes). Last: setting a
+    // picture above adds it to the list.
+    if (const auto history = desired.find(kHistoryField); history != desired.end() && history->is_array())
+    {
+        for (int i = 0; i < kHistoryLength; ++i)
+        {
+            const std::string name = std::format("BackgroundHistoryPath{}", i);
+            const auto index = static_cast<std::size_t>(i);
+            const Json& entry = index < history->size() ? (*history)[index] : Json(nullptr);
+            auto written = entry.is_string()
+                               ? m_registry.write(kWallpapersKey, name,
+                                                  ports::RegistryValue::fromString(entry.get<std::string>()))
+                               : m_registry.remove(kWallpapersKey, name);
+            if (!written)
+            {
+                return written;
+            }
         }
     }
     return {};

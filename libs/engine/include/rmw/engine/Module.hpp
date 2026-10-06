@@ -91,6 +91,10 @@ public:
         (void)field;
         return a == b;
     }
+
+    // The original Windows about to come back: a value that cannot be the user's (a leftover of
+    // ours, captured after an earlier install) becomes what Windows itself would have.
+    virtual void forOriginal(Json& state) const { (void)state; }
 };
 
 // The half that talks to Windows. In production it runs inside `rmw-core --apply-helper`

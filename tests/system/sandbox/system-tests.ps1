@@ -128,7 +128,8 @@ $residueKeys = @(
     'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent', 'HKCU\Software\Microsoft\Windows\DWM',
     'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced',
     'HKCU\Software\Microsoft\Windows\CurrentVersion\Search', 'HKCU\AppEvents\Schemes',
-    'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID')
+    'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID',
+    'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers') # v1.7: Settings' recent pictures too
 # (Pre-High Contrast Scheme: Windows writes it on its own schedule; checked apart: never a theme of ours.)
 $volatile = 'InstalledWin32AppsRevision|TranscodedImageCache|TranscodedImageCount|LastUpdated|TaskbarStateLastRun|Pre-High Contrast Scheme'
 function High-Contrast-Not-Ours {
@@ -482,7 +483,9 @@ $detached = Wait-Until { $m = Get-Managed 'wallpaper'; $null -ne $m -and @($m | 
 Check 'drift:wallpaper-detached' $detached "set=$set managed=$((Get-Managed 'wallpaper') -join ', ')"
 Start-Sleep -Seconds 3
 $shownNow = (Invoke-Rmw @('inspect', 'wallpaper')).output
-Check 'drift:user-wallpaper-stays' ($shownNow -notmatch '\\\\store\\\\') $shownNow
+# The picture on the monitors (Settings' recent pictures may still list the rice's: a restore puts that list back).
+$pictures = @(($shownNow | ConvertFrom-Json).state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } | ForEach-Object { $_.Value.file })
+Check 'drift:user-wallpaper-stays' ($pictures.Count -gt 0 -and @($pictures | Where-Object { $_ -match '\\store\\' }).Count -eq 0) $shownNow
 $cursorsManaged = Get-Managed 'cursors'
 Check 'drift:other-modules-still-managed' (@($cursorsManaged).Count -gt 0) ($cursorsManaged -join ', ')
 $r = Invoke-Rmw @('restore', '--original', '--wait')
@@ -616,6 +619,66 @@ if (Test-Path $extraRoot) {
             Out-File (Join-Path $Out "extra-$name-theme-diff.txt") -Encoding utf8
     }
 }
+
+# ---- 13. several rices in a row, "My look" among them, then the original Windows (the owner's v1.6 test)
+$beforeChain = @(Registry-Snapshot)
+$beforeChainState = Read-State
+$chain = @(Get-ChildItem $Work -Directory -Filter 'extra-*' -ErrorAction SilentlyContinue | ForEach-Object FullName) + @($rice)
+$chainApplied = 0
+foreach ($folder in $chain) {
+    $r = Invoke-Rmw @('apply', $folder, '--wait')
+    if ($r.code -eq 0) { $chainApplied++ } else { Check "chain:apply:$(Split-Path $folder -Leaf)" $false $r.output }
+}
+$myLook = Join-Path $Work 'my-look'
+$r = Invoke-Rmw @('export', $myLook, '--name', 'My look', '--wait')
+Check 'chain:export-my-look' ($r.code -eq 0) $r.output
+$r = Invoke-Rmw @('apply', $myLook, '--wait')
+Check 'chain:apply-my-look' ($r.code -eq 0) $r.output
+Check 'chain:applied' ($chainApplied -eq $chain.Count) "$chainApplied of $($chain.Count)"
+$r = Invoke-Rmw @('restore', '--original', '--wait')
+Check 'chain:restore' ($r.code -eq 0 -and $r.output -notmatch 'could not bring back') $r.output
+Start-Sleep -Seconds 2
+$residue = Registry-Residue $beforeChain @(Registry-Snapshot)
+Check 'chain:registry-as-before' ($residue.Count -eq 0) (($residue | Select-Object -First 60) -join ' | ')
+$residue | Out-File (Join-Path $Out 'chain-residue.txt') -Encoding utf8
+$diff = Compare-State $beforeChainState (Read-State)
+Check 'chain:everything-back' ($diff.Count -eq 0) ($diff -join '; ')
+Check 'chain:no-bar-left' (-not (Get-Process rmw-bar -ErrorAction SilentlyContinue)) ''
+
+# ---- 14. an original whose picture is gone, and our copy of it too (the owner's PC, v1.6): the restore
+# still ends, the rest comes back, and Windows' own picture takes the place of the lost one.
+Stop-Core
+Add-Type -AssemblyName System.Drawing
+Add-Type -Namespace Rmw -Name Desk -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern bool SystemParametersInfoW(uint action, uint uiParam, string pvParam, uint winIni);
+'@
+$brokenData = Join-Path $Work 'broken-data'
+$mine = Join-Path ([Environment]::GetFolderPath('MyPictures')) 'rmw-mine.jpg'
+$bitmap = New-Object System.Drawing.Bitmap 64, 36
+$paint = [System.Drawing.Graphics]::FromImage($bitmap)
+$paint.Clear([System.Drawing.Color]::FromArgb(255, 30, 120, 60))
+$paint.Dispose()
+$bitmap.Save($mine, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+$bitmap.Dispose()
+[void][Rmw.Desk]::SystemParametersInfoW(0x14, 0, $mine, 3) # SPI_SETDESKWALLPAPER, saved and announced
+Start-Sleep -Seconds 2
+$beforeBroken = Read-State
+$r = & $rmw apply $rice --data-dir $brokenData 2>&1 | Out-String
+Check 'broken-original:apply' ($LASTEXITCODE -eq 0) $r.Trim()
+$hash = (Get-FileHash $mine -Algorithm SHA256).Hash.ToLowerInvariant()
+Remove-Item $mine -Force
+Get-ChildItem (Join-Path $brokenData 'store') -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "$hash*" } | Remove-Item -Force
+$r = & $rmw restore --original --wait --data-dir $brokenData 2>&1 | Out-String
+Check 'broken-original:restore-ends' ($LASTEXITCODE -eq 0) $r.Trim()
+Start-Sleep -Seconds 2
+$diff = Compare-State $beforeBroken (Read-State)
+Check 'broken-original:the-rest-came-back' ($diff.Count -eq 0) ($diff -join '; ')
+$shown = & $rmw inspect wallpaper --data-dir $brokenData 2>&1 | Out-String
+Check 'broken-original:windows-picture' ($shown -match 'img0\.jpg') $shown.Trim()
+& $rmw shutdown --wait --data-dir $brokenData *> $null
+if (Test-Path (Join-Path $brokenData 'logs')) { Copy-Item (Join-Path $brokenData 'logs') (Join-Path $Out 'logs-broken') -Recurse -Force }
 
 Remove-Item $settings -ErrorAction SilentlyContinue
 Stop-Core

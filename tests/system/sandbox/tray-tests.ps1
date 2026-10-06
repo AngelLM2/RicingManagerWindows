@@ -395,9 +395,62 @@ Shot 'tray-5-mini-tray'
 $bar = Bar-Process
 if ($bar) { Note 'bar-memory' ('{0:N1} MB private' -f ($bar.PrivateMemorySize64 / 1MB)) }
 
-# ---- 9. restore: no tray window of ours; the icons are in Windows' tray ----------------------------------
-$r = Invoke-Rmw @('restore', '--original', '--wait')
-Check 'tray:restore' ($r.code -eq 0) $r.output
+# ---- 9. restore from our own icon's menu (v1.6 on the owner's PC: "funções da bandeja não funcionam" —
+# the restore it ran failed). The bar's forwarding of clicks is checked above with the test apps; here the
+# core gets what the bar sends for a right click on its icon (version 4: WM_CONTEXTMENU), shows its menu,
+# and "Restore original Windows" is clicked in it. Then no tray window of ours; the icons in Windows' tray.
+$coreWindow = [Rmw.Win]::FindWindowW('RicingManagerWindows.CoreWindow', [NullString]::Value)
+$menuUsed = $false
+if ($coreWindow -ne [IntPtr]::Zero) {
+    [void][Rmw.Win]::PostMessageW($coreWindow, 0x8001, [IntPtr]::Zero, [IntPtr]0x7B) # WM_APP+1, WM_CONTEXTMENU
+    Start-Sleep -Milliseconds 1500
+    Shot 'tray-9-core-menu'
+    # Windows keeps a hidden menu window around: the visible one, its HMENU (MN_GETHMENU), the item by its text,
+    # and a click in the middle of it (GetMenuItemRect).
+    Add-Type -Namespace RmwMenu -Name Win -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern System.IntPtr FindWindowExW(System.IntPtr parent, System.IntPtr after, string cls, string title);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern System.IntPtr SendMessageW(System.IntPtr window, uint message, System.IntPtr wParam, System.IntPtr lParam);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern int GetMenuItemCount(System.IntPtr menu);
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern int GetMenuStringW(System.IntPtr menu, uint item, System.Text.StringBuilder text, int max, uint flags);
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool GetMenuItemRect(System.IntPtr window, System.IntPtr menu, uint item, out RECT rect);
+'@
+    $script:itemRect = $null
+    $opened = Wait-Until {
+        $menuWindow = [IntPtr]::Zero
+        while (($menuWindow = [RmwMenu.Win]::FindWindowExW([IntPtr]::Zero, $menuWindow, '#32768', [NullString]::Value)) -ne [IntPtr]::Zero) {
+            if (-not [Rmw.Win]::IsWindowVisible($menuWindow)) { continue }
+            $hmenu = [RmwMenu.Win]::SendMessageW($menuWindow, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero) # MN_GETHMENU
+            for ($i = 0; $i -lt [RmwMenu.Win]::GetMenuItemCount($hmenu); $i++) {
+                $text = New-Object System.Text.StringBuilder 256
+                [void][RmwMenu.Win]::GetMenuStringW($hmenu, [uint32]$i, $text, 256, 0x400) # MF_BYPOSITION
+                if ($text.ToString() -eq 'Restore original Windows') {
+                    $rect = New-Object RmwMenu.Win+RECT
+                    if ([RmwMenu.Win]::GetMenuItemRect([IntPtr]::Zero, $hmenu, [uint32]$i, [ref]$rect)) { $script:itemRect = $rect }
+                }
+            }
+            if ($null -ne $script:itemRect) { break }
+        }
+        $null -ne $script:itemRect
+    } 5
+    if ($null -ne $script:itemRect) {
+        $r = $script:itemRect
+        Left-Click ([int](($r.Left + $r.Right) / 2)) ([int](($r.Top + $r.Bottom) / 2))
+        $menuUsed = $true
+    }
+    Note 'tray-menu' "core window $coreWindow; menu shown with the item: $opened"
+}
+Check 'tray:menu-restore' ($menuUsed -and (Wait-Until { Log-Has (Join-Path $data 'logs\core.log') 'restore.original: done' } 60)) "core window $coreWindow; menu used: $menuUsed"
+if (-not $menuUsed) {
+    $r = Invoke-Rmw @('restore', '--original', '--wait')
+    Check 'tray:restore' ($r.code -eq 0) $r.output
+}
 Check 'tray:bar-gone' (Wait-Until { $null -eq (Bar-Process) -and (Native-Visible) } 15) ''
 $first = [Rmw.Win]::FindWindowW('Shell_TrayWnd', [NullString]::Value)
 Check 'tray:explorer-tray-first-again' ($first -eq (Native-Tray)) ''

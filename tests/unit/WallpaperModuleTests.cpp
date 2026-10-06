@@ -228,17 +228,20 @@ TEST(WallpaperSystem, CaptureCopiesWhatIsShownAndFlagsSpotlight)
 
 TEST(WallpaperSystem, ApplyMapsIdentityKeysToDevicePaths)
 {
+    const rmw::test::TempDir dir;
+    std::ofstream(dir.path() / "b.jpg", std::ios::binary) << "BBBB";
     FakeDisplayTopology topology;
     FakeWallpaperApi api;
     FakeRegistry registry;
     WallpaperSystem system(topology, api, registry);
 
-    ASSERT_TRUE(system.apply({{"monitor:BBB-2", {{"file", R"(C:\s\b.jpg)"}}},
-                              {"monitor:GONE-9", {{"file", R"(C:\s\x.jpg)"}}}, // disconnected: skipped
+    const std::string picture = utf8(dir.path() / "b.jpg");
+    ASSERT_TRUE(system.apply({{"monitor:BBB-2", {{"file", picture}}},
+                              {"monitor:GONE-9", {{"file", picture}}}, // disconnected: skipped
                               {"position", 3},
                               {"background", "#FF8800"},
                               {"backgroundType", 0}}));
-    EXPECT_EQ(api.files[R"(\\?\DISPLAY#BBB#2)"], R"(C:\s\b.jpg)");
+    EXPECT_EQ(api.files[R"(\\?\DISPLAY#BBB#2)"], picture);
     EXPECT_EQ(api.setCalls, 1);
     EXPECT_EQ(api.currentPosition, WallpaperPosition::Fit);
     EXPECT_EQ(api.background, 0xFF8800u);
@@ -251,6 +254,83 @@ TEST(WallpaperSystem, ApplyMapsIdentityKeysToDevicePaths)
     EXPECT_FALSE(system.apply({{"position", 9}}).has_value());
     EXPECT_FALSE(system.apply({{"background", "red"}}).has_value());
     EXPECT_FALSE(system.apply({{"monitor:AAA-1", "x.jpg"}}).has_value());
+}
+
+// The owner's PC: the original picture was gone, and so was our copy of it. A restore never stops there.
+TEST(WallpaperSystem, APictureThatIsGoneFallsBackToItsCopyThenToWindowsOwn)
+{
+    const rmw::test::TempDir dir;
+    std::ofstream(dir.path() / "copy.jpg", std::ios::binary) << "COPY";
+    std::ofstream(dir.path() / "img0.jpg", std::ios::binary) << "WIN0";
+    FakeDisplayTopology topology;
+    FakeWallpaperApi api;
+    FakeRegistry registry;
+    WallpaperSystem system(topology, api, registry);
+    const std::string gone = utf8(dir.path() / "gone.jpg");
+
+    ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}, {"copy", utf8(dir.path() / "copy.jpg")}}}}));
+    EXPECT_EQ(api.files[R"(\\?\DISPLAY#AAA#1)"], utf8(dir.path() / "copy.jpg"));
+
+    api.defaultPicture = utf8(dir.path() / "img0.jpg");
+    ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}, {"copy", utf8(dir.path() / "lost.jpg")}}}}));
+    EXPECT_EQ(api.files[R"(\\?\DISPLAY#AAA#1)"], api.defaultPicture);
+
+    // Nothing at all: that monitor keeps its picture, and the rest of the restore goes on.
+    api.defaultPicture.clear();
+    api.setCalls = 0;
+    ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}}}, {"background", "#102030"}}));
+    EXPECT_EQ(api.setCalls, 0);
+    EXPECT_EQ(api.background, 0x102030u);
+
+    // One picture everywhere, gone: not set the Settings way (that fails on a missing file).
+    api.defaultPicture = utf8(dir.path() / "img0.jpg");
+    ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}}},
+                              {"monitor:BBB-2", {{"file", gone}}},
+                              {"wallPaperValue", gone}}));
+    EXPECT_TRUE(api.desktopWallpaper.empty());
+    EXPECT_EQ(api.files[R"(\\?\DISPLAY#BBB#2)"], api.defaultPicture);
+}
+
+// Settings' recent pictures: Windows adds ours to them; a restore puts the user's list back as it was.
+TEST(WallpaperSystem, TheRecentPicturesComeBackAsTheyWere)
+{
+    constexpr std::string_view key = R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers)";
+    FakeDisplayTopology topology;
+    FakeWallpaperApi api;
+    FakeRegistry registry;
+    registry.values[{std::string(key), "BackgroundHistoryPath0"}] = rmw::ports::RegistryValue::fromString(R"(C:\me\a.jpg)");
+    registry.values[{std::string(key), "BackgroundHistoryPath1"}] = rmw::ports::RegistryValue::fromString(R"(C:\me\b.jpg)");
+    WallpaperSystem system(topology, api, registry);
+    const auto before = system.capture();
+    ASSERT_TRUE(before.has_value()) << before.error().toString();
+    EXPECT_EQ(before->state["history"], (Json{R"(C:\me\a.jpg)", R"(C:\me\b.jpg)", nullptr, nullptr, nullptr}));
+
+    // Windows put a rice's pictures in front.
+    registry.values[{std::string(key), "BackgroundHistoryPath0"}] = rmw::ports::RegistryValue::fromString(R"(C:\store\x.jpg)");
+    registry.values[{std::string(key), "BackgroundHistoryPath2"}] = rmw::ports::RegistryValue::fromString(R"(C:\store\y.jpg)");
+    ASSERT_TRUE(system.apply({{"history", before->state["history"]}}));
+    EXPECT_EQ(registry.values.at({std::string(key), "BackgroundHistoryPath0"}).text, R"(C:\me\a.jpg)");
+    EXPECT_FALSE(registry.values.contains({std::string(key), "BackgroundHistoryPath2"}));
+    // From a rice: whatever Windows writes, never "changed after it was applied".
+    EXPECT_TRUE(WallpaperLogic(topology).fieldEquivalent("history", "windows", before->state["history"]));
+    ASSERT_TRUE(system.apply({{"history", "windows"}}));
+}
+
+TEST(WallpaperLogic, InternalizeKeepsTheUsersPathWithACopyBesideIt)
+{
+    const rmw::test::TempDir dir;
+    std::ofstream(dir.path() / "mine.jpg", std::ios::binary) << "MINE";
+    FakeDisplayTopology topology;
+    rmw::engine::ContentStore store(dir.path() / "store");
+    rmw::engine::StoreAssetSink sink(store, {});
+    Json state{{"monitor:AAA-1", {{"file", utf8(dir.path() / "mine.jpg")}}}};
+    ASSERT_TRUE(WallpaperLogic(topology).internalize(state, sink));
+    EXPECT_EQ(state["monitor:AAA-1"]["file"], utf8(dir.path() / "mine.jpg"));
+    const std::filesystem::path copy = state["monitor:AAA-1"]["copy"].get<std::string>();
+    EXPECT_EQ(copy.parent_path(), dir.path() / "store");
+    // Only the file counts as what Windows shows.
+    EXPECT_TRUE(WallpaperLogic(topology).fieldEquivalent("monitor:AAA-1", state["monitor:AAA-1"],
+                                                         Json{{"file", utf8(dir.path() / "MINE.jpg")}}));
 }
 
 TEST_F(WallpaperTest, ApplyThenRestoreOriginalUnderTheEngine)

@@ -65,7 +65,9 @@ edit is the applied one, its bar follows each change by itself.
   shows it selected again), your mouse pointers as you had them (your own pointer style and size
   included), your sounds, icons, lock screen and wallpaper. Your own files are put back where they
   were; Ricing Manager keeps a copy only for when one of them was deleted. A rice never touches your
-  recent colors or your pointer style behind your back.
+  recent colors or your pointer style behind your back. If something cannot come back (a picture that
+  is gone with its copy), the rest still does, and the message says what stayed: Windows' own picture
+  or theme takes the place of one that is gone.
 - A rice is plain text (`rice.toml`) plus its files; the format is in the
   [README](../README.md) and in `docs/03-arquitetura.md`.
 
@@ -127,7 +129,9 @@ the clock, media, volume, network, battery and more (plugins add widgets). In **
 **Style** gives a whole bar at once: **Windows** (apps in the middle), **Dock** (floating, icons
 that grow under the mouse), **Island** (a pill at the top), **Status line** or **Side**. Whatever
 you change below the style stays yours. A dock shows the apps you pin (**Pin an app…**) and every
-app with a window open; a bar can be **auto** long, as long as what it shows. **If anything goes
+app with a window open; a bar can be **auto** long, as long as what it shows. Every bar keeps
+maximized windows clear of it (**Reserve**, the default since v1.7, the dock included); choose
+**Float** and windows go under it, like a bar drawn over the desktop. **If anything goes
 wrong, Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back. If the bar hangs or
 stops, Windows' taskbar comes back in under a second.
 
@@ -194,8 +198,9 @@ Plugins add widgets, bar skins, tweaks, actions and rules. They come as `.rmwp` 
 
 In the window (**Hotkeys and rules**) or in `%LOCALAPPDATA%\RicingManagerWindows\config\settings.toml`.
 Ricing Manager keeps its icon in the tray, next to the clock: a click opens the window, the right
-click has **Start with Windows** and **Restore the original Windows**. To have nothing running when
-there are no hotkeys, rules or schedule, turn off **Keep the icon in the tray** in Settings.
+click has **Start with Windows** and **Restore the original Windows**. **Exit** closes Ricing
+Manager, its window included. To have nothing running when there are no hotkeys, rules or schedule,
+turn off **Keep the icon in the tray** in Settings.
 
 ## When something goes wrong
 
