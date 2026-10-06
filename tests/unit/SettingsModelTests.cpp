@@ -123,6 +123,60 @@ TEST_F(SettingsModel, ImagesComeIntoTheRiceOnce)
         settings::importAsset(*folder, m_root / L"pictures", settings::AssetKind::Image)); // a folder
 }
 
+TEST_F(SettingsModel, LongFileNamesKeepTheirExtensionAndTheRiceReads)
+{
+    auto folder = settings::newRiceFolder(data(), "R");
+    ASSERT_TRUE(folder);
+    const auto image = write(fs::path(std::wstring(90, L'w') + L".png"), kPng);
+    auto stored = settings::importAsset(*folder, image, settings::AssetKind::Image);
+    ASSERT_TRUE(stored) << stored.error().message();
+    EXPECT_TRUE(stored->ends_with(".png")) << *stored;
+    EXPECT_TRUE(fs::exists(settings::assetPath(*folder, *stored)));
+
+    domain::Rice rice;
+    rice.meta.name = "R";
+    settings::wallpaperRule(rice, *domain::MonitorSelector::parse("all")).source = *stored;
+    ASSERT_TRUE(settings::saveRice(*folder, rice));
+    auto loaded = settings::loadRice(*folder);
+    ASSERT_TRUE(loaded) << loaded.error().message();
+    EXPECT_EQ(loaded->rice.wallpaper->monitors.front().source, *stored);
+}
+
+TEST_F(SettingsModel, ARiceThatWouldNotReadBackIsNotWritten)
+{
+    auto folder = settings::newRiceFolder(data(), "R");
+    ASSERT_TRUE(folder);
+    domain::Rice good;
+    good.meta.name = "Good";
+    ASSERT_TRUE(settings::saveRice(*folder, good));
+
+    domain::Rice bad = good;
+    bad.meta.name = "Bad";
+    settings::wallpaperRule(bad, *domain::MonitorSelector::parse("all")).source = "assets/wallpapers/no-extension";
+    const auto saved = settings::saveRice(*folder, bad);
+    ASSERT_FALSE(saved);
+    EXPECT_NE(saved.error().message().find("would not read back"), std::string::npos);
+    // The file is still the last one that read.
+    auto loaded = settings::loadRice(*folder);
+    ASSERT_TRUE(loaded) << loaded.error().message();
+    EXPECT_EQ(loaded->rice.meta.name, "Good");
+}
+
+TEST_F(SettingsModel, CursorFilesKeepTheNamesInstallInfGivesThem)
+{
+    auto folder = settings::newRiceFolder(data(), "R");
+    ASSERT_TRUE(folder);
+    write(L"Pack/Help (1).cur", "cur");
+    write(L"Pack/Normal, big.ani", "ani");
+    write(L"Pack/install.inf", "[Version]");
+    auto stored = settings::importAsset(*folder, m_root / L"Pack", settings::AssetKind::Cursors);
+    ASSERT_TRUE(stored) << stored.error().message();
+    const fs::path copied = settings::assetPath(*folder, *stored);
+    EXPECT_TRUE(fs::exists(copied / L"Help (1).cur"));
+    EXPECT_TRUE(fs::exists(copied / L"Normal, big.ani"));
+    EXPECT_TRUE(fs::exists(copied / L"install.inf"));
+}
+
 TEST_F(SettingsModel, CursorFoldersBringOnlyCursors)
 {
     auto folder = settings::newRiceFolder(data(), "R");
