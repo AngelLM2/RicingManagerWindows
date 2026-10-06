@@ -538,6 +538,8 @@ Space between the windows	Espaço entre as janelas
 In pixels at 100% scale.	Em pixels, na escala de 100%.
 Space at the edges of the screen	Espaço nas bordas da tela
 A colored border on the window in focus	Borda colorida na janela em foco
+Animations	Animações
+Windows slide to their places: a workspace that comes in, a window that opens, two that trade places. Off when Windows' animation effects are off.	As janelas deslizam até o lugar delas: uma área que entra, uma janela que abre, duas que trocam de lugar. Desligadas quando os efeitos de animação do Windows estão desligados.
 Windows 11. An empty color is the rice's accent.	Windows 11. Sem cor, usa o destaque do rice.
 Color of the border	Cor da borda
 Like Ctrl+Alt+Left. # is the workspace's number (1 to 9). Empty: no key. Press Enter in the box to save it.	Como Ctrl+Alt+Left. # é o número da área (1 a 9). Vazio: sem atalho. Aperte Enter na caixa para salvar.

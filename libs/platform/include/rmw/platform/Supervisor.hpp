@@ -43,6 +43,8 @@ struct WorkerSpec
     std::vector<void*> inheritHandles;
     // For workers that run code we did not write: no child processes (ChildOptions).
     bool noChildProcesses = false;
+    // For a worker that opens the person's apps (the bar): they are not in its job (ChildOptions).
+    bool childrenLeaveJob = false;
 };
 
 enum class WorkerEventKind

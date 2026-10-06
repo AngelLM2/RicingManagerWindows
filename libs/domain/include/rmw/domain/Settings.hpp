@@ -158,6 +158,7 @@ struct TilingSettings
     bool border = true;              // a colored border on the focused window (Windows 11)
     std::optional<Color> borderColor; // none: the rice's accent
     bool runAsAdmin = false;          // advanced mode: admin apps' windows too (asks the UAC)
+    bool animations = true;           // windows slide to their places (off when Windows' are off too)
     std::vector<TilingKey> keys = defaultTilingKeys();
     std::vector<TilingRule> rules;
 

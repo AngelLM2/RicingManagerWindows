@@ -68,6 +68,9 @@ void setBorder(Window window, std::optional<std::uint32_t> colorref) noexcept;
 void focus(Window window) noexcept;
 [[nodiscard]] Window foreground() noexcept;
 
+// Windows' "Animation effects" (Settings > Accessibility > Visual effects) are on.
+[[nodiscard]] bool windowsAnimates() noexcept;
+
 // The monitors now, the primary first.
 [[nodiscard]] std::vector<tiling::Monitor> monitorsNow();
 // The monitor `window` is on, or the one under the mouse when it is null: its index in `monitors`.

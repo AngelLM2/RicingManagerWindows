@@ -859,16 +859,17 @@ std::string glyphOf(std::string_view text)
         }
         return code >= 0x1000 && code <= 0x10FFFF && (code < 0xD800 || code > 0xDFFF) ? out : std::string();
     }
-    return std::string(text.substr(0, 16));
+    return std::string(utf8Prefix(text, 16));
 }
 
 class TextProvider final : public Provider
 {
 public:
     TextProvider(const bar::Slot& slot, const Instance& instance)
-        : m_opens(settingString(*slot.item, "opens", "").substr(0, kMaxText * 4))
+        : m_opens(utf8Prefix(settingString(*slot.item, "opens", ""), kMaxText * 4))
     {
-        const std::string text = settingString(*slot.item, "text", "").substr(0, kMaxText);
+        // Cut between characters: 22 Japanese ones are 66 bytes, and half of one aborts Slint (and the bar).
+        const std::string text(utf8Prefix(settingString(*slot.item, "text", ""), kMaxText));
         instance->set_property(slot.prefix + "-text", Value(slint::SharedString(text)));
         instance->set_property(slot.prefix + "-glyph",
                                Value(slint::SharedString(glyphOf(settingString(*slot.item, "glyph", "")))));
@@ -881,10 +882,7 @@ public:
         instance->set_property(slot.prefix + "-clickable", Value(!m_opens.empty()));
         instance->set_callback(slot.prefix + "-clicked", [this](std::span<const Value>) {
             // Only an app the Start menu lists (the rice is not trusted to run anything else).
-            if (auto launched = platform::launchApp(m_opens); !launched)
-            {
-                log::warn("bar: text: {}", launched.error().toString());
-            }
+            platform::launchAppInBackground(m_opens, "bar: text");
             return Value();
         });
     }
@@ -933,8 +931,8 @@ class ClockProvider final : public Provider
 public:
     ClockProvider(const bar::Slot& slot, const Instance& instance)
         : m_prefix(slot.prefix)
-        , m_format(settingString(*slot.item, "format", "%H:%M").substr(0, kMaxClockFormat))
-        , m_dateFormat(settingString(*slot.item, "date", "").substr(0, kMaxClockFormat))
+        , m_format(utf8Prefix(settingString(*slot.item, "format", "%H:%M"), kMaxClockFormat))
+        , m_dateFormat(utf8Prefix(settingString(*slot.item, "date", ""), kMaxClockFormat))
         , m_instance(instance)
     {
         instance->set_callback(slot.prefix + "-clicked", [](std::span<const Value>) {

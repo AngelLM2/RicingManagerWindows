@@ -3,6 +3,7 @@
 # context, SetWindowPos, DWM's border color); nothing is injected.
 
 add_executable(rmw_tiler
+    src/Animator.cpp
     src/KeyHook.cpp
     src/Looks.cpp
     src/SharedBlock.cpp

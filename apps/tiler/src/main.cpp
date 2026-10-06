@@ -27,6 +27,7 @@
 
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -45,6 +46,7 @@ using tilerapp::TilerApp;
 
 constexpr DWORD kBeatMs = 250;
 constexpr int kPlainExit = 3; // the elevated copy left because the plan no longer asks for it
+constexpr auto kQuickPlain = std::chrono::seconds(5);
 constexpr std::uint64_t kMaxPlanBytes = std::uint64_t{256} << 10;
 
 void startFileLog(const std::filesystem::path& dataDirectory, bool elevated)
@@ -97,7 +99,9 @@ std::optional<std::uintptr_t> numberArgument(std::span<const std::wstring_view> 
     return std::nullopt;
 }
 
-// What the plan says of advanced mode; nullopt when there is no (valid) plan.
+// Whether the plan needs the elevated copy: advanced mode while tiling (TilerApp::applyPlan asks the same);
+// nullopt when there is no (valid) plan. Advanced mode with tiling off asked the UAC again and again: the
+// copy saw tiling off and left at once.
 std::optional<bool> wantsAdmin(const std::filesystem::path& planFile)
 {
     auto bytes = platform::readFileLimited(planFile, kMaxPlanBytes);
@@ -106,7 +110,7 @@ std::optional<bool> wantsAdmin(const std::filesystem::path& planFile)
         return std::nullopt;
     }
     auto plan = tiling::parsePlan(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
-    return plan ? std::optional(plan->settings.runAsAdmin) : std::nullopt;
+    return plan ? std::optional(plan->settings.enabled && plan->settings.runAsAdmin) : std::nullopt;
 }
 
 enum class Elevated : std::uint8_t
@@ -293,6 +297,7 @@ int run(std::span<const std::wstring_view> args)
         }
         if (*admin && !elevated && !declined)
         {
+            const auto asked = std::chrono::steady_clock::now();
             const Elevated outcome = runElevated(planFile, *heartbeat, ender);
             if (outcome == Elevated::Declined)
             {
@@ -301,6 +306,12 @@ int run(std::span<const std::wstring_view> args)
             }
             if (outcome == Elevated::Plain)
             {
+                // The copy left at once although the plan still asks for it: never a second prompt for that.
+                if (std::chrono::steady_clock::now() - asked < kQuickPlain && wantsAdmin(planFile).value_or(false))
+                {
+                    log::warn("tiler: the elevated copy left at once; not asking for administrator again");
+                    declined = true;
+                }
                 continue;
             }
             code = outcome == Elevated::Done ? 0 : 1;

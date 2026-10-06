@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cwctype>
 #include <mutex>
 #include <filesystem>
@@ -177,6 +178,69 @@ void closeWindow(void* handle)
     {
         PostMessageW(static_cast<HWND>(handle), WM_CLOSE, 0, 0);
     }
+}
+
+IconPixels shrinkPixels(const IconPixels& pixels, int side)
+{
+    const auto sourceWidth = static_cast<std::size_t>(std::max(pixels.width, 0));
+    const auto sourceHeight = static_cast<std::size_t>(std::max(pixels.height, 0));
+    if (side <= 0 || sourceWidth == 0 || sourceHeight == 0 || pixels.rgba.size() < sourceWidth * sourceHeight * 4 ||
+        (pixels.width <= side && pixels.height <= side))
+    {
+        return pixels;
+    }
+    const double scale = static_cast<double>(side) / std::max(pixels.width, pixels.height);
+    const int width = std::max(1, static_cast<int>(std::lround(pixels.width * scale)));
+    const int height = std::max(1, static_cast<int>(std::lround(pixels.height * scale)));
+    const double stepX = static_cast<double>(pixels.width) / width;
+    const double stepY = static_cast<double>(pixels.height) / height;
+    IconPixels out;
+    out.width = width;
+    out.height = height;
+    out.rgba.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+    for (int y = 0; y < height; ++y)
+    {
+        const double top = y * stepY;
+        const double bottom = top + stepY;
+        for (int x = 0; x < width; ++x)
+        {
+            const double left = x * stepX;
+            const double right = left + stepX;
+            // The colors weighed by their alpha (premultiplied): a transparent pixel's color counts for nothing.
+            std::array<double, 3> color{};
+            double alpha = 0.0;
+            double area = 0.0;
+            const auto lastY = std::min(static_cast<std::size_t>(std::ceil(bottom)), sourceHeight);
+            const auto lastX = std::min(static_cast<std::size_t>(std::ceil(right)), sourceWidth);
+            for (auto sy = static_cast<std::size_t>(top); sy < lastY; ++sy)
+            {
+                const double rowWeight = std::min(bottom, sy + 1.0) - std::max(top, static_cast<double>(sy));
+                for (auto sx = static_cast<std::size_t>(left); sx < lastX; ++sx)
+                {
+                    const double weight =
+                        rowWeight * (std::min(right, sx + 1.0) - std::max(left, static_cast<double>(sx)));
+                    const std::size_t at = ((sy * sourceWidth) + sx) * 4;
+                    const double opaque = pixels.rgba[at + 3] / 255.0 * weight;
+                    for (std::size_t c = 0; c < color.size(); ++c)
+                    {
+                        color[c] += pixels.rgba[at + c] * opaque;
+                    }
+                    alpha += opaque;
+                    area += weight;
+                }
+            }
+            const std::size_t to = ((static_cast<std::size_t>(y) * static_cast<std::size_t>(width)) +
+                                    static_cast<std::size_t>(x)) * 4;
+            for (std::size_t c = 0; c < color.size(); ++c)
+            {
+                out.rgba[to + c] =
+                    alpha > 0.0 ? static_cast<std::uint8_t>(std::clamp(std::lround(color[c] / alpha), 0L, 255L)) : 0;
+            }
+            out.rgba[to + 3] =
+                area > 0.0 ? static_cast<std::uint8_t>(std::clamp(std::lround(alpha / area * 255.0), 0L, 255L)) : 0;
+        }
+    }
+    return out;
 }
 
 IconPixels iconPixels(void* handle, int size)
@@ -384,7 +448,9 @@ IconPixels appIconPixels(const std::wstring& given, int size)
         out.rgba[(i * 4) + 2] = static_cast<std::uint8_t>(straight(p & 0xFFU));
         out.rgba[(i * 4) + 3] = static_cast<std::uint8_t>(a);
     }
-    return out;
+    // "Bigger is fine" lets the Shell hand out its 256 px picture: kept at that size, 239 apps took the
+    // bar past its memory limit.
+    return shrinkPixels(out, size);
 }
 
 WindowEventHooks::WindowEventHooks(void (*changed)())

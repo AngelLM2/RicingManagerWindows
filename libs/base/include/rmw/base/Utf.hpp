@@ -24,4 +24,8 @@ std::string utf16To8Lossy(std::wstring_view utf16);
 
 bool isValidUtf8(std::string_view text) noexcept;
 
+// The longest start of `text` (valid UTF-8) of at most `maxBytes` that ends between two characters: a cut
+// in the middle of one is invalid UTF-8, which Slint aborts on.
+std::string_view utf8Prefix(std::string_view text, std::size_t maxBytes) noexcept;
+
 } // namespace rmw

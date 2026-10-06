@@ -27,10 +27,16 @@ constexpr UINT_PTR kPlanTimer = 4;
 constexpr UINT_PTR kMonitorTimer = 5;
 constexpr UINT_PTR kFocusTimer = 6;
 constexpr UINT_PTR kAdoptTimer = 7;
+constexpr UINT kAnimationDone = WM_APP + 31; // the Animator: every move is over
 // A window that shows is tiled when it is still there a moment later: one shown for an instant (a splash,
-// a system popup) moved every window twice (v1.7, seen in the Sandbox as a jolt in workspace switches).
-constexpr UINT kAdoptDelayMs = 120;
+// a system popup) moved every window twice (v1.7, seen in the Sandbox as a jolt in workspace switches: it
+// lasted 18 ms). Short, so a window that opens is not seen for long where its app put it.
+constexpr UINT kAdoptDelayMs = 60;
 constexpr UINT kSettleDelayMs = 200;
+constexpr UINT kAfterAnimationMs = 60;
+constexpr std::int32_t kSlideMin = 8; // closer than this to its place: a window just goes there
+constexpr auto kSwitchDuration = std::chrono::milliseconds(220);
+constexpr auto kMoveDuration = std::chrono::milliseconds(180);
 constexpr int kSettleRounds = 2;
 constexpr UINT kFocusDelayMs = 30; // after the shows: a window still hidden takes no focus
 constexpr DWORD kBeatMs = 250;
@@ -124,6 +130,7 @@ TilerApp::TilerApp(std::filesystem::path planFile, platform::Heartbeat& heartbea
     , m_options(options)
     , m_window(makeControlWindow())
     , m_shared(options.elevated)
+    , m_animator(std::make_unique<Animator>(m_window, kAnimationDone))
 {
     g_app = this;
     // A tiler that ended badly left its windows hidden or out of place: back first.
@@ -166,6 +173,7 @@ TilerApp::~TilerApp()
     catch (...) // NOLINT(bugprone-empty-catch): the hooks and the window must still go below
     {
     }
+    m_animator.reset();
     m_keys.reset();
     for (void* hook : m_hooks)
     {
@@ -332,6 +340,11 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
         default:
             break;
         }
+        return 0;
+    case kAnimationDone:
+        // Whatever an app did meanwhile (a size of its own, a late answer) is looked at now.
+        m_settleRounds = kSettleRounds;
+        SetTimer(self, kSettleTimer, kAfterAnimationMs, nullptr);
         return 0;
     case KeyHook::kCommandMessage:
         if (wParam < domain::kTilingCommandCount)
@@ -553,6 +566,10 @@ void TilerApp::stop()
     {
         return;
     }
+    if (m_animator)
+    {
+        m_animator->cancelAll(); // a frame after this would take a window from where it goes back to
+    }
     std::vector<tiling::Original> windows;
     windows.reserve(m_originals.size());
     for (auto [id, original] : m_originals)
@@ -577,6 +594,7 @@ void TilerApp::stop()
     m_hidden.clear();
     m_followers.clear();
     m_targets.clear();
+    m_minimums.clear();
     m_bordered.reset();
     m_pendingFocus.reset();
     m_desktop.reset();
@@ -665,7 +683,9 @@ void TilerApp::forget(Window window, bool gone)
     {
         m_originals.erase(id);
         m_followers.erase(id);
+        m_minimums.erase(id); // its handle may name another window later
     }
+    m_animator->cancel(id);
     if (!m_desktop || !m_desktop->remove(id))
     {
         return;
@@ -778,9 +798,12 @@ void TilerApp::layout()
     {
         return;
     }
+    const bool animate = animations();
+    std::vector<Animator::Move> moves;
     for (std::size_t m = 0; m < m_desktop->monitorCount(); ++m)
     {
-        for (const auto& [id, rect] : m_desktop->activeWorkspace(m).placements(m_desktop->area(m), options(m)))
+        const tiling::Rect& area = m_desktop->area(m);
+        for (const auto& [id, slot] : m_desktop->activeWorkspace(m).placements(area, options(m)))
         {
             Window window = windowOf(id);
             HWND w = static_cast<HWND>(window);
@@ -789,6 +812,7 @@ void TilerApp::layout()
                 continue; // maximized by the person: theirs until they restore it
             }
             remember(id, window);
+            const tiling::Rect rect = targetOf(id, slot, area);
             m_targets[id] = rect;
             // Shown in place a moment ago and maybe not shown yet: no visible frame to measure, and a move now
             // would put it off by its borders. settle() looks at it once it shows.
@@ -796,15 +820,77 @@ void TilerApp::layout()
             {
                 continue;
             }
-            if (!nearly(frameOf(window), rect))
+            if (const auto going = m_animator->destination(id))
+            {
+                if (nearly(*going, rect))
+                {
+                    continue; // on its way there already
+                }
+                m_animator->cancel(id); // its place changed on the way: from where it is now
+            }
+            const tiling::Rect frame = frameOf(window);
+            if (nearly(frame, rect))
+            {
+                continue;
+            }
+            // A window that changes place slides there; one that only changes size gets it at once.
+            if (animate && IsWindowVisible(w) != FALSE &&
+                (std::abs(frame.left - rect.left) > kSlideMin || std::abs(frame.top - rect.top) > kSlideMin))
+            {
+                moves.push_back({window, frame, rect, insetsOf(window)});
+            }
+            else
             {
                 place(window, rect);
             }
         }
     }
     m_justShown.clear();
+    m_animator->start(std::move(moves), kMoveDuration);
     m_settleRounds = kSettleRounds;
     SetTimer(static_cast<HWND>(m_window), kSettleTimer, kSettleDelayMs, nullptr);
+}
+
+tiling::Rect TilerApp::targetOf(tiling::WindowId id, const tiling::Rect& slot, const tiling::Rect& area) const
+{
+    const auto minimum = m_minimums.find(id);
+    return minimum != m_minimums.end() ? tiling::fitted(slot, minimum->second, area) : slot;
+}
+
+bool TilerApp::learnMinimum(tiling::WindowId id, const tiling::Rect& frame, const tiling::Rect& slot)
+{
+    constexpr std::int32_t kSlack = 2;
+    if (std::abs(frame.left - slot.left) > kSlack || std::abs(frame.top - slot.top) > kSlack)
+    {
+        return false; // not where it was put (yet): nothing to learn
+    }
+    const bool wider = frame.width() > slot.width() + kSlack;
+    const bool taller = frame.height() > slot.height() + kSlack;
+    if (!wider && !taller)
+    {
+        return false;
+    }
+    tiling::Size& minimum = m_minimums[id];
+    const tiling::Size before = minimum;
+    if (wider)
+    {
+        minimum.width = std::max(minimum.width, frame.width());
+    }
+    if (taller)
+    {
+        minimum.height = std::max(minimum.height, frame.height());
+    }
+    if (minimum != before)
+    {
+        log::info("tiler: window {:#x} keeps at least {}x{}; the others make room", id, minimum.width, minimum.height);
+        scheduleLayout();
+    }
+    return true; // never placed again into a slot it refuses (it would refuse at every round)
+}
+
+bool TilerApp::animations() const noexcept
+{
+    return m_plan && m_plan->settings.animations && windowsAnimates();
 }
 
 bool TilerApp::onShownDesktop(Window window) const
@@ -818,15 +904,20 @@ bool TilerApp::onShownDesktop(Window window) const
     return !desktop || *desktop == now.current; // unknown (pinned to every desktop): fine
 }
 
-void TilerApp::placeComing(std::span<const tiling::WindowId> coming)
+void TilerApp::placeComing(std::span<const tiling::WindowId> coming, int side)
 {
     if (!m_desktop || !m_plan || coming.empty())
     {
         return;
     }
+    const bool animate = side != 0 && animations();
+    std::vector<Animator::Move> moves;
     for (std::size_t m = 0; m < m_desktop->monitorCount(); ++m)
     {
-        for (const auto& [id, rect] : m_desktop->activeWorkspace(m).placements(m_desktop->area(m), options(m)))
+        const tiling::Rect& area = m_desktop->area(m);
+        // Like Hyprland's workspaces, but a short way: the next monitor sees no window pass.
+        const std::int32_t offset = side * std::clamp(area.width() / 12, 48, 160);
+        for (const auto& [id, slot] : m_desktop->activeWorkspace(m).placements(area, options(m)))
         {
             const auto insets = m_insets.find(id);
             if (std::ranges::find(coming, id) == coming.end() || insets == m_insets.end())
@@ -838,20 +929,37 @@ void TilerApp::placeComing(std::span<const tiling::WindowId> coming)
             {
                 continue;
             }
-            showInPlace(windowOf(id), rect, insets->second);
+            const tiling::Rect rect = targetOf(id, slot, area);
+            if (animate)
+            {
+                const tiling::Rect from{rect.left + offset, rect.top, rect.right + offset, rect.bottom};
+                showInPlace(windowOf(id), from, insets->second);
+                moves.push_back({windowOf(id), from, rect, insets->second});
+            }
+            else
+            {
+                showInPlace(windowOf(id), rect, insets->second);
+            }
             m_justShown.insert(id);
         }
     }
+    m_animator->start(std::move(moves), kSwitchDuration);
 }
 
 void TilerApp::settle()
 {
-    // Apps that answer late, or change their size when their DPI changes: placed once more.
+    // Apps that answer late, or change their size when their DPI changes: placed once more. One that is
+    // in its place but larger keeps a size of its own: the others make room for it.
     for (const auto& [id, rect] : m_targets)
     {
         Window window = windowOf(id);
         HWND w = static_cast<HWND>(window);
-        if (IsWindow(w) != FALSE && IsZoomed(w) == FALSE && IsIconic(w) == FALSE && !nearly(frameOf(window), rect))
+        if (IsWindow(w) == FALSE || IsZoomed(w) != FALSE || IsIconic(w) != FALSE || m_animator->moving(id))
+        {
+            continue;
+        }
+        const tiling::Rect frame = frameOf(window);
+        if (!nearly(frame, rect) && !learnMinimum(id, frame, rect))
         {
             place(window, rect);
         }
@@ -865,7 +973,9 @@ void TilerApp::settle()
 tiling::LayoutOptions TilerApp::options(std::size_t monitor) const
 {
     const double scale = monitor < m_monitors.size() ? m_monitors[monitor].scale : 1.0;
-    return m_plan ? tiling::layoutOptions(m_plan->settings, scale) : tiling::LayoutOptions{};
+    tiling::LayoutOptions out = m_plan ? tiling::layoutOptions(m_plan->settings, scale) : tiling::LayoutOptions{};
+    out.minimums = &m_minimums;
+    return out;
 }
 
 std::size_t TilerApp::currentMonitor() const
@@ -928,6 +1038,9 @@ void TilerApp::onEvent(std::uint32_t event, Window window)
         break;
     case EVENT_OBJECT_DESTROY:
         forget(window, true);
+        break;
+    case EVENT_SYSTEM_MOVESIZESTART:
+        m_animator->cancel(id); // the person has it now
         break;
     case EVENT_SYSTEM_MOVESIZEEND:
         onMoved(window);
@@ -1047,7 +1160,7 @@ void TilerApp::command(TilingCommand command, int number)
             break;
         }
         const int count = m_desktop->workspaceCount();
-        goTo(monitor, (m_desktop->active(monitor) + (next ? 1 : count - 1)) % count);
+        goTo(monitor, (m_desktop->active(monitor) + (next ? 1 : count - 1)) % count, next ? 1 : -1);
         break;
     }
     case TilingCommand::Workspace:
@@ -1169,18 +1282,24 @@ void TilerApp::moveToward(tiling::Direction direction)
     publish();
 }
 
-void TilerApp::goTo(std::size_t monitor, int workspace)
+void TilerApp::goTo(std::size_t monitor, int workspace, int side)
 {
     if (!m_desktop)
     {
         return;
     }
+    if (side == 0 && monitor < m_desktop->monitorCount())
+    {
+        const int now = m_desktop->active(monitor);
+        side = workspace > now ? 1 : workspace < now ? -1 : 0; // a higher number is to the right
+    }
     tiling::Change change = m_desktop->goTo(monitor, workspace);
     if (!mac())
     {
         // In their slots and on top before the old ones go (v1.6: they showed under the old ones, where
-        // they had been, and moved after: a cascade and a jolt at every switch).
-        placeComing(change.show);
+        // they had been, and moved after: a cascade and a jolt at every switch). With animations, they
+        // slide in from the side the workspace is on.
+        placeComing(change.show, side);
     }
     apply(std::move(change));
     layout(); // whatever is not in its place yet (a window that came from another monitor)

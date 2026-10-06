@@ -104,8 +104,11 @@ int run(std::span<const std::wstring_view> args)
     loop.everyTurn([&heartbeat] { heartbeat->beat(); }, 500ms);
     if (auto* const core = handleArgument(args, L"--core"))
     {
-        loop.watch(core, [] {
+        // Once: an ended process stays signaled (watched again, it spun the loop at 100% and the quit was
+        // never read, so Windows' taskbar never came back).
+        loop.watch(core, [&loop, core] {
             log::info("bar: the core is gone; leaving");
+            loop.unwatch(core);
             slint::quit_event_loop();
         });
     }

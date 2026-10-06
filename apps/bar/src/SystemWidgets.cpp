@@ -3,6 +3,7 @@
 #include "SlintPlatform.hpp"
 
 #include "rmw/base/Log.hpp"
+#include "rmw/base/Utf.hpp"
 #include "rmw/providers/System.hpp"
 #include "rmw/providers/Volume.hpp"
 
@@ -31,8 +32,10 @@ using namespace std::chrono_literals;
 // "{}" in a rice-given format is the value; nothing else is interpreted (a rice is untrusted).
 std::string fill(std::string_view format, std::string_view value)
 {
+    constexpr std::size_t kMax = 128;
+    format = utf8Prefix(format, kMax);
     std::string text;
-    for (std::size_t i = 0; i < format.size() && text.size() < 128; ++i)
+    for (std::size_t i = 0; i < format.size() && text.size() < kMax; ++i)
     {
         if (format.substr(i, 2) == "{}")
         {
@@ -42,7 +45,8 @@ std::string fill(std::string_view format, std::string_view value)
         }
         text += format[i];
     }
-    return text;
+    // Cut between two characters: half of one is invalid UTF-8, and Slint aborts on it.
+    return std::string(utf8Prefix(text, kMax));
 }
 
 // A Segoe Fluent Icons glyph (Private Use Area, so three bytes of UTF-8).
@@ -349,14 +353,18 @@ public:
         : m_property(slot.prefix + "-desktops")
         , m_instance(instance)
     {
-        instance->set_callback(slot.prefix + "-switch", [this](std::span<const Value> arguments) {
-            const auto index = arguments.empty() ? std::nullopt : arguments[0].to_number();
-            if (index)
-            {
-                go(static_cast<int>(*index));
-            }
-            return Value();
-        });
+        // The component's callback is `select` (RmwDesktops): under another name a click did nothing.
+        if (!instance->set_callback(slot.prefix + "-select", [this](std::span<const Value> arguments) {
+                const auto index = arguments.empty() ? std::nullopt : arguments[0].to_number();
+                if (index)
+                {
+                    go(static_cast<int>(*index));
+                }
+                return Value();
+            }))
+        {
+            log::warn("bar: desktops: no select callback");
+        }
         if (RegOpenKeyExW(HKEY_CURRENT_USER,
                           LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops)", 0,
                           KEY_READ | KEY_NOTIFY, m_key.put()) == ERROR_SUCCESS)

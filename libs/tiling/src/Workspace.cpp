@@ -89,10 +89,26 @@ std::vector<WindowId> Workspace::tiled() const
     return out;
 }
 
+std::vector<Size> Workspace::minimumsOf(std::span<const WindowId> windows, const LayoutOptions& options)
+{
+    std::vector<Size> out;
+    if (options.minimums == nullptr || options.minimums->empty())
+    {
+        return out;
+    }
+    out.reserve(windows.size());
+    for (const WindowId window : windows)
+    {
+        const auto found = options.minimums->find(window);
+        out.push_back(found != options.minimums->end() ? found->second : Size{});
+    }
+    return out;
+}
+
 std::vector<std::pair<WindowId, Rect>> Workspace::placements(const Rect& area, const LayoutOptions& options) const
 {
     const auto windows = tiled();
-    const auto rects = arrange(layout(), area, windows.size(), options);
+    const auto rects = arrange(layout(), area, windows.size(), options, minimumsOf(windows, options));
     std::vector<std::pair<WindowId, Rect>> out;
     out.reserve(rects.size());
     for (std::size_t i = 0; i < rects.size(); ++i)
@@ -122,7 +138,7 @@ std::optional<WindowId> Workspace::neighborOf(WindowId window, Direction directi
         }
         return windows[back ? index - 1 : index + 1];
     }
-    const auto rects = arrange(layout(), area, windows.size(), options);
+    const auto rects = arrange(layout(), area, windows.size(), options, minimumsOf(windows, options));
     if (const auto next = tiling::neighbor(rects, index, direction))
     {
         return windows[*next];

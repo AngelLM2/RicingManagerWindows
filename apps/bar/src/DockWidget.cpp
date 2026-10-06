@@ -100,10 +100,7 @@ private:
     {
         if (group.windows.empty())
         {
-            if (auto launched = platform::launchApp(group.pinnedId); !launched)
-            {
-                log::warn("bar: dock: {}", launched.error().toString());
-            }
+            platform::launchAppInBackground(group.pinnedId, "bar: dock");
             return;
         }
         const auto at = std::ranges::find(group.windows, m_tracker->foreground());

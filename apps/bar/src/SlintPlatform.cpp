@@ -117,7 +117,8 @@ void Win32Platform::run_event_loop()
         {
             const auto wake = m_watches[woken - WAIT_OBJECT_0].wake; // a copy: it may unwatch
             wake();
-            continue;
+            // The messages are read below all the same: a handle that stays signaled (a process that
+            // ended) would otherwise wake the loop again and again with the quit it posted never read.
         }
         if (woken == WAIT_FAILED)
         {
