@@ -159,5 +159,119 @@ export component AppearancePage inherits ScrollView {
                 }
             }
         }
+
+        // Other apps' windows (M14): rmw-tiler paints them from the outside.
+        if Api.editing: Card {
+            title: @tr("Other apps' windows");
+            subtitle: @tr("Windows 11 draws these for every app; Ricing Manager sets them while it runs.");
+
+            SettingRow {
+                label: @tr("Corners");
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Leave as it is"), @tr("Round"), @tr("Slightly round"), @tr("Square")];
+                    current-index <=> Api.windows-corners;
+                    accessible-label: @tr("Window corners");
+                    selected => {
+                        Api.windows-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Backdrop of the title bar");
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Leave as it is"), @tr("None"), @tr("Mica"), @tr("Acrylic"), @tr("Tabbed")];
+                    current-index <=> Api.windows-backdrop;
+                    accessible-label: @tr("Backdrop of the title bar");
+                    selected => {
+                        Api.windows-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Dark title bars");
+                ComboBox {
+                    width: 220px;
+                    model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
+                    current-index <=> Api.windows-dark;
+                    accessible-label: @tr("Dark title bars");
+                    selected => {
+                        Api.windows-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Border color");
+                LineEdit {
+                    width: 160px;
+                    text <=> Api.windows-border;
+                    placeholder-text: "#7AA2F7 or none";
+                    accessible-label: @tr("Window border color");
+                    accepted => {
+                        Api.windows-edited();
+                    }
+                    edited => {
+                        Api.windows-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Title bar color");
+                LineEdit {
+                    width: 160px;
+                    text <=> Api.windows-caption;
+                    placeholder-text: "#1A1B26";
+                    accessible-label: @tr("Title bar color");
+                    accepted => {
+                        Api.windows-edited();
+                    }
+                    edited => {
+                        Api.windows-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Title color");
+                LineEdit {
+                    width: 160px;
+                    text <=> Api.windows-title;
+                    placeholder-text: "#C0CAF5";
+                    accessible-label: @tr("Title color");
+                    accepted => {
+                        Api.windows-edited();
+                    }
+                    edited => {
+                        Api.windows-edited();
+                    }
+                }
+            }
+
+            SettingRow {
+                label: @tr("Programs left as they are");
+                description: @tr("Their file names, separated by commas.");
+                LineEdit {
+                    width: 220px;
+                    text <=> Api.windows-exclude;
+                    placeholder-text: "code.exe, steam.exe";
+                    accessible-label: @tr("Programs left as they are");
+                    accepted => {
+                        Api.windows-edited();
+                    }
+                    edited => {
+                        Api.windows-edited();
+                    }
+                }
+            }
+
+            Hint {
+                text: @tr("Colors as #RRGGBB or palette.<name>. When Ricing Manager closes or you restore, Windows' own come back. Apps running as administrator keep theirs.");
+            }
+        }
     }
 }

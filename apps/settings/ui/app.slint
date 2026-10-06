@@ -8,6 +8,8 @@ import { RicesPage } from "pages/rices.slint";
 import { AppearancePage } from "pages/appearance.slint";
 import { WallpapersPage } from "pages/wallpapers.slint";
 import { CursorsPage } from "pages/cursors.slint";
+import { SoundsPage } from "pages/sounds.slint";
+import { IconsPage } from "pages/icons.slint";
 import { BarPage } from "pages/bar.slint";
 import { PluginsPage } from "pages/plugins.slint";
 import { ShortcutsPage } from "pages/shortcuts.slint";
@@ -179,6 +181,24 @@ export component AppWindow inherits Window {
                 }
 
                 NavItem {
+                    text: @tr("Sounds");
+                    glyph: "\u{E767}";
+                    selected: Api.page == Page.sounds;
+                    clicked => {
+                        root.go(Page.sounds);
+                    }
+                }
+
+                NavItem {
+                    text: @tr("Icons");
+                    glyph: "\u{E71D}";
+                    selected: Api.page == Page.icons;
+                    clicked => {
+                        root.go(Page.icons);
+                    }
+                }
+
+                NavItem {
                     text: @tr("Taskbar");
                     glyph: "\u{E75B}";
                     selected: Api.page == Page.bar;
@@ -262,6 +282,8 @@ export component AppWindow inherits Window {
             if Api.page == Page.appearance: AppearancePage { }
             if Api.page == Page.wallpapers: WallpapersPage { }
             if Api.page == Page.cursors: CursorsPage { }
+            if Api.page == Page.sounds: SoundsPage { }
+            if Api.page == Page.icons: IconsPage { }
             if Api.page == Page.bar: BarPage { }
             if Api.page == Page.plugins: PluginsPage { }
             if Api.page == Page.tiling: TilingPage { }

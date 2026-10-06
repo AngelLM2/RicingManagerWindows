@@ -80,6 +80,12 @@ msgstr "Wallpapers"
 msgid "Cursors"
 msgstr "Cursores"
 
+msgid "Sounds"
+msgstr "Sons"
+
+msgid "Icons"
+msgstr "Ícones"
+
 msgid "Taskbar"
 msgstr "Barra de tarefas"
 
@@ -161,6 +167,9 @@ msgstr "Modo claro/escuro e destaque"
 msgid "Wallpaper"
 msgstr "Wallpaper"
 
+msgid "Lock screen"
+msgstr "Tela de bloqueio"
+
 msgid "Windows' taskbar"
 msgstr "Barra de tarefas do Windows"
 
@@ -184,6 +193,96 @@ msgstr "Modo seguro"
 
 msgid "Other customizers"
 msgstr "Outros personalizadores"
+
+msgid "Default beep"
+msgstr "Aviso sonoro padrão"
+
+msgid "Asterisk"
+msgstr "Asterisco"
+
+msgid "Exclamation"
+msgstr "Exclamação"
+
+msgid "Critical stop"
+msgstr "Parada crítica"
+
+msgid "Question"
+msgstr "Pergunta"
+
+msgid "Notification"
+msgstr "Notificação"
+
+msgid "New message"
+msgstr "Nova mensagem"
+
+msgid "New mail"
+msgstr "Novo e-mail"
+
+msgid "Reminder"
+msgstr "Lembrete"
+
+msgid "Device connected"
+msgstr "Dispositivo conectado"
+
+msgid "Device disconnected"
+msgstr "Dispositivo desconectado"
+
+msgid "Device failed to connect"
+msgstr "Falha ao conectar dispositivo"
+
+msgid "Low battery"
+msgstr "Bateria fraca"
+
+msgid "Critical battery"
+msgstr "Bateria crítica"
+
+msgid "Unlock"
+msgstr "Desbloquear"
+
+msgid "Print complete"
+msgstr "Impressão concluída"
+
+msgid "Empty the Recycle Bin"
+msgstr "Esvaziar a Lixeira"
+
+msgid "Folder navigation (click)"
+msgstr "Navegar nas pastas (clique)"
+
+msgid "This PC"
+msgstr "Este Computador"
+
+msgid "Recycle Bin (empty)"
+msgstr "Lixeira (vazia)"
+
+msgid "Recycle Bin (full)"
+msgstr "Lixeira (cheia)"
+
+msgid "Network"
+msgstr "Rede"
+
+msgid "Your user folder"
+msgstr "Sua pasta de usuário"
+
+msgid "Control Panel"
+msgstr "Painel de Controle"
+
+msgid "Desktop"
+msgstr "Área de Trabalho"
+
+msgid "Documents"
+msgstr "Documentos"
+
+msgid "Downloads"
+msgstr "Downloads"
+
+msgid "Pictures"
+msgstr "Imagens"
+
+msgid "Music"
+msgstr "Músicas"
+
+msgid "Videos"
+msgstr "Vídeos"
 
 msgid "Focus the window on the left"
 msgstr "Foco na janela da esquerda"
@@ -367,9 +466,6 @@ msgstr "CPU"
 
 msgid "Memory"
 msgstr "Memória"
-
-msgid "Network"
-msgstr "Rede"
 
 msgid "Volume"
 msgstr "Volume"
@@ -589,6 +685,66 @@ msgstr "Desligado"
 
 msgid "Accent color on Start and the taskbar"
 msgstr "Cor de destaque no Iniciar e na barra de tarefas"
+
+msgid "Other apps' windows"
+msgstr "Janelas dos outros apps"
+
+msgid "Windows 11 draws these for every app; Ricing Manager sets them while it runs."
+msgstr "O Windows 11 desenha isso em todo app; o Ricing Manager ajusta enquanto está aberto."
+
+msgid "Corners"
+msgstr "Cantos"
+
+msgid "Round"
+msgstr "Arredondados"
+
+msgid "Slightly round"
+msgstr "Pouco arredondados"
+
+msgid "Square"
+msgstr "Retos"
+
+msgid "Window corners"
+msgstr "Cantos das janelas"
+
+msgid "Backdrop of the title bar"
+msgstr "Fundo da barra de título"
+
+msgid "None"
+msgstr "Nenhum"
+
+msgid "Mica"
+msgstr "Mica"
+
+msgid "Acrylic"
+msgstr "Acrílico"
+
+msgid "Tabbed"
+msgstr "Com abas"
+
+msgid "Dark title bars"
+msgstr "Barras de título escuras"
+
+msgid "Border color"
+msgstr "Cor da borda"
+
+msgid "Window border color"
+msgstr "Cor da borda das janelas"
+
+msgid "Title bar color"
+msgstr "Cor da barra de título"
+
+msgid "Title color"
+msgstr "Cor do título"
+
+msgid "Programs left as they are"
+msgstr "Programas que ficam como estão"
+
+msgid "Their file names, separated by commas."
+msgstr "Os nomes dos arquivos, separados por vírgulas."
+
+msgid "Colors as #RRGGBB or palette.<name>. When Ricing Manager closes or you restore, Windows' own come back. Apps running as administrator keep theirs."
+msgstr "Cores como #RRGGBB ou palette.<nome>. Quando o Ricing Manager fecha ou você restaura, voltam as do Windows. Apps rodando como administrador ficam com as suas."
 
 msgid "plugin widget"
 msgstr "widget de plugin"
@@ -884,12 +1040,6 @@ msgstr "Sólido"
 msgid "Transparent"
 msgstr "Transparente"
 
-msgid "Acrylic"
-msgstr "Acrílico"
-
-msgid "Mica"
-msgstr "Mica"
-
 msgid "Color"
 msgstr "Cor"
 
@@ -1066,6 +1216,57 @@ msgstr "Volte a como tudo estava antes de qualquer um destes."
 
 msgid "Go back to before this"
 msgstr "Voltar para antes disto"
+
+msgid "Windows' icon"
+msgstr "Ícone do Windows"
+
+msgid "Choose an .ico…"
+msgstr "Escolher um .ico…"
+
+msgid "Choose an icon for {}"
+msgstr "Escolher um ícone para {}"
+
+msgid "As it is"
+msgstr "Como está"
+
+msgid "Leave {} as it is"
+msgstr "Deixar {} como está"
+
+msgid "Your .ico files for the desktop, your folders and your programs."
+msgstr "Seus arquivos .ico para a área de trabalho, suas pastas e seus programas."
+
+msgid "The Recycle Bin has two icons: empty and full."
+msgstr "A Lixeira tem dois ícones: vazia e cheia."
+
+msgid "Folders"
+msgstr "Pastas"
+
+msgid "Programs"
+msgstr "Programas"
+
+msgid "Program"
+msgstr "Programa"
+
+msgid "Choose an icon for the program"
+msgstr "Escolher um ícone para o programa"
+
+msgid "The program's shortcuts take the icon: in your Start menu, on your desktop and pinned to the taskbar. Ricing Manager's bar and Start show it too."
+msgstr "Os atalhos do programa ganham o ícone: no seu menu Iniciar, na sua área de trabalho e fixados na barra de tarefas. A barra e o Iniciar do Ricing Manager também o mostram."
+
+msgid "File types"
+msgstr "Tipos de arquivo"
+
+msgid "File type"
+msgstr "Tipo de arquivo"
+
+msgid "Choose an icon for the file type"
+msgstr "Escolher um ícone para o tipo de arquivo"
+
+msgid "Files of that type show the icon, for the program that opens them now."
+msgstr "Os arquivos desse tipo mostram o ícone, para o programa que os abre agora."
+
+msgid "Windows' own icons are not copied into the rice: a rice you share takes only your files."
+msgstr "Os ícones do próprio Windows não são copiados para o rice: um rice que você compartilha leva só os seus arquivos."
 
 msgid "from its folder"
 msgstr "da pasta dele"
@@ -1288,6 +1489,45 @@ msgstr "Remover esta regra"
 
 msgid "Add a rule"
 msgstr "Adicionar uma regra"
+
+msgid "What Windows plays for its events: your .wav files, or silence."
+msgstr "O que o Windows toca nos eventos dele: os seus arquivos .wav, ou silêncio."
+
+msgid "Everything else"
+msgstr "O resto"
+
+msgid "Silence for the events below that have no sound of their own"
+msgstr "Silêncio nos eventos abaixo que não têm som próprio"
+
+msgid "Off: those keep the sounds Windows has."
+msgstr "Desligado: esses ficam com os sons que o Windows tem."
+
+msgid "Events"
+msgstr "Eventos"
+
+msgid "Silent"
+msgstr "Sem som"
+
+msgid "Silent (everything else)"
+msgstr "Sem som (o resto)"
+
+msgid "Windows' sound"
+msgstr "Som do Windows"
+
+msgid "Choose a .wav…"
+msgstr "Escolher um .wav…"
+
+msgid "Choose a sound for {}"
+msgstr "Escolher um som para {}"
+
+msgid "Play {}"
+msgstr "Tocar {}"
+
+msgid "No sound for {}"
+msgstr "Sem som para {}"
+
+msgid "Windows' own sounds are not copied into the rice: a rice you share takes only your files."
+msgstr "Os sons do próprio Windows não são copiados para o rice: um rice que você compartilha leva só os seus arquivos."
 
 msgid "Windows side by side, workspaces and the keys for them, as on Linux."
 msgstr "Janelas lado a lado, áreas de trabalho e os atalhos delas, como no Linux."
@@ -1675,3 +1915,27 @@ msgstr "Quadros por segundo, no máximo"
 
 msgid "Fewer frames, less GPU. 30 is smooth for most videos."
 msgstr "Menos quadros, menos GPU. 30 é suave para a maioria dos vídeos."
+
+msgid "Picture"
+msgstr "Imagem"
+
+msgid "Windows Spotlight"
+msgstr "Destaque do Windows"
+
+msgid "Choose a picture…"
+msgstr "Escolher uma imagem…"
+
+msgid "Choose a lock screen picture"
+msgstr "Escolher uma imagem para a tela de bloqueio"
+
+msgid "Windows Spotlight on the lock screen"
+msgstr "Destaque do Windows na tela de bloqueio"
+
+msgid "Leave the lock screen picture as it is"
+msgstr "Deixar a imagem da tela de bloqueio como está"
+
+msgid "Fun facts, tips and more on the lock screen"
+msgstr "Curiosidades, dicas e mais na tela de bloqueio"
+
+msgid "A .jpg or .png. Restoring brings back the picture you had, or Windows Spotlight."
+msgstr "Um .jpg ou .png. Restaurar traz de volta a imagem que você tinha, ou o Destaque do Windows."

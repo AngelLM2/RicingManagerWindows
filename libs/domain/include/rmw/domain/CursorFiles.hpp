@@ -25,6 +25,10 @@ enum class CursorFormat
 [[nodiscard]] Result<CursorFormat> validateCursorFile(std::span<const std::byte> bytes,
                                                       std::string_view extension);
 
+// The same checks for an .ico (an icon directory, type 1) of an icon pack (M14): once set, Explorer
+// and every app showing a file dialog read it.
+[[nodiscard]] Result<void> validateIconFile(std::span<const std::byte> bytes);
+
 // Reads the cursor scheme of an install.inf (the format cursor packs ship with): the value list
 // written to HKCU\Control Panel\Cursors\Schemes, with %strings% substituted, mapped to roles in
 // Windows' order. Returns file names (no folders); each passed PathRules and is .cur or .ani.

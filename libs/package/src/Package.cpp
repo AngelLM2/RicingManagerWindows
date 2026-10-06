@@ -4,6 +4,7 @@
 #include "rmw/base/ScopeExit.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/domain/CursorFiles.hpp"
+#include "rmw/domain/SoundFiles.hpp"
 #include "rmw/domain/Images.hpp"
 #include "rmw/domain/PathRules.hpp"
 #include "rmw/domain/RiceParser.hpp"
@@ -487,8 +488,8 @@ bool allowedFile(Kind kind, std::string_view path)
         return true;
     }
     const std::string extension = lowerExtension(path);
-    constexpr std::array kRice = {"toml", "png", "jpg", "jpeg", "bmp", "mp4", "m4v",
-                                  "webm", "cur", "ani", "inf",  "md",  "txt"};
+    constexpr std::array kRice = {"toml", "png", "jpg", "jpeg", "bmp", "mp4", "m4v", "webm",
+                                  "cur",  "ani", "wav", "ico",  "inf", "md",  "txt"};
     constexpr std::array kPlugin = {"toml", "luau", "slint", "png", "jpg",
                                     "jpeg", "svg",  "json",  "md",  "txt"};
     const auto has = [&](const auto& list) {
@@ -511,6 +512,14 @@ std::uint64_t maxFileBytes(std::string_view path)
     if (extension == "cur" || extension == "ani")
     {
         return limits::kCursorMaxBytes;
+    }
+    if (extension == "wav")
+    {
+        return limits::kSoundMaxBytes;
+    }
+    if (extension == "ico")
+    {
+        return limits::kIconMaxBytes;
     }
     if (extension == "inf")
     {
@@ -578,6 +587,22 @@ Result<void> checkContent(std::string_view path, std::span<const std::byte> head
     if (extension == "cur" || extension == "ani")
     {
         if (auto checked = domain::validateCursorFile(head, extension); !checked)
+        {
+            return bad(path, checked.error().message());
+        }
+        return {};
+    }
+    if (extension == "ico")
+    {
+        if (auto checked = domain::validateIconFile(head); !checked)
+        {
+            return bad(path, checked.error().message());
+        }
+        return {};
+    }
+    if (extension == "wav")
+    {
+        if (auto checked = domain::validateWaveFile(head); !checked)
         {
             return bad(path, checked.error().message());
         }

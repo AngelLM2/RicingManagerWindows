@@ -145,7 +145,6 @@ TilerApp::TilerApp(std::filesystem::path planFile, platform::Heartbeat& heartbea
             m_hooks.push_back(hook);
         }
     }
-    m_keys = std::make_unique<KeyHook>(m_window);
     m_planWatch = FindFirstChangeNotificationW(m_planFile.parent_path().c_str(), FALSE,
                                                FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
     if (m_planWatch == INVALID_HANDLE_VALUE)
@@ -397,24 +396,39 @@ void TilerApp::applyPlan(tiling::Plan plan)
 {
     const std::optional<tiling::Plan> old = std::move(m_plan);
     const domain::TilingSettings& now = m_plan.emplace(std::move(plan)).settings;
+    m_looks.set(m_plan->look);
     // Advanced mode (admin apps' windows too): an elevated copy does the work, or stops doing it.
-    if (now.runAsAdmin && !m_options.elevated && !m_options.adminDeclined)
+    if (now.enabled && now.runAsAdmin && !m_options.elevated && !m_options.adminDeclined)
     {
         m_ending = Ending::BeAdmin;
         m_quit = true;
         return;
     }
-    if (!now.runAsAdmin && m_options.elevatedCopy)
+    if ((!now.enabled || !now.runAsAdmin) && m_options.elevatedCopy)
     {
         m_ending = Ending::BePlain;
         m_quit = true;
         return;
     }
+    // The keyboard is watched only while tiling: the window look alone hears no key.
+    if (now.enabled && !m_keys)
+    {
+        m_keys = std::make_unique<KeyHook>(m_window);
+    }
+    else if (!now.enabled)
+    {
+        m_keys.reset();
+    }
     if (m_keys)
     {
         m_keys->setKeys(hookKeys());
     }
-    if (!old || old->settings.mode != now.mode)
+    if (!now.enabled)
+    {
+        stop(); // the look alone: every window back where it was
+        return;
+    }
+    if (!old || !old->settings.enabled || old->settings.mode != now.mode)
     {
         stop();
         if (mac() && !m_virtual)
@@ -448,7 +462,8 @@ void TilerApp::applyPlan(tiling::Plan plan)
 
 std::vector<domain::TilingKey> TilerApp::hookKeys() const
 {
-    std::vector<domain::TilingKey> keys = m_plan ? m_plan->settings.keys : std::vector<domain::TilingKey>{};
+    std::vector<domain::TilingKey> keys =
+        m_plan && m_plan->settings.enabled ? m_plan->settings.keys : std::vector<domain::TilingKey>{};
     if (m_paused)
     {
         // Off for now: every key is the apps' again, but the one that turns it back on.
@@ -472,12 +487,12 @@ std::vector<domain::TilingKey> TilerApp::hookKeys() const
 
 bool TilerApp::mac() const noexcept
 {
-    return m_plan && m_plan->settings.mode == domain::TilingMode::Mac;
+    return m_plan && m_plan->settings.enabled && m_plan->settings.mode == domain::TilingMode::Mac;
 }
 
 void TilerApp::start()
 {
-    if (!m_plan || m_desktop)
+    if (!m_plan || !m_plan->settings.enabled || m_desktop)
     {
         return;
     }
@@ -531,7 +546,12 @@ void TilerApp::stop()
     }
     if (m_bordered)
     {
-        setBorder(windowOf(*m_bordered), std::nullopt);
+        setBorder(windowOf(*m_bordered), m_looks.border());
+    }
+    // Putting them back gave them Windows' border: the look's again.
+    for (const auto& original : windows)
+    {
+        m_looks.paint(windowOf(original.window), true);
     }
     m_originals.clear();
     m_hidden.clear();
@@ -791,6 +811,14 @@ std::size_t TilerApp::currentMonitor() const
 
 void TilerApp::onEvent(std::uint32_t event, Window window)
 {
+    if (event == EVENT_OBJECT_SHOW || event == EVENT_OBJECT_UNCLOAKED || event == EVENT_SYSTEM_FOREGROUND)
+    {
+        m_looks.paint(window);
+    }
+    else if (event == EVENT_OBJECT_DESTROY)
+    {
+        m_looks.forget(window);
+    }
     if (!m_desktop)
     {
         return;
@@ -1126,7 +1154,7 @@ void TilerApp::updateBorder(Window focused)
     }
     if (m_bordered && (!color || *m_bordered != id))
     {
-        setBorder(windowOf(*m_bordered), std::nullopt);
+        setBorder(windowOf(*m_bordered), m_looks.border()); // the look's border, or Windows'
         m_bordered.reset();
     }
     if (color && m_bordered != id)

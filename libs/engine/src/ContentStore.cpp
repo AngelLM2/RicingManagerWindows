@@ -86,6 +86,14 @@ std::uint64_t assetSizeLimit(std::string_view extension) noexcept
     {
         return limits::kCursorMaxBytes;
     }
+    if (is({"wav"}))
+    {
+        return limits::kSoundMaxBytes;
+    }
+    if (is({"ico"}))
+    {
+        return limits::kIconMaxBytes;
+    }
     if (is({"mp4", "m4v", "mov", "webm"}))
     {
         return limits::kVideoMaxBytes;

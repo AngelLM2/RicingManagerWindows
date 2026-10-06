@@ -45,6 +45,9 @@ struct UiStrings
 
     std::wstring_view appearance;
     std::wstring_view cursors;
+    std::wstring_view sounds;
+    std::wstring_view icons;
+    std::wstring_view lockscreen;
     std::wstring_view wallpaper;
     std::wstring_view taskbar;
 };
@@ -81,6 +84,9 @@ inline constexpr UiStrings kEnglish{
                          L"Why: rmw plugin status. On again: rmw plugin enable {1}",
     .appearance = L"Appearance",
     .cursors = L"Cursors",
+    .sounds = L"Sounds",
+    .icons = L"Icons",
+    .lockscreen = L"Lock screen",
     .wallpaper = L"Wallpaper",
     .taskbar = L"Taskbar",
 };
@@ -117,6 +123,9 @@ inline constexpr UiStrings kPortuguese{
                          L"Por quê: rmw plugin status. Religar: rmw plugin enable {1}",
     .appearance = L"A aparência",
     .cursors = L"Os cursores",
+    .sounds = L"Os sons",
+    .icons = L"Os ícones",
+    .lockscreen = L"A tela de bloqueio",
     .wallpaper = L"O wallpaper",
     .taskbar = L"A barra de tarefas",
 };

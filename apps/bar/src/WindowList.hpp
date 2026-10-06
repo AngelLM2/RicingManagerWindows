@@ -48,6 +48,9 @@ public:
     // button does).
     static void activate(void* window);
 
+    // The apps' icons are drawn again (the rice's program icons changed).
+    void forgetIcons();
+
 private:
     struct Access;
     WindowTracker();

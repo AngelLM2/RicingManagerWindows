@@ -97,6 +97,10 @@ foreach ($file in Get-ChildItem $cursors -File -Include '*.cur', '*.ani' -Recurs
     $prefix = if ($file.Extension -eq '.ani') { 1 } else { 0 }
     Seed 'cursor_file' ("win-{0}-{1}" -f $i++, $file.Name) ([byte[]]@($prefix) + [IO.File]::ReadAllBytes($file.FullName))
 }
+$i = 0
+foreach ($file in Get-ChildItem (Join-Path $env:WINDIR 'Media') -Filter '*.wav' -ErrorAction SilentlyContinue | Sort-Object Length | Select-Object -First 12) {
+    Seed 'sound_file' ("win-{0}.wav" -f $i++) ([IO.File]::ReadAllBytes($file.FullName))
+}
 Seed-Text 'cursor_inf' 'seed.inf' @'
 [Version]
 signature="$CHICAGO$"

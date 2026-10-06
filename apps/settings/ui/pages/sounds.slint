@@ -1,0 +1,97 @@
+import { Button, ScrollView, Switch, Palette } from "std-widgets.slint";
+import { Api, SoundRow } from "../api.slint";
+import { Card, Hint, PageHeader, SettingRow } from "../common.slint";
+import { EditingBanner } from "editing.slint";
+import { Words } from "../words.slint";
+
+// The rice's sounds (M14): a .wav for each of Windows' sound events, or silence.
+export component SoundsPage inherits ScrollView {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: start;
+
+        PageHeader {
+            title: @tr("Sounds");
+            subtitle: @tr("What Windows plays for its events: your .wav files, or silence.");
+        }
+
+        EditingBanner { }
+
+        if Api.editing: Card {
+            title: @tr("Everything else");
+
+            SettingRow {
+                label: @tr("Silence for the events below that have no sound of their own");
+                description: @tr("Off: those keep the sounds Windows has.");
+                Switch {
+                    checked <=> Api.sounds-silence;
+                    accessible-label: @tr("Silence for the events below that have no sound of their own");
+                    toggled => {
+                        Api.sounds-edited();
+                    }
+                }
+            }
+        }
+
+        if Api.editing: Card {
+            title: @tr("Events");
+
+            for row in Api.sound-rows: HorizontalLayout {
+                spacing: 8px;
+
+                Text {
+                    width: 220px;
+                    text: Words.sound-event(row.event);
+                    vertical-alignment: center;
+                    color: Palette.foreground;
+                    overflow: elide;
+                }
+
+                Text {
+                    width: 200px;
+                    text: row.silent ? @tr("Silent") : row.file != "" ? row.file : Api.sounds-silence ? @tr("Silent (everything else)") : @tr("Windows' sound");
+                    vertical-alignment: center;
+                    color: Palette.foreground.transparentize(30%);
+                    overflow: elide;
+                }
+
+                Button {
+                    text: @tr("Choose a .wav…");
+                    accessible-label: @tr("Choose a sound for {}", Words.sound-event(row.event));
+                    clicked => {
+                        Api.sound-pick(row.event);
+                    }
+                }
+
+                if row.file != "": Button {
+                    text: "▶";
+                    accessible-label: @tr("Play {}", Words.sound-event(row.event));
+                    clicked => {
+                        Api.sound-play(row.event);
+                    }
+                }
+
+                if !row.silent: Button {
+                    text: @tr("Silent");
+                    accessible-label: @tr("No sound for {}", Words.sound-event(row.event));
+                    clicked => {
+                        Api.sound-silence(row.event);
+                    }
+                }
+
+                if row.file != "" || row.silent: Button {
+                    text: @tr("As it is");
+                    accessible-label: @tr("Leave {} as it is", Words.sound-event(row.event));
+                    clicked => {
+                        Api.sound-clear(row.event);
+                    }
+                }
+            }
+
+            Hint {
+                text: @tr("Windows' own sounds are not copied into the rice: a rice you share takes only your files.");
+            }
+        }
+    }
+}

@@ -302,6 +302,115 @@ void writeCursors(Writer& w, const CursorConfig& cursors)
     }
 }
 
+void writeSounds(Writer& w, const SoundsConfig& sounds)
+{
+    w.header("sounds");
+    if (sounds.scheme)
+    {
+        w.string("scheme", enumToName<SoundScheme>(kSoundSchemeNames, *sounds.scheme));
+    }
+    if (!sounds.events.empty())
+    {
+        w.header("sounds.events");
+        for (const auto& assignment : sounds.events)
+        {
+            w.string(riceName(assignment.event), assignment.file);
+        }
+    }
+}
+
+void writeIcons(Writer& w, const IconsConfig& icons)
+{
+    w.header("icons");
+    for (const auto& [icon, file] : icons.desktop)
+    {
+        w.string(riceName(icon), file);
+    }
+    if (!icons.folders.empty())
+    {
+        w.header("icons.folders");
+        for (const auto& [folder, file] : icons.folders)
+        {
+            w.string(riceName(folder), file);
+        }
+    }
+    if (!icons.apps.empty())
+    {
+        w.header("icons.apps");
+        for (const auto& [program, file] : icons.apps)
+        {
+            w.string(program, file); // a quoted key: it has a dot
+        }
+    }
+    if (!icons.types.empty())
+    {
+        w.header("icons.types");
+        for (const auto& [extension, file] : icons.types)
+        {
+            w.string(extension, file);
+        }
+    }
+}
+
+void writeLockScreen(Writer& w, const LockScreenConfig& lockscreen)
+{
+    w.header("lockscreen");
+    if (!lockscreen.image.empty())
+    {
+        w.string("image", lockscreen.image);
+    }
+    if (lockscreen.spotlight)
+    {
+        w.boolean("spotlight", *lockscreen.spotlight);
+    }
+    if (lockscreen.tips)
+    {
+        w.boolean("tips", *lockscreen.tips);
+    }
+}
+
+void writeWindows(Writer& w, const WindowsLookConfig& windows)
+{
+    w.header("windows");
+    if (windows.corners)
+    {
+        w.string("corners", toString(*windows.corners));
+    }
+    if (windows.noBorder)
+    {
+        w.string("border", "none");
+    }
+    else if (windows.border)
+    {
+        w.string("border", windows.border->toString());
+    }
+    if (windows.caption)
+    {
+        w.string("caption", windows.caption->toString());
+    }
+    if (windows.title)
+    {
+        w.string("title", windows.title->toString());
+    }
+    if (windows.backdrop)
+    {
+        w.string("backdrop", toString(*windows.backdrop));
+    }
+    if (windows.dark)
+    {
+        w.boolean("dark", *windows.dark);
+    }
+    if (!windows.exclude.empty())
+    {
+        std::string list;
+        for (const auto& name : windows.exclude)
+        {
+            list += (list.empty() ? "" : ", ") + tomlQuote(name);
+        }
+        w.key("exclude", "[" + list + "]");
+    }
+}
+
 void writeTaskbar(Writer& w, const TaskbarConfig& taskbar)
 {
     w.header("taskbar");
@@ -604,6 +713,22 @@ std::string writeRice(const Rice& rice)
     if (rice.cursors)
     {
         writeCursors(w, *rice.cursors);
+    }
+    if (rice.sounds)
+    {
+        writeSounds(w, *rice.sounds);
+    }
+    if (rice.icons)
+    {
+        writeIcons(w, *rice.icons);
+    }
+    if (rice.lockscreen)
+    {
+        writeLockScreen(w, *rice.lockscreen);
+    }
+    if (rice.windows)
+    {
+        writeWindows(w, *rice.windows);
     }
     if (rice.taskbar)
     {

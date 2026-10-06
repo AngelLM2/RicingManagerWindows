@@ -209,6 +209,30 @@ TEST(BarPlan, RefusesBadPlans)
     }
 }
 
+TEST(BarPlan, CarriesTheRicesProgramIcons)
+{
+    rmw::domain::Rice rice;
+    rice.icons.emplace();
+    rice.icons->apps = {{"firefox.exe", "assets/icons/fox.ico"}};
+    Plan plan;
+    addAppIcons(plan, rice, R"(C:\rices\mine)");
+    ASSERT_EQ(plan.appIcons.size(), 1u);
+    EXPECT_EQ(plan.appIcons[0].file, std::filesystem::path(LR"(C:\rices\mine\assets\icons\fox.ico)"));
+    const auto back = planFromJson(toJson(plan));
+    ASSERT_TRUE(back.has_value()) << back.error().toString();
+    EXPECT_EQ(back->appIcons, plan.appIcons);
+
+    for (const char* text : {
+             R"({"version":1,"bars":[],"appIcons":[{"program":"firefox","file":"C:\\a.ico"}]})",
+             R"({"version":1,"bars":[],"appIcons":[{"program":"firefox.exe","file":"a.ico"}]})",
+             R"({"version":1,"bars":[],"appIcons":[{"program":"firefox.exe","file":"C:\\a.dll"}]})",
+             R"({"version":1,"bars":[],"appIcons":{}})",
+         })
+    {
+        EXPECT_FALSE(planFromJson(text).has_value()) << text;
+    }
+}
+
 constexpr std::array<WidgetProperty, 1> kClockProperties = {{{"text", "string"}}};
 constexpr std::array<std::string_view, 1> kClicked = {"clicked"};
 constexpr std::array<WidgetKind, 2> kKinds = {{

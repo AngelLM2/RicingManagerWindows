@@ -88,6 +88,29 @@ inside Wallpaper Engine, so its picture is used, with a slow zoom (add particles
 life). Those wallpapers belong to their authors: a rice that uses one is marked as yours alone, and
 it cannot be shared or packed.
 
+## Sounds and icons
+
+- **Sounds:** a rice can give its own `.wav` for each of Windows' sounds (notification, new mail,
+  device connected, the Recycle Bin, the folder click...) or silence them. In **Sounds**, *Choose a
+  .wav…* for an event, ▶ to hear it, *Silent* for none; **Silence for the events below that have no
+  sound of their own** silences the rest.
+- **Icons:** in **Icons**, a rice can change the desktop's icons (This PC, the Recycle Bin empty and
+  full, Network, your user folder, Control Panel), your folders' (Desktop, Documents, Downloads,
+  Pictures, Music, Videos) and a program's: write its file name (`firefox.exe`) and choose an `.ico`.
+  Your own shortcuts to it take the icon (in your Start menu, on your desktop and pinned to the
+  taskbar), and Ricing Manager's bar, dock and Start show it too. **File types** work the same way
+  (`txt`): their files show the icon. Only `.ico` files, checked first.
+- **Other apps' windows:** at the end of **Appearance**, a rice can give every app's window
+  (Windows 11) its corners, border color, title bar and title colors, a Mica or Acrylic title bar and
+  dark title bars, and leave some programs out. Ricing Manager sets them from the outside while it
+  runs; when it closes or you restore, Windows' own come back. Apps running as administrator keep
+  theirs.
+- **Lock screen:** at the end of **Wallpapers**, a rice can give the lock screen its own picture
+  (`.jpg` or `.png`) or turn **Windows Spotlight** on, and show or hide the fun facts and tips.
+- Restoring brings back the sounds, icons and lock screen picture you had (with Spotlight, Spotlight
+  comes back and shows its next picture). Windows' own sounds, icons and pictures are never copied
+  into a rice you share.
+
 ## Bars of your own
 
 A rice can hide Windows' taskbar and show its own bars, with Start, your windows, the system tray,
