@@ -48,6 +48,8 @@ public static extern System.IntPtr GetForegroundWindow();
 public static extern bool SetCursorPos(int x, int y);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, System.UIntPtr extra);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
 public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 '@
@@ -270,6 +272,33 @@ foreach ($page in $pages) {
     }
 }
 Check 'settings:every-page-by-name' ($reached -eq $pages.Count) "$reached of $($pages.Count)"
+
+# ---- every page at the smallest size: nothing runs past the window (v1.6: rows of fixed widths did, and
+# the widgets editor drew its widgets over its buttons) ---------------------------------------------------
+$handle0 = $app.MainWindowHandle
+$rect0 = New-Object Rmw.Win+RECT
+[void][Rmw.Win]::GetWindowRect($handle0, [ref] $rect0)
+[void][Rmw.Win]::SetWindowPos($handle0, [IntPtr]::Zero, $rect0.Left, $rect0.Top, 640, 480, 0x16) # NOMOVE|NOZORDER|NOACTIVATE: Windows keeps the minimum
+Start-Sleep -Seconds 1
+$small = New-Object Rmw.Win+RECT
+[void][Rmw.Win]::GetWindowRect($handle0, [ref] $small)
+$outside = @()
+$all = [System.Windows.Automation.Condition]::TrueCondition
+foreach ($page in $pages) {
+    if (-not (Press $window $page)) { continue }
+    Start-Sleep -Milliseconds 700
+    foreach ($element in $window.FindAll($Scope::Descendants, $all)) {
+        $box = $element.Current.BoundingRectangle
+        if ($box.Width -le 0 -or [double]::IsInfinity($box.Right)) { continue }
+        if ($box.Right -gt $small.Right + 2) {
+            $outside += "$page/$($element.Current.Name) right=$([int]$box.Right)"
+        }
+    }
+    Shot $app ("small-" + ($page -replace ' ', '-').ToLower())
+}
+Check 'settings:small-window-nothing-outside' ($outside.Count -eq 0) ("window right={0}; {1}" -f $small.Right, (($outside | Select-Object -First 12) -join '; '))
+[void][Rmw.Win]::SetWindowPos($handle0, [IntPtr]::Zero, $rect0.Left, $rect0.Top, $rect0.Right - $rect0.Left, $rect0.Bottom - $rect0.Top, 0x14)
+Start-Sleep -Seconds 1
 
 [void](Press $window 'Rices')
 Start-Sleep -Seconds 1
@@ -522,6 +551,36 @@ if ($restored -ge 6) {
 }
 Check 'settings:whole-after-minimize' ($restored -lt 6) ('{0:N1} average difference; {1}' -f $restored, $where)
 [void][Rmw.Win]::SetForegroundWindow($handle)
+
+# Another virtual desktop and back (v1.6 on the owner's PC: all white until a page changed). Ctrl+Win+D
+# makes a desktop and goes there; Ctrl+Win+F4 closes it and comes back.
+function Chord([byte[]] $Keys) {
+    foreach ($key in $Keys) { [Rmw.Win]::keybd_event($key, 0, 0, [UIntPtr]::Zero) }
+    [array]::Reverse($Keys)
+    foreach ($key in $Keys) { [Rmw.Win]::keybd_event($key, 0, 2, [UIntPtr]::Zero) }
+}
+Start-Sleep -Milliseconds 800
+$beforeDesktop = Window-Bitmap $app2
+Chord @(0x11, 0x5B, 0x44) # Ctrl+Win+D
+Start-Sleep -Seconds 2
+Chord @(0x11, 0x5B, 0x73) # Ctrl+Win+F4
+Start-Sleep -Seconds 2
+[void][Rmw.Win]::SetForegroundWindow($handle)
+Start-Sleep -Milliseconds 800
+$afterDesktop = Window-Bitmap $app2
+$switched = Bitmap-Difference $beforeDesktop $afterDesktop
+if ($switched -ge 6) {
+    if ($null -ne $afterDesktop) { $afterDesktop.Save((Join-Path $Out 'settings-after-desktop.png')) }
+    Screen-Shot 'after-desktop-screen'
+}
+Check 'settings:whole-after-desktop-switch' ($switched -lt 6) ('{0:N1} average difference' -f $switched)
+
+# Ricing Manager exits (the tray's Exit, `rmw shutdown`): the window closes with it, and nothing starts
+# the core again (v1.6: the open window did, 3 s later, and an uninstall could not delete its data).
+$r = Invoke-Rmw @('shutdown')
+Check 'settings:exit-closes-the-window' (Wait-Until { $app2.HasExited } 10) $r.output
+Start-Sleep -Seconds 5
+Check 'settings:exit-stays-exited' (-not (Get-Process rmw-core -ErrorAction SilentlyContinue)) ''
 
 if (-not $app2.HasExited) { [void]$app2.CloseMainWindow() }
 [void](Wait-Until { $app2.HasExited } 10)

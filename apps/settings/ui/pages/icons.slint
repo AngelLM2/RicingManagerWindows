@@ -12,7 +12,9 @@ component IconLine inherits HorizontalLayout {
     spacing: 8px;
 
     Text {
-        width: 220px;
+        min-width: 110px;
+        preferred-width: 220px;
+        max-width: 220px;
         text: root.label;
         vertical-alignment: center;
         color: Palette.foreground;
@@ -20,7 +22,9 @@ component IconLine inherits HorizontalLayout {
     }
 
     Text {
-        width: 200px;
+        min-width: 80px;
+        preferred-width: 200px;
+        max-width: 200px;
         text: root.icon.file != "" ? root.icon.file : @tr("Windows' icon");
         vertical-alignment: center;
         color: Palette.foreground.transparentize(30%);
@@ -95,7 +99,9 @@ export component IconsPage inherits ScrollView {
                 spacing: 8px;
 
                 LineEdit {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     text <=> Api.icon-new-program;
                     placeholder-text: "firefox.exe";
                     accessible-label: @tr("Program");
@@ -129,7 +135,9 @@ export component IconsPage inherits ScrollView {
                 spacing: 8px;
 
                 LineEdit {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     text <=> Api.icon-new-type;
                     placeholder-text: "txt";
                     accessible-label: @tr("File type");

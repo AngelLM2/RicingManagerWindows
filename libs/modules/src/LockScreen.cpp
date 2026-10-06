@@ -225,7 +225,13 @@ Result<void> LockScreenSystem::apply(const Json& desired)
             // turns it off (Windows does that itself).
             const bool same = source && lower(*source) == lower(chosen) && spotlightNow &&
                               !(spotlightNow->is_boolean() && spotlightNow->get<bool>());
-            if (!same)
+            const bool gone = !m_lockScreen.exists(chosen);
+            if (gone)
+            {
+                // A restore never stops at a picture that is gone: the rest still comes back.
+                log::warn("lockscreen: {} is gone, and our copy of it too; the picture stays", file);
+            }
+            if (!same && !gone)
             {
                 if (auto set = m_lockScreen.setImage(chosen); !set)
                 {

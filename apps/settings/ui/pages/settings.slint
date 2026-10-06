@@ -72,7 +72,9 @@ export component SettingsPage inherits ScrollView {
                 label: @tr("Language");
                 description: @tr("For this window and the tray menu.");
                 ComboBox {
-                    width: 220px;
+                    min-width: 120px;
+                    preferred-width: 220px;
+                    max-width: 220px;
                     model: [@tr("Windows' language"), "English", "Português (Brasil)"];
                     current-index <=> Api.language;
                     accessible-label: @tr("Language");

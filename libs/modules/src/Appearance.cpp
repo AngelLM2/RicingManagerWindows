@@ -22,6 +22,7 @@ constexpr std::uint32_t kDefaultColorization = 0xC40078D4; // Windows blue
 constexpr std::uint32_t kColorizationAlpha = 0xC4000000;   // what Windows writes for opaque accents
 constexpr std::string_view kThemes = R"(Software\Microsoft\Windows\CurrentVersion\Themes)";
 constexpr std::string_view kOurTheme = "ricing-manager"; // "theme" from a rice: the managed theme
+constexpr std::string_view kWindowsTheme = "windows";      // the theme Windows ships for the mode
 constexpr auto kThemeSettleStep = std::chrono::milliseconds(100);
 
 // RicingManager.theme, RicingManager-2.theme: the managed theme (ours).
@@ -113,6 +114,16 @@ bool isLightPeriod(const domain::AppearanceSchedule& schedule, domain::TimeOfDay
         return schedule.lightAt <= now && now < schedule.darkAt;
     }
     return now >= schedule.lightAt || now < schedule.darkAt; // light period crosses midnight
+}
+
+void AppearanceLogic::forOriginal(Json& state) const
+{
+    // A theme of ours as the original: the snapshot was taken over an earlier install's rice. What
+    // Windows ships comes back instead.
+    if (const auto theme = state.find("theme"); theme != state.end() && isOurTheme(*theme))
+    {
+        *theme = kWindowsTheme;
+    }
 }
 
 AppearanceLogic::AppearanceLogic(std::function<domain::TimeOfDay()> now)
@@ -267,18 +278,37 @@ Result<void> AppearanceSystem::apply(const Json& desired)
     }
 
     // A restore: the theme the user had selected comes back first (its look only; the pointers and the
-    // recent colors stay as they are). The fields below then set what it does not.
+    // recent colors stay as they are). The fields below then set what it does not. A theme that is gone
+    // (or "windows") is the one Windows ships for the mode.
     bool themeApplied = false;
+    std::string themeFile;
     if (const auto theme = desired.find("theme"); theme != desired.end() && theme->is_string() && !isOurTheme(*theme))
     {
-        if (auto applied = m_theme.applyThemeFile(theme->get<std::string>()); applied)
+        const auto& asked = theme->get_ref<const std::string&>();
+        std::vector<std::string> candidates;
+        if (asked != kWindowsTheme)
         {
-            themeApplied = true;
+            candidates.push_back(asked);
         }
-        else
+        if (asked == kWindowsTheme || !m_shell.fileExists(asked))
         {
-            log::warn("appearance: the theme the user had cannot come back ({}); its look is set instead",
-                      applied.error().toString());
+            auto light = readDword(m_registry, kPersonalize, "SystemUsesLightTheme", 1);
+            candidates.push_back(m_theme.windowsThemeFile(!systemLight.value_or(light && *light != 0)));
+        }
+        for (const auto& file : candidates)
+        {
+            auto applied = m_theme.applyThemeFile(file);
+            if (applied)
+            {
+                themeApplied = true;
+                themeFile = file;
+                break;
+            }
+            log::warn("appearance: the theme {} cannot come back ({})", file, applied.error().toString());
+        }
+        if (!themeApplied)
+        {
+            log::warn("appearance: no theme came back; the look is set instead");
         }
     }
 
@@ -361,10 +391,9 @@ Result<void> AppearanceSystem::apply(const Json& desired)
     // after our fallback.
     if (themeApplied)
     {
-        const std::string original = desired.find("theme")->get<std::string>();
-        if (auto named = m_theme.nameCurrentTheme(original); !named)
+        if (auto named = m_theme.nameCurrentTheme(themeFile); !named)
         {
-            log::warn("appearance: cannot name {} the current theme: {}", original, named.error().toString());
+            log::warn("appearance: cannot name {} the current theme: {}", themeFile, named.error().toString());
         }
     }
 

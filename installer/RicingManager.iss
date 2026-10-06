@@ -56,6 +56,8 @@ en.RestoreQuestion=Restore the Windows look you had before Ricing Manager (wallp
 ptbr.RestoreQuestion=Restaurar o visual do Windows de antes do Ricing Manager (papel de parede, cores, cursores, barra de tarefas)?%n%nA barra de tarefas do Windows volta de qualquer jeito.
 en.KeepDataQuestion=Keep your rices, settings and history (%1)?%n%nChoose No to remove them too.
 ptbr.KeepDataQuestion=Manter seus rices, configurações e histórico (%1)?%n%nEscolha Não para removê-los também.
+en.DataLeft=Some files in %1 were in use and stayed. Delete that folder after restarting Windows.
+ptbr.DataLeft=Alguns arquivos em %1 estavam em uso e ficaram. Apague essa pasta depois de reiniciar o Windows.
 en.OpenSettings=Open Ricing Manager
 ptbr.OpenSettings=Abrir o Ricing Manager
 en.OfficialRices=Add the official rices to your library
@@ -159,5 +161,10 @@ begin
   RegDeleteValue(HKCU, RunKey, RunValue);
   RunQuiet(Rmw, 'shutdown --wait', ewWaitUntilTerminated);
   if DirExists(Data) and not Answer(FmtMessage(CustomMessage('KeepDataQuestion'), [Data]), 'KEEPDATA') then
+  begin
+    // Everything stopped above (rmw shutdown --wait ends what did not): nothing holds a file.
     DelTree(Data, True, True, True);
+    if DirExists(Data) and not UninstallSilent then
+      MsgBox(FmtMessage(CustomMessage('DataLeft'), [Data]), mbInformation, MB_OK);
+  end;
 end;

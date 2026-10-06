@@ -1419,6 +1419,7 @@ void CoreServer::handleClient(platform::PipeConnection connection)
         std::string reply;
         if (request->method == "shutdown")
         {
+            platform::closeSettingsWindow(); // or an open window starts the core again
             m_stop = true;
             m_window->quit(0);
             reply = ipc::resultText(request->id, Json::object());
@@ -2053,7 +2054,8 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     const engine::RestoreOptions options{.force = json::boolOr(params, "force", false)};
     auto report = original ? m_engine->restoreOriginal(options)
                            : m_engine->restoreHistory(json::intOr(params, "id", 0), options);
-    if (!report)
+    // The original Windows: what is ours goes even when none of Windows' settings could come back.
+    if (!report && !original)
     {
         return std::unexpected(std::move(report.error()));
     }
@@ -2074,12 +2076,19 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     {
         runMachineHelper(machine::Command{machine::Command::Kind::RestoreDefaults, {}});
         machineAsked = true;
-        report->warnings.emplace_back(
-            "icons: Windows asks for administrator to bring back the folder and drive icons of the whole PC");
+        if (report)
+        {
+            report->warnings.emplace_back(
+                "icons: Windows asks for administrator to bring back the folder and drive icons of the whole PC");
+        }
     }
     m_plugins->setRicePlugins({});
     [[maybe_unused]] auto current = m_state->setMeta(kRiceCurrentMeta, std::nullopt);
     notifyResident();
+    if (!report)
+    {
+        return std::unexpected(std::move(report.error()));
+    }
     Json result = reportJson(*report);
     result["windowLook"] = hadLook; // taken off other apps' windows
     result["machineIcons"] = machineAsked;

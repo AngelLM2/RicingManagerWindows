@@ -176,6 +176,11 @@ public:
         return {};
     }
 
+    std::string windowsThemeFile(bool dark) override
+    {
+        return dark ? R"(C:\Windows\resources\Themes\dark.theme)" : R"(C:\Windows\resources\Themes\aero.theme)";
+    }
+
     std::vector<std::string> files;
     std::vector<std::string> named;
     std::map<std::string, ports::ThemeLook> looks;

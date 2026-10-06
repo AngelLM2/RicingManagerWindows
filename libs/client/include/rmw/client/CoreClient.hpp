@@ -31,7 +31,8 @@ public:
     CoreClient(CoreClient&&) noexcept;
     CoreClient& operator=(CoreClient&&) noexcept;
 
-    [[nodiscard]] Result<void> connect();
+    // `startIfNeeded` false: only a core that runs already (NotFound otherwise).
+    [[nodiscard]] Result<void> connect(bool startIfNeeded = true);
     [[nodiscard]] bool connected() const noexcept { return m_connection != nullptr; }
     void disconnect() noexcept;
 
@@ -49,6 +50,7 @@ private:
     std::filesystem::path m_dataDirectory;
     std::filesystem::path m_coreExe;
     std::wstring m_pipe;
+    bool m_startIfNeeded = true;
     std::unique_ptr<platform::PipeConnection> m_connection;
     ipc::Json m_hello;
     std::int64_t m_nextId = 1;

@@ -299,6 +299,26 @@ void place(Window window, const tiling::Rect& frame) noexcept
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
 }
 
+Insets insetsOf(Window window) noexcept
+{
+    RECT outer{};
+    if (GetWindowRect(hwnd(window), &outer) == FALSE)
+    {
+        return {};
+    }
+    const tiling::Rect visible = frameOf(window);
+    return {visible.left - outer.left, visible.top - outer.top, outer.right - visible.right,
+            outer.bottom - visible.bottom};
+}
+
+void showInPlace(Window window, const tiling::Rect& frame, const Insets& insets) noexcept
+{
+    const int left = frame.left - insets.left;
+    const int top = frame.top - insets.top;
+    SetWindowPos(hwnd(window), HWND_TOP, left, top, frame.right + insets.right - left,
+                 frame.bottom + insets.bottom - top, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+}
+
 void hide(Window window) noexcept
 {
     ShowWindowAsync(hwnd(window), SW_HIDE);

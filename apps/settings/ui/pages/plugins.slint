@@ -153,7 +153,9 @@ component FieldEditor inherits SettingRow {
     description: root.field.help;
 
     if root.field.kind == 0 || root.field.kind == 5: LineEdit {
-        width: 220px;
+        min-width: 120px;
+        preferred-width: 220px;
+        max-width: 220px;
         text: root.field.value;
         accessible-label: root.field.label;
         accepted(text) => {
@@ -162,7 +164,9 @@ component FieldEditor inherits SettingRow {
     }
 
     if root.field.kind == 1 || root.field.kind == 2: LineEdit {
-        width: 120px;
+        min-width: 90px;
+        preferred-width: 120px;
+        max-width: 120px;
         text: root.field.value;
         input-type: decimal;
         accessible-label: root.field.label;
@@ -180,7 +184,9 @@ component FieldEditor inherits SettingRow {
     }
 
     if root.field.kind == 4: ComboBox {
-        width: 220px;
+        min-width: 120px;
+        preferred-width: 220px;
+        max-width: 220px;
         model: root.field.choices;
         current-value: root.field.value;
         accessible-label: root.field.label;

@@ -16,6 +16,10 @@ namespace rmw::barapp
 // translucent frame is drawn twice with that background ("matte") black, then white: a pixel lets
 // the white through exactly as much as it is transparent, so alpha = 255 - (white - black), and
 // the pass over black already is the premultiplied color.
+//
+// Supersampled (`factor` 2): Slint draws at twice the size and every 2x2 block becomes one pixel. The
+// software renderer scales images by the nearest pixel and draws small text and round shapes with few
+// edge tones; averaged down they come out smooth (v1.7: "texto e ícones da barra serrilhados").
 class Surface
 {
 public:
@@ -24,20 +28,24 @@ public:
     // Sets the window's background to opaque white (true) or black (false).
     using Matte = std::function<void(bool white)>;
 
-    void resize(std::uint32_t width, std::uint32_t height);
+    // `width` x `height`: the window's pixels; Slint draws `factor` times that in each direction.
+    void resize(std::uint32_t width, std::uint32_t height, std::uint32_t factor = 1);
     // `translucent` = false: one pass, every pixel opaque.
     void paint(const Render& render, bool translucent, const Matte& matte);
 
     [[nodiscard]] std::uint32_t width() const noexcept { return m_width; }
     [[nodiscard]] std::uint32_t height() const noexcept { return m_height; }
+    [[nodiscard]] std::uint32_t factor() const noexcept { return m_factor; }
     // Row-major, top-down, 0xAARRGGBB as a little-endian BGRA byte sequence.
     [[nodiscard]] std::span<const std::uint32_t> pixels() const noexcept { return m_bgra; }
 
 private:
     std::uint32_t m_width = 0;
     std::uint32_t m_height = 0;
+    std::uint32_t m_factor = 1;
     std::vector<slint::Rgb8Pixel> m_black;
     std::vector<slint::Rgb8Pixel> m_white;
+    std::vector<std::uint32_t> m_drawn; // premultiplied, at the drawn size (supersampled only)
     std::vector<std::uint32_t> m_bgra;
 };
 

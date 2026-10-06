@@ -131,8 +131,10 @@ foreach ($rice in 'Sakura Dawn', 'Mocha Kawaii', 'Tokyo Midnight', 'Diva Stage')
     Shot ($rice.ToLower().Replace(' ', '-'))
 }
 Note 'apply-times' ($times -join '; ')
-$slow = @($times | Where-Object { [int](($_ -split ' ')[-2]) -ge 3000 })
-Check 'installer:apply-under-3s' ($slow.Count -eq 0) ($times -join '; ')
+# 4 s since v1.7 (it was 3): a theme apply waits ~1.6 s to put back what Explorer writes late into the pointers and
+# the recent colors (ADR-0022, the restore that is 100%); measured 2.1-2.5 s, a run's slowest up to ~3.4 s.
+$slow = @($times | Where-Object { [int](($_ -split ' ')[-2]) -ge 4000 })
+Check 'installer:apply-under-4s' ($slow.Count -eq 0) ($times -join '; ')
 Check 'installer:bar-replaces-taskbar' ((Wait-Until { (Get-Process rmw-bar -ErrorAction SilentlyContinue) -and -not (Taskbar-Visible) } 15)) ''
 Check 'installer:video-plays' ((Wait-Until { Get-Process rmw-wallpaper -ErrorAction SilentlyContinue } 15)) ''
 
@@ -154,6 +156,11 @@ Check 'installer:update-restarts-the-core' $restarted "before: $($coreBefore -jo
 Check 'installer:update-keeps-the-rice' ((Wait-Until { Get-Process rmw-bar -ErrorAction SilentlyContinue } 20)) ''
 
 # ---- uninstall: restore, remove everything ---------------------------------------------------------------------------
+# With the settings window open, as on the owner's PC (v1.6: it started the core again right after the uninstaller
+# stopped it, and the data folder lost its store but kept state.db).
+$openWindow = Start-Process (Join-Path $app 'rmw-settings.exe') -PassThru
+[void](Wait-Until { $openWindow.Refresh(); $openWindow.MainWindowHandle -ne [IntPtr]::Zero } 20)
+Start-Sleep -Seconds 3
 $gone = Uninstall @('/RESTORE=1', '/KEEPDATA=0') 'uninstall-1.log'
 Check 'installer:uninstalls' $gone (Ours-Detail)
 Check 'installer:processes-gone' ((Wait-Until { (Ours).Count -eq 0 } 20)) ((Ours | ForEach-Object Name) -join ', ')
@@ -162,6 +169,10 @@ Check 'installer:original-look-back' ((Light) -eq $lightBefore) "AppsUseLightThe
 Check 'installer:autostart-removed' ($null -eq (Get-ItemProperty $runKey -ErrorAction SilentlyContinue).RicingManagerWindows) ''
 Check 'installer:entry-removed' (-not (Test-Path $uninstallKey)) ''
 Check 'installer:data-removed-when-asked' (-not (Test-Path $data)) ''
+Check 'installer:settings-closed-with-it' $openWindow.HasExited ''
+# Windows never points into a store that is gone (the wallpaper, the cursors, the sounds come back by the user's path).
+$intoStore = @(& reg.exe query HKCU /s /f 'RicingManagerWindows\store' /d 2>$null | Where-Object { $_ -match 'RicingManagerWindows\\store' })
+Check 'installer:nothing-points-into-the-store' ($intoStore.Count -eq 0) (($intoStore | Select-Object -First 8) -join ' | ')
 Shot 'after-uninstall'
 
 # ---- again, keeping the data ------------------------------------------------------------------------------------------

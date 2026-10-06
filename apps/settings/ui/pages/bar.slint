@@ -34,11 +34,14 @@ component WidgetItem inherits Rectangle {
     }
 
     label := Text {
+        x: 10px;
+        width: parent.width - 20px;
         text: root.item.label;
         color: root.selected ? Palette.accent-foreground : Palette.foreground;
         font-size: Metrics.small-text;
         horizontal-alignment: center;
         vertical-alignment: center;
+        overflow: elide;
     }
 
     Rectangle {
@@ -76,8 +79,12 @@ component Zone inherits Rectangle {
     callback dragged(length, length);
     callback dropped(int /* index */, length, length);
 
-    min-height: 96px;
+    // At least 96 px, and as tall as its widgets (a min-height alone would replace what they need: v1.6
+    // drew them over the buttons below).
+    min-height: max(96px, content.min-height);
+    min-width: 110px;
     horizontal-stretch: 1;
+    clip: true;
     border-radius: Metrics.radius;
     border-width: root.highlighted ? 2px : 1px;
     border-color: root.highlighted ? Palette.accent-background : Palette.border;
@@ -85,7 +92,7 @@ component Zone inherits Rectangle {
     accessible-role: AccessibleRole.list;
     accessible-label: root.title;
 
-    VerticalLayout {
+    content := VerticalLayout {
         padding: 10px;
         spacing: 8px;
         alignment: start;
@@ -234,6 +241,7 @@ component WidgetsEditor inherits VerticalLayout {
                 }
             }
 
+            // Two short rows: one long row did not fit a narrow window.
             HorizontalLayout {
                 spacing: 6px;
                 alignment: start;
@@ -255,6 +263,22 @@ component WidgetsEditor inherits VerticalLayout {
                         root.move-selected(root.sel-zone, root.sel-index + 2);
                     }
                 }
+
+                Button {
+                    text: @tr("Remove");
+                    enabled: root.sel-zone >= 0 && root.sel-index >= 0;
+                    accessible-label: @tr("Remove the selected widget");
+                    clicked => {
+                        Api.bar-remove-item(root.sel-zone, root.sel-index);
+                        root.sel-index = -1;
+                        root.sel-zone = -1;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
 
                 Button {
                     text: @tr("To the left");
@@ -279,32 +303,24 @@ component WidgetsEditor inherits VerticalLayout {
                         root.move-selected(2, root.zone-size(2));
                     }
                 }
-
-                Button {
-                    text: @tr("Remove");
-                    enabled: root.sel-zone >= 0 && root.sel-index >= 0;
-                    accessible-label: @tr("Remove the selected widget");
-                    clicked => {
-                        Api.bar-remove-item(root.sel-zone, root.sel-index);
-                        root.sel-index = -1;
-                        root.sel-zone = -1;
-                    }
-                }
             }
 
             HorizontalLayout {
                 spacing: 8px;
-                alignment: start;
 
                 ComboBox {
-                    width: 240px;
+                    min-width: 140px;
+                    max-width: 260px;
+                    horizontal-stretch: 2;
                     model: Api.widget-labels;
                     current-index <=> root.add-choice;
                     accessible-label: @tr("Widget to add");
                 }
 
                 ComboBox {
-                    width: 180px;
+                    min-width: 110px;
+                    max-width: 200px;
+                    horizontal-stretch: 1;
                     model: [@tr("to the left"), @tr("to the center"), @tr("to the right")];
                     current-index <=> root.add-zone;
                     accessible-label: @tr("Zone to add it to");
@@ -317,6 +333,10 @@ component WidgetsEditor inherits VerticalLayout {
                     clicked => {
                         Api.bar-add-item(root.add-zone, Api.widget-choices[root.add-choice].id);
                     }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 0.01; // what is left of a wide window stays on the right
                 }
             }
 }
@@ -341,7 +361,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Start menu");
                 ComboBox {
-                    width: 260px;
+                    min-width: 140px;
+                    preferred-width: 260px;
+                    max-width: 260px;
                     model: [@tr("Windows'"), @tr("Ricing Manager's")];
                     current-index: Api.start-ours ? 1 : 0;
                     accessible-label: @tr("Start menu");
@@ -387,7 +409,9 @@ export component BarPage inherits ScrollView {
             if !Api.start-ours: SettingRow {
                 label: @tr("Windows' Start layout");
                 ComboBox {
-                    width: 260px;
+                    min-width: 140px;
+                    preferred-width: 260px;
+                    max-width: 260px;
                     model: [@tr("Leave as it is"), @tr("Default"), @tr("More pins"), @tr("More recommendations")];
                     current-index <=> Api.start-layout;
                     accessible-label: @tr("Windows' Start layout");
@@ -400,7 +424,9 @@ export component BarPage inherits ScrollView {
             if !Api.start-ours: SettingRow {
                 label: @tr("Recent files and tips in Recommended");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Leave as it is"), @tr("Show"), @tr("Hide")];
                     current-index <=> Api.start-recommended;
                     accessible-label: @tr("Recent files and tips in Recommended");
@@ -419,7 +445,9 @@ export component BarPage inherits ScrollView {
                 label: @tr("Alignment");
                 description: @tr("Shows after Windows restarts Explorer.");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Leave as it is"), @tr("Left"), @tr("Center")];
                     current-index <=> Api.taskbar-alignment;
                     accessible-label: @tr("Alignment");
@@ -432,7 +460,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Hide automatically");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
                     current-index <=> Api.taskbar-autohide;
                     accessible-label: @tr("Hide automatically");
@@ -445,7 +475,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Task view button");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Leave as it is"), @tr("On"), @tr("Off")];
                     current-index <=> Api.taskbar-task-view;
                     accessible-label: @tr("Task view button");
@@ -458,7 +490,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Search");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Leave as it is"), @tr("Hidden"), @tr("Icon"), @tr("Box"), @tr("Button")];
                     current-index <=> Api.taskbar-search;
                     accessible-label: @tr("Search");
@@ -478,7 +512,9 @@ export component BarPage inherits ScrollView {
                 alignment: start;
 
                 if Api.bar-names.length > 0: ComboBox {
-                    width: 320px;
+                    min-width: 180px;
+                    preferred-width: 320px;
+                    max-width: 320px;
                     model: Api.bar-names;
                     current-index: Api.selected-bar;
                     accessible-label: @tr("Bar");
@@ -563,7 +599,9 @@ export component BarPage inherits ScrollView {
                 label: @tr("Style");
                 description: @tr("A ready-made bar. What you change below stays yours; the style fills the rest.");
                 ComboBox {
-                    width: 260px;
+                    min-width: 140px;
+                    preferred-width: 260px;
+                    max-width: 260px;
                     model: [@tr("My own"), @tr("Windows (apps in the middle)"), @tr("Dock (floating, icons that grow)"),
                         @tr("Island (a pill at the top)"), @tr("Status line (thin, at the top)"), @tr("Side (on the left)")];
                     current-index: Api.bar.style;
@@ -577,7 +615,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Monitor");
                 ComboBox {
-                    width: 260px;
+                    min-width: 140px;
+                    preferred-width: 260px;
+                    max-width: 260px;
                     model: Api.match-labels;
                     current-index: Api.bar.monitor-index;
                     accessible-label: @tr("Monitor of the bar");
@@ -592,7 +632,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Edge");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Top"), @tr("Bottom"), @tr("Left"), @tr("Right")];
                     current-index: Api.bar.position;
                     accessible-label: @tr("Edge");
@@ -607,7 +649,9 @@ export component BarPage inherits ScrollView {
                 label: @tr("Space");
                 description: @tr("Reserve: maximized windows stop at the bar. Float: over the desktop.");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Reserve"), @tr("Float")];
                     current-index: Api.bar.mode;
                     accessible-label: @tr("Space");
@@ -622,7 +666,9 @@ export component BarPage inherits ScrollView {
                 label: @tr("Thickness");
                 description: @tr("16 to 512 pixels, at 100% scale.");
                 SpinBox {
-                    width: 140px;
+                    min-width: 90px;
+                    preferred-width: 140px;
+                    max-width: 140px;
                     minimum: 16;
                     maximum: 512;
                     value: Api.bar.thickness;
@@ -659,7 +705,9 @@ export component BarPage inherits ScrollView {
                 }
 
                 if !Api.bar.length-auto: SpinBox {
-                    width: 140px;
+                    min-width: 90px;
+                    preferred-width: 140px;
+                    max-width: 140px;
                     minimum: Api.bar.length-percent ? 1 : 16;
                     maximum: Api.bar.length-percent ? 100 : 16384;
                     value: Api.bar.length;
@@ -726,7 +774,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Rounded corners");
                 SpinBox {
-                    width: 140px;
+                    min-width: 90px;
+                    preferred-width: 140px;
+                    max-width: 140px;
                     minimum: 0;
                     maximum: 256;
                     value: Api.bar.radius;
@@ -770,7 +820,9 @@ export component BarPage inherits ScrollView {
                 label: @tr("Background");
                 description: @tr("Acrylic and mica blur what is behind the bar.");
                 ComboBox {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     model: [@tr("Solid"), @tr("Transparent"), @tr("Acrylic"), @tr("Mica")];
                     current-index: Api.bar.background;
                     accessible-label: @tr("Background");
@@ -785,7 +837,9 @@ export component BarPage inherits ScrollView {
                 label: @tr("Color");
                 description: @tr("#RRGGBB or palette.<name> from the rice, then Enter.");
                 LineEdit {
-                    width: 160px;
+                    min-width: 90px;
+                    preferred-width: 160px;
+                    max-width: 160px;
                     text: Api.bar.tint;
                     placeholder-text: "#1E1E2E";
                     accessible-label: @tr("Background color");
@@ -799,7 +853,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Opacity");
                 Slider {
-                    width: 200px;
+                    min-width: 110px;
+                    preferred-width: 200px;
+                    max-width: 200px;
                     minimum: 0;
                     maximum: 100;
                     value: Api.bar.opacity;
@@ -822,7 +878,9 @@ export component BarPage inherits ScrollView {
                 label: @tr("Text and icons");
                 description: @tr("#RRGGBB or palette.<name>; empty follows Windows' mode.");
                 LineEdit {
-                    width: 160px;
+                    min-width: 90px;
+                    preferred-width: 160px;
+                    max-width: 160px;
                     text: Api.bar.foreground;
                     accessible-label: @tr("Text and icon color");
                     accepted(text) => {

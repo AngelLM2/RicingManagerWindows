@@ -95,6 +95,9 @@ public:
 
     // Where Windows keeps its copy of the current image (%APPDATA%\...\TranscodedWallpaper).
     [[nodiscard]] virtual Result<std::string> transcodedWallpaper() = 0;
+    // The picture Windows ships as its wallpaper (Web\Wallpaper\Windows\img0.jpg): what comes back when
+    // the user's picture and our copy of it are both gone.
+    [[nodiscard]] virtual std::string defaultWallpaper() = 0;
     // Whether a file exists, and its type ("jpg", "png", "bmp"...) by content; empty if unknown.
     [[nodiscard]] virtual Result<std::string> sniffImageType(std::string_view file) = 0;
     // True for files Windows ships (under the Windows folder): they never need a copy.
