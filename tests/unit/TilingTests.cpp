@@ -102,6 +102,68 @@ TEST(TilingLayout, ManyWindowsNeverOverlapNorLeaveTheArea)
     EXPECT_EQ(arrange(LayoutKind::Dwindle, Rect{0, 0, 10, 10}, 6, gaps).size(), 6u);
 }
 
+TEST(TilingLayout, WindowsThatKeepAMinimumGetRoom)
+{
+    // Columns: the middle one keeps 1000 px, the others share the rest.
+    const std::vector<Size> middle = {{}, {1000, 0}, {}};
+    const auto columns = arrange(LayoutKind::Columns, kArea, 3, kNoGaps, middle);
+    ASSERT_EQ(columns.size(), 3u);
+    EXPECT_EQ(columns[1].width(), 1000);
+    EXPECT_EQ(columns[0].width(), 460);
+    EXPECT_EQ(columns[2].right, 1920);
+
+    // Master and stack: a stack that needs 1200 px narrows the master (60% would leave it 768).
+    const std::vector<Size> wideStack = {{}, {1200, 0}, {}};
+    const auto stack = arrange(LayoutKind::MasterStack, kArea, 3, LayoutOptions{0, 0, 0.6}, wideStack);
+    ASSERT_EQ(stack.size(), 3u);
+    EXPECT_EQ(stack[0].width(), 720);
+    EXPECT_EQ(stack[1].width(), 1200);
+
+    // Dwindle: the last one needs 700 px of height; the one above it gives them up.
+    const std::vector<Size> tall = {{}, {}, {0, 700}};
+    const auto dwindle = arrange(LayoutKind::Dwindle, kArea, 3, kNoGaps, tall);
+    ASSERT_EQ(dwindle.size(), 3u);
+    EXPECT_EQ(dwindle[2].height(), 700);
+    EXPECT_EQ(dwindle[1].height(), 340);
+    EXPECT_FALSE(overlap(dwindle[1], dwindle[2]));
+
+    // Two that cannot both fit: shared in proportion, never more than the room, never overlapping.
+    const std::vector<Size> both = {{1200, 0}, {1200, 0}};
+    const auto shared = arrange(LayoutKind::Columns, kArea, 2, kNoGaps, both);
+    ASSERT_EQ(shared.size(), 2u);
+    EXPECT_EQ(shared[0].width(), 960);
+    EXPECT_EQ(shared[1].right, 1920);
+
+    // No minimum known: exactly as before.
+    EXPECT_EQ(arrange(LayoutKind::Dwindle, kArea, 5, kNoGaps, std::vector<Size>(5)),
+              arrange(LayoutKind::Dwindle, kArea, 5, kNoGaps));
+}
+
+TEST(TilingLayout, AWindowLargerThanItsSlotStaysOnTheScreen)
+{
+    // It grows from its slot, and back inside the area when that passes the edge.
+    EXPECT_EQ(fitted(Rect{1500, 600, 1900, 1000}, Size{600, 500}, kArea), (Rect{1320, 540, 1920, 1040}));
+    EXPECT_EQ(fitted(Rect{10, 10, 400, 300}, Size{200, 100}, kArea), (Rect{10, 10, 400, 300})); // it fits
+    EXPECT_EQ(fitted(Rect{100, 100, 500, 500}, Size{2500, 0}, kArea).left, 0); // wider than the screen
+}
+
+TEST(TilingLayout, AWindowSlidesIntoPlace)
+{
+    const Rect from{2000, 0, 2960, 1040}; // off to the right: a workspace coming in
+    const Rect to{960, 0, 1920, 1040};
+    EXPECT_EQ(slideFrame(from, to, 0.0), from);
+    EXPECT_EQ(slideFrame(from, to, 1.0), to);
+    EXPECT_EQ(slideFrame(from, to, 7.5), to);
+    // Fast first, then slowing: past the middle at half the time (ease-out).
+    const Rect half = slideFrame(from, to, 0.5);
+    EXPECT_LT(half.left, (from.left + to.left) / 2);
+    EXPECT_GT(half.left, to.left);
+    EXPECT_EQ(half.width(), 960);
+    // Growing: the old size on the way, the new one at the end; shrinking: the new one at once.
+    EXPECT_EQ(slideFrame(Rect{0, 0, 400, 300}, Rect{100, 0, 1100, 800}, 0.3).width(), 400);
+    EXPECT_EQ(slideFrame(Rect{0, 0, 1000, 800}, Rect{500, 0, 900, 300}, 0.01).height(), 300);
+}
+
 TEST(TilingLayout, NeighborsByDirection)
 {
     // The three of DwindleHalvesAndTurns: left half, top right, bottom right.
@@ -224,15 +286,28 @@ TEST(TilingDesktop, MonitorsAndWorkspacesThatGoAway)
     desktop.setMonitors(twoMonitors());
     desktop.add(1, 1);
     desktop.add(2, 1, 3); // hidden on the second monitor's last workspace
-    // The second monitor is unplugged: its windows come to the first one, shown.
+    // The second monitor is unplugged: what it showed comes to what the first shows; its other workspaces
+    // join the first's of the same number (not all piled on the screen).
     auto monitors = twoMonitors();
     monitors.pop_back();
     const auto unplugged = desktop.setMonitors(monitors);
-    EXPECT_TRUE(has(unplugged.show, 2));
     EXPECT_FALSE(has(unplugged.show, 1)); // it was on screen already
+    EXPECT_FALSE(has(unplugged.show, 2));
     EXPECT_EQ(desktop.monitorCount(), 1u);
     EXPECT_TRUE(desktop.shown(1));
-    EXPECT_TRUE(desktop.shown(2));
+    EXPECT_EQ(desktop.find(2), (Place{0, 3}));
+    desktop.goTo(0, 0);
+
+    // A monitor whose name changed (a DisplayPort one waking up) is the one in the same place.
+    Desktop renamed(4, LayoutKind::Columns);
+    renamed.setMonitors(twoMonitors());
+    renamed.add(7, 1, 2);
+    renamed.goTo(1, 2);
+    auto newNames = twoMonitors();
+    newNames[1].key = "\\\\.\\DISPLAY9";
+    EXPECT_TRUE(renamed.setMonitors(newNames).show.empty());
+    EXPECT_EQ(renamed.find(7), (Place{1, 2}));
+    EXPECT_EQ(renamed.active(1), 2);
 
     // The first monitor keeps its workspaces when another one comes.
     desktop.goTo(0, 3);
@@ -369,7 +444,8 @@ TEST(TilingPlan, ShortcutsAndRulesMatch)
     EXPECT_EQ(spotify->workspace, 3);
     EXPECT_NE(matchRule(plan.settings.rules, {"chrome.exe", "Chrome_WidgetWin_1", "Picture in Picture"}), nullptr);
     EXPECT_EQ(matchRule(plan.settings.rules, {"chrome.exe", "Chrome_WidgetWin_1", "New tab"}), nullptr);
-    EXPECT_EQ(matchRule(plan.settings.rules, {"chrome.exe", "chrome_widgetwin_1", "Picture"}), nullptr);
+    // Window classes regardless of case, as Windows tells them apart.
+    EXPECT_NE(matchRule(plan.settings.rules, {"chrome.exe", "chrome_widgetwin_1", "Picture in Picture"}), nullptr);
 }
 
 TEST(TilingPlan, TheWindowsToPutBack)

@@ -304,8 +304,10 @@ Result<HashedCopy> copyHashed(const std::filesystem::path& source, const std::fi
 
 Result<std::vector<std::byte>> readFileLimited(const std::filesystem::path& path, std::uint64_t maxBytes)
 {
+    // FILE_SHARE_DELETE: a writer replacing the file (writeFileAtomic) while it is read must not fail (a
+    // tiler reading its plan made the core's new plan get lost).
     const wil::unique_hfile file(
-        CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+        CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                     FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!file)
     {
@@ -379,7 +381,8 @@ Result<void> replaceFile(const std::filesystem::path& from, const std::filesyste
     return {};
 }
 
-Result<void> writeFileAtomic(const std::filesystem::path& path, std::span<const std::byte> bytes)
+Result<void> writeFileAtomic(const std::filesystem::path& path, std::span<const std::byte> bytes,
+                             Durability durability)
 {
     auto suffix = randomHex(8);
     if (!suffix)
@@ -398,7 +401,7 @@ Result<void> writeFileAtomic(const std::filesystem::path& path, std::span<const 
             return std::unexpected(lastError("create temporary file"));
         }
         auto written = writeAll(file.get(), bytes);
-        if (written && FlushFileBuffers(file.get()) == FALSE)
+        if (written && durability == Durability::Flushed && FlushFileBuffers(file.get()) == FALSE)
         {
             written = std::unexpected(lastError("flush temporary file"));
         }

@@ -472,8 +472,9 @@ const domain::TilingRule* matchRule(std::span<const domain::TilingRule> rules, c
         {
             continue;
         }
+        // Window classes are told apart regardless of case, as Windows does.
         if ((rule.app.empty() || equalsIgnoreCase(rule.app, facts.app)) &&
-            (rule.windowClass.empty() || rule.windowClass == facts.windowClass) &&
+            (rule.windowClass.empty() || equalsIgnoreCase(rule.windowClass, facts.windowClass)) &&
             (rule.title.empty() || containsIgnoreCase(facts.title, rule.title)))
         {
             return &rule;

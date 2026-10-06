@@ -16,6 +16,7 @@ add_executable(rmw_unit_tests
     unit/ErrorTests.cpp
     unit/ExportTests.cpp
     unit/FileSystemTests.cpp
+    unit/IconPixelsTests.cpp
     unit/IconsTests.cpp
     unit/LockScreenTests.cpp
     unit/MachineIconsTests.cpp
@@ -63,6 +64,7 @@ target_link_libraries(rmw_unit_tests PRIVATE
     rmw::package
     rmw::platform
     rmw::plugins
+    rmw::providers
     rmw::scripting
     rmw::storage
     rmw::tiling

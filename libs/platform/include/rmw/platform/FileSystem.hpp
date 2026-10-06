@@ -67,10 +67,18 @@ struct HashedCopy
 // Renames `from` over `to` atomically (POSIX semantics where the volume supports them).
 [[nodiscard]] Result<void> replaceFile(const std::filesystem::path& from, const std::filesystem::path& to);
 
-// Writes `bytes` to `path` via a flushed temporary file and replaceFile(): readers see the old
-// or the new content, never a mix.
-[[nodiscard]] Result<void> writeFileAtomic(const std::filesystem::path& path,
-                                           std::span<const std::byte> bytes);
+// Whether writeFileAtomic waits for the disk: Cached survives a crash of the process but not a power cut,
+// for state rewritten often on a thread that must not wait (the tiler's windows, at every switch).
+enum class Durability : std::uint8_t
+{
+    Flushed,
+    Cached,
+};
+
+// Writes `bytes` to `path` via a temporary file and replaceFile(): readers see the old or the new
+// content, never a mix.
+[[nodiscard]] Result<void> writeFileAtomic(const std::filesystem::path& path, std::span<const std::byte> bytes,
+                                           Durability durability = Durability::Flushed);
 
 // %VARS% expanded (UTF-8 in, path out).
 [[nodiscard]] Result<std::filesystem::path> expandEnvironment(std::string_view text);

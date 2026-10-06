@@ -29,30 +29,59 @@ Change Desktop::setMonitors(std::vector<Monitor> monitors)
     const auto before = shownWindows();
     std::vector<Screen> screens;
     screens.reserve(monitors.size());
-    for (auto& monitor : monitors)
+    // By name first; a monitor whose name changed (a DisplayPort one waking up, a driver update) is the
+    // one that was in the same place.
+    std::vector<std::optional<Screen>> found(monitors.size());
+    for (std::size_t i = 0; i < monitors.size(); ++i)
     {
-        const auto old = std::ranges::find(m_screens, monitor.key, [](const Screen& s) { return s.monitor.key; });
+        const auto old =
+            std::ranges::find(m_screens, monitors[i].key, [](const Screen& s) { return s.monitor.key; });
         if (old != m_screens.end())
         {
-            Screen kept = std::move(*old);
-            kept.monitor = std::move(monitor);
+            found[i] = std::move(*old);
             m_screens.erase(old);
+        }
+    }
+    for (std::size_t i = 0; i < monitors.size(); ++i)
+    {
+        if (found[i])
+        {
+            continue;
+        }
+        const auto old =
+            std::ranges::find(m_screens, monitors[i].bounds, [](const Screen& s) { return s.monitor.bounds; });
+        if (old != m_screens.end())
+        {
+            found[i] = std::move(*old);
+            m_screens.erase(old);
+        }
+    }
+    for (std::size_t i = 0; i < monitors.size(); ++i)
+    {
+        if (found[i])
+        {
+            Screen kept = std::move(*found[i]);
+            kept.monitor = std::move(monitors[i]);
             screens.push_back(std::move(kept));
         }
         else
         {
-            screens.push_back(makeScreen(std::move(monitor)));
+            screens.push_back(makeScreen(std::move(monitors[i])));
         }
     }
-    // What is left in m_screens went away: its windows go to the first monitor, shown.
-    Workspace& refuge = screens.front().workspaces[static_cast<std::size_t>(screens.front().active)];
+    // What is left in m_screens went away. Its workspaces join the first monitor's of the same number; the
+    // one it showed joins the one shown there, so its windows stay in sight.
+    Screen& refuge = screens.front();
     for (const Screen& gone : m_screens)
     {
-        for (const Workspace& workspace : gone.workspaces)
+        for (std::size_t w = 0; w < gone.workspaces.size(); ++w)
         {
+            const Workspace& workspace = gone.workspaces[w];
+            const std::size_t to = static_cast<int>(w) == gone.active ? static_cast<std::size_t>(refuge.active)
+                                                                     : std::min(w, refuge.workspaces.size() - 1);
             for (const WindowId window : workspace.windows())
             {
-                refuge.add(window, workspace.floating(window));
+                refuge.workspaces[to].add(window, workspace.floating(window));
             }
         }
     }

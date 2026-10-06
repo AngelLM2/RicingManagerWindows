@@ -39,6 +39,28 @@ bool isModifier(DWORD vk) noexcept
     }
 }
 
+// A command that may run again while its key is held down.
+bool repeats(domain::TilingCommand command) noexcept
+{
+    using domain::TilingCommand;
+    switch (command)
+    {
+    case TilingCommand::FocusLeft:
+    case TilingCommand::FocusRight:
+    case TilingCommand::FocusUp:
+    case TilingCommand::FocusDown:
+    case TilingCommand::MoveLeft:
+    case TilingCommand::MoveRight:
+    case TilingCommand::MoveUp:
+    case TilingCommand::MoveDown:
+    case TilingCommand::WorkspacePrevious:
+    case TilingCommand::WorkspaceNext:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool down(int vk) noexcept
 {
     return (static_cast<unsigned short>(GetAsyncKeyState(vk)) & 0x8000U) != 0;
@@ -107,10 +129,18 @@ struct KeyHook::Access
                                            : std::nullopt;
                     if (match)
                     {
+                        // Held down, the key repeats: moving the focus or a window again is what a person
+                        // means; turning tiling off and on 30 times a second is not.
+                        const bool repeat = g_hook->m_swallowed[event->vkCode];
                         g_hook->m_swallowed[event->vkCode] = true;
-                        PostMessageW(static_cast<HWND>(g_hook->m_target), kCommandMessage,
-                                     static_cast<WPARAM>(match->command), match->number);
-                        if ((modifiers & MOD_WIN) != 0)
+                        if (!repeat || repeats(match->command))
+                        {
+                            PostMessageW(static_cast<HWND>(g_hook->m_target), kCommandMessage,
+                                         static_cast<WPARAM>(match->command), match->number);
+                        }
+                        // An unassigned key in between: Windows sees a Win shortcut (Start stays closed), and
+                        // an app an Alt shortcut (its menu bar does not open when Alt is let go).
+                        if ((modifiers & (MOD_WIN | MOD_ALT)) != 0 && !repeat)
                         {
                             PostThreadMessageW(GetCurrentThreadId(), kSendMask, 0, 0);
                         }
@@ -133,6 +163,9 @@ KeyHook::KeyHook(void* target)
     }
     g_hook = this;
     m_thread = std::jthread([this] { run(); });
+    // Its id first: a hook destroyed before the thread said who it is could not be told to stop, and the
+    // join would wait forever (a core gone just as the tiler started).
+    m_threadId.wait(0);
 }
 
 KeyHook::~KeyHook()
@@ -161,6 +194,7 @@ void KeyHook::run()
     MSG message{};
     PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE); // the thread's queue, first
     m_threadId = GetCurrentThreadId();
+    m_threadId.notify_all();
     HHOOK hook = SetWindowsHookExW(WH_KEYBOARD_LL, &Access::proc, GetModuleHandleW(nullptr), 0);
     if (hook == nullptr)
     {

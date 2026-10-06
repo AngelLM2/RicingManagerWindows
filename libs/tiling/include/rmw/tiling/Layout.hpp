@@ -69,6 +69,11 @@ struct LayoutOptions
 // moved back inside `area` if it then passes the edge (never off the screen, never under a bar).
 [[nodiscard]] Rect fitted(const Rect& slot, const Size& minimum, const Rect& area) noexcept;
 
+// A window sliding from `from` to `to` (v1.8), at `t` (0..1): the position eased out (fast, then slowing
+// into place), the smaller of the two sizes on the way (one that shrinks does it first, one that grows
+// at the end: it never passes the room the two places take), `to` itself at 1.
+[[nodiscard]] Rect slideFrame(const Rect& from, const Rect& to, double t) noexcept;
+
 enum class Direction : std::uint8_t
 {
     Left,

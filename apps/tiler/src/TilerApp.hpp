@@ -133,7 +133,12 @@ private:
     std::set<tiling::WindowId> m_justShown;      // shown in place this moment: settle() looks at them
     std::optional<tiling::WindowId> m_bordered;
     std::optional<tiling::WindowId> m_pendingFocus;
-    std::set<tiling::WindowId> m_appearing; // shown a moment ago: tiled if still there (kAdoptDelayMs)
+    // Shown a moment ago (when, GetTickCount64): tiled if still there kAdoptDelayMs later.
+    std::map<tiling::WindowId, std::uint64_t> m_appearing;
+    bool m_adoptTimer = false;
+    std::vector<tiling::Original> m_waiting; // an admin app's windows a past tiler hid: kept in the file
+    std::map<tiling::WindowId, tiling::Rect> m_dragFrom; // where a window was when the person took it
+    std::uint64_t m_switchedAt = 0; // our last workspace switch (GetTickCount64)
     tiling::MinimumSizes m_minimums;        // what each app refused to go under (learnMinimum)
     std::unique_ptr<Animator> m_animator;   // windows sliding to their places
     std::unique_ptr<KeyHook> m_keys;

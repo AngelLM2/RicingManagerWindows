@@ -47,12 +47,6 @@ public:
     // Where a moving window ends (its slot), or nothing.
     [[nodiscard]] std::optional<tiling::Rect> destination(tiling::WindowId window) const;
 
-    // Ease-out cubic: fast, then slowing into place.
-    [[nodiscard]] static double eased(double t) noexcept;
-    // The frame at `t` (0..1) of a move: the position between the two (eased), the smaller of the two sizes
-    // on the way, the end itself at 1.
-    [[nodiscard]] static tiling::Rect at(const Move& move, double t) noexcept;
-
 private:
     struct Running
     {
