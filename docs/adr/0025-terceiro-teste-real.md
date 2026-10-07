@@ -17,6 +17,8 @@
 9. **A hora local é lida com o fuso de agora.** O C *runtime* guarda o fuso que leu na primeira vez (`localtime_s`), e um core residente passaria dias com o fuso velho; `_tzset` vem antes de cada leitura (agenda, relógio dos plugins, datas da janela). O serviço de fuso automático do Windows não avisa nenhum app: a agenda confere a hora a cada minuto, além de `WM_TIMECHANGE`.
 10. **Uma imagem de um rice é uma imagem pelos bytes** (`sniffFileType`: JPEG, PNG, BMP, GIF), não só pela extensão, ao entrar no armazém. O `.rice` importado já era conferido assim; uma pasta aplicada direto não era.
 11. **O teto de memória da barra é 128 MB.** Com o Iniciar próprio aberto em "Todos os apps", a barra medida na Sandbox (438 apps) fica perto de 55 MB; os apps que ela abre não contam mais (decisão 1).
+12. **(v1.8.1) Um pacote só leva programas deste build.** Sem o SDK do Slint, o build passava sem a barra e sem a janela, e a v1.8.0 saiu com as cópias da v1.7 que estavam em `bin\`. Agora o CMake para sem o SDK (`RMW_REQUIRE_SLINT`, ligado por padrão), todo programa leva a versão (VERSIONINFO), e o empacotador apaga os programas antes do build e recusa um programa de outra versão. A suíte do instalador confere a versão de cada programa instalado e que a janela abre, conecta e fica aberta, também atualizando por cima de uma versão anterior aberta.
+13. **(v1.8.1) Um "não" ao administrador vale para a sessão do Windows** (`tiler\admin-declined`, com a sessão de logon). Um *tiler* reiniciado pelo supervisor, ou por um core novo, não pergunta de novo; desligar e religar o modo avançado pergunta uma vez. Uma cópia elevada que falha conta como "não", em vez de fazer o *tiler* sair com erro e ser reiniciado.
 
 ## Consequências
 

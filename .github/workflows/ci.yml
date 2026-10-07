@@ -60,6 +60,10 @@ jobs:
           key: vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/triplets/**') }}
           restore-keys: vcpkg-
 
+      - name: Fetch the Slint SDK (pinned, hash checked)
+        shell: pwsh
+        run: ./scripts/fetch-deps.ps1 -Name slint
+
       - name: Build and test
         shell: pwsh
         run: ./scripts/build.ps1 -Preset ${{ matrix.preset }} -Test

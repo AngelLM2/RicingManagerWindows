@@ -120,15 +120,22 @@ try {
         }
         'installer' {
             # The setup from scripts\package.ps1 (mapped at C:\rmw\package): install, apply, update, uninstall.
-            $setup = Get-ChildItem 'C:\rmw\package' -Recurse -Filter 'RicingManager-*-setup.exe' |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $setups = @(Get-ChildItem 'C:\rmw\package' -Recurse -Filter 'RicingManager-*-setup.exe' |
+                Sort-Object LastWriteTime -Descending)
+            $setup = $setups | Select-Object -First 1
             if (-not $setup) { throw 'No installer under C:\rmw\package (run scripts\package.ps1 first).' }
             $work = 'C:\rmw\work'
             New-Item -ItemType Directory -Force $work | Out-Null
             Copy-Item $setup.FullName $work -Force
+            # The one before it, if build\package keeps it: installed first, the new one over it.
+            $older = ''
+            if ($setups.Count -gt 1) {
+                Copy-Item $setups[1].FullName $work -Force
+                $older = Join-Path $work $setups[1].Name
+            }
             for ($i = 0; $i -lt 60 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
             Start-Sleep -Seconds 5
-            & (Join-Path $PSScriptRoot 'installer-tests.ps1') -Setup (Join-Path $work $setup.Name) -Out $out *> $log
+            & (Join-Path $PSScriptRoot 'installer-tests.ps1') -Setup (Join-Path $work $setup.Name) -Older $older -Out $out *> $log
             $exitCode = $LASTEXITCODE
         }
         'spike' {

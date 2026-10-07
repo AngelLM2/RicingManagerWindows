@@ -37,6 +37,10 @@ jobs:
           build-mode: manual
           queries: security-and-quality
 
+      - name: Fetch the Slint SDK (pinned, hash checked)
+        shell: pwsh
+        run: ./scripts/fetch-deps.ps1 -Name slint
+
       - name: Build
         shell: pwsh
         run: ./scripts/build.ps1 -Preset debug

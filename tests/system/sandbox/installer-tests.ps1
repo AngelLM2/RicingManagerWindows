@@ -10,7 +10,9 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Setup,
-    [Parameter(Mandatory)] [string] $Out
+    [Parameter(Mandatory)] [string] $Out,
+    # An older setup: installed and running first, this one installed over it (the owner's path).
+    [string] $Older = ''
 )
 
 $ErrorActionPreference = 'Continue'
@@ -76,10 +78,10 @@ function Shot([string] $Name) {
     $bitmap.Save((Join-Path $Out "installer-$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
     $g.Dispose(); $bitmap.Dispose()
 }
-function Install([string] $Log) {
+function Install([string] $Log, [string] $From = $Setup) {
     $started = Get-Date
     # Only setup itself: -Wait would also wait for the core an update starts again (it stays).
-    $p = Start-Process $Setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=rices', "/LOG=`"$(Join-Path $Out $Log)`"" -PassThru
+    $p = Start-Process $From -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=rices', "/LOG=`"$(Join-Path $Out $Log)`"" -PassThru
     if (-not $p.WaitForExit(300000)) { return [pscustomobject]@{ code = -1; seconds = 300 } }
     return [pscustomobject]@{ code = $p.ExitCode; seconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1) }
 }
@@ -98,8 +100,49 @@ function Ours-Detail {
         ForEach-Object { "$($_.ProcessId) $($_.CommandLine) (parent $($_.ParentProcessId))" }) -join ' | '
 }
 
+# Every program installed is this setup's version (v1.8.0 shipped the settings window and the bar of v1.7,
+# left in the build folder by an older build: every window closed itself at once).
+$version = if ((Split-Path $Setup -Leaf) -match 'RicingManager-(\d+\.\d+\.\d+)-setup') { $Matches[1] } else { '?' }
+function Wrong-Versions {
+    @('rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe', 'rmw-elevated.exe') |
+        ForEach-Object { $stamped = (Get-Item (Join-Path $app $_) -ErrorAction SilentlyContinue).VersionInfo.ProductVersion; if ($stamped -ne $version) { "$_ $stamped" } }
+}
+# The settings window opens, finds the core and stays (a window that shows and closes 0.2 s later passed before).
+function Settings-Stays([string] $Name) {
+    $log = Join-Path $data 'logs\settings.log'
+    $skip = @(Get-Content $log -Encoding UTF8 -ErrorAction SilentlyContinue).Count
+    $window = Start-Process (Join-Path $app 'rmw-settings.exe') -PassThru
+    $shown = Wait-Until { $window.Refresh(); $window.MainWindowHandle -ne [IntPtr]::Zero } 20
+    $connected = Wait-Until { @(Get-Content $log -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Skip $skip | Where-Object { $_ -match 'connected to the core' }).Count -gt 0 } 20
+    Start-Sleep -Seconds 5
+    $open = -not $window.HasExited
+    $lines = @(Get-Content $log -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Skip $skip | ForEach-Object { ($_ -split ' INFO  | WARN  ')[-1] })
+    Check "installer:$Name" ($shown -and $connected -and $open) "shown=$shown connected=$connected open-after-5s=$open; $(($lines | Select-Object -Last 5) -join ' | ')"
+    if (-not $window.HasExited) { [void]$window.CloseMainWindow(); [void](Wait-Until { $window.HasExited } 10) }
+}
+function Leftovers { @('CMakeFiles', 'cmake_install.cmake' | Where-Object { Test-Path (Join-Path $data "rices\$_") }) }
+
 $lightBefore = Light
-Note 'setup' "$(Split-Path $Setup -Leaf), $([math]::Round((Get-Item $Setup).Length / 1MB, 1)) MB"
+Note 'setup' "$(Split-Path $Setup -Leaf), $([math]::Round((Get-Item $Setup).Length / 1MB, 1)) MB$(if ($Older) { "; over $(Split-Path $Older -Leaf)" })"
+
+# ---- the owner's path: an older version installed and running, this one over it --------------------------------
+if ($Older) {
+    $r = Install 'setup-older.log' $Older
+    Check 'installer:older-installs' ($r.code -eq 0) "exit $($r.code)"
+    [void](Invoke-Rmw @('apply', (Join-Path $data 'rices\Sakura Dawn'), '--wait'))
+    $oldWindow = Start-Process (Join-Path $app 'rmw-settings.exe') -PassThru
+    [void](Wait-Until { $oldWindow.Refresh(); $oldWindow.MainWindowHandle -ne [IntPtr]::Zero } 20)
+    Start-Sleep -Seconds 3
+    $r = Install 'setup-over-older.log'
+    Check 'installer:updates-over-older' ($r.code -eq 0) "exit $($r.code) in $($r.seconds) s"
+    $wrong = @(Wrong-Versions)
+    Check 'installer:every-program-new-over-older' ($wrong.Count -eq 0) "expected $version; $($wrong -join ', ')"
+    Settings-Stays 'settings-stays-over-older'
+    Check 'installer:older-leftovers-removed' ((Leftovers).Count -eq 0) ((Leftovers) -join ', ')
+    $gone = Uninstall @('/RESTORE=1', '/KEEPDATA=0') 'uninstall-older.log'
+    Check 'installer:uninstalls-over-older' ($gone -and (Wait-Until { (Ours).Count -eq 0 } 20)) (Ours-Detail)
+    [void](Wait-Until { Taskbar-Visible } 10)
+}
 
 # ---- install ---------------------------------------------------------------------------------------------
 $r = Install 'setup-1.log'
@@ -107,6 +150,9 @@ Check 'installer:installs' ($r.code -eq 0) "exit $($r.code) in $($r.seconds) s"
 $programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe', 'rmw-elevated.exe', 'slint_cpp.dll', 'vcruntime140.dll'
 $missing = @($programs | Where-Object { -not (Test-Path (Join-Path $app $_)) })
 Check 'installer:programs-per-user' ($missing.Count -eq 0) ("in $app" + $(if ($missing) { '; missing ' + ($missing -join ', ') } else { '' }))
+$wrong = @(Wrong-Versions)
+Check 'installer:every-program-this-version' ($wrong.Count -eq 0) "expected $version; $($wrong -join ', ')"
+Check 'installer:no-build-leftovers-in-rices' ((Leftovers).Count -eq 0) ((Leftovers) -join ', ')
 Check 'installer:uninstall-entry-in-hkcu' (Test-Path $uninstallKey) ''
 $hklm = Test-Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6B1E3C2A-8F4D-4E7B-9A51-2D7C0F3E9B84}_is1'
 Check 'installer:nothing-machine-wide' (-not $hklm) ''
@@ -138,11 +184,8 @@ Check 'installer:apply-under-4s' ($slow.Count -eq 0) ($times -join '; ')
 Check 'installer:bar-replaces-taskbar' ((Wait-Until { (Get-Process rmw-bar -ErrorAction SilentlyContinue) -and -not (Taskbar-Visible) } 15)) ''
 Check 'installer:video-plays' ((Wait-Until { Get-Process rmw-wallpaper -ErrorAction SilentlyContinue } 15)) ''
 
-# The window opens from where it was installed.
-$settings = Start-Process (Join-Path $app 'rmw-settings.exe') -PassThru
-$shown = Wait-Until { $settings.Refresh(); $settings.MainWindowHandle -ne [IntPtr]::Zero } 20
-Check 'installer:settings-opens' $shown ''
-if (-not $settings.HasExited) { [void]$settings.CloseMainWindow(); [void](Wait-Until { $settings.HasExited } 10) }
+# The window opens from where it was installed, and stays.
+Settings-Stays 'settings-opens-and-stays'
 
 # ---- start with Windows, then install over it ---------------------------------------------------------------------
 $r = Invoke-Rmw @('autostart', 'on')
@@ -154,6 +197,7 @@ Check 'installer:updates-in-place' ($r.code -eq 0) "exit $($r.code) in $($r.seco
 $restarted = Wait-Until { @(Get-Process rmw-core -ErrorAction SilentlyContinue | Where-Object { $coreBefore -notcontains $_.Id }).Count -gt 0 } 30
 Check 'installer:update-restarts-the-core' $restarted "before: $($coreBefore -join ',')"
 Check 'installer:update-keeps-the-rice' ((Wait-Until { Get-Process rmw-bar -ErrorAction SilentlyContinue } 20)) ''
+Settings-Stays 'settings-stays-after-update'
 
 # ---- uninstall: restore, remove everything ---------------------------------------------------------------------------
 # With the settings window open, as on the owner's PC (v1.6: it started the core again right after the uninstaller

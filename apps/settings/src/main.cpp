@@ -101,6 +101,12 @@ int run(HANDLE showEvent, HANDLE closeEvent, wil::unique_mutex_nothrow& instance
                 {
                     slint::invoke_from_event_loop([&app] { app.bringToFront(); });
                 }
+                else if (signaled == WAIT_OBJECT_0 + 1 && app.replacingCore())
+                {
+                    // The core of another build this window asked to stop (v1.8.0's installer mixed a
+                    // v1.7 window with a v1.8 core: every window closed itself at once).
+                    log::info("settings: the core this window replaced closed it as it stopped; staying");
+                }
                 else if (signaled == WAIT_OBJECT_0 + 1)
                 {
                     app.closeForExit(); // at once: no call may start the core from here on

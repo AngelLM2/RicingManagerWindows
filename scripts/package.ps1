@@ -32,7 +32,12 @@ $rices = Join-Path $build 'rices'
 $out = Join-Path $root "build\package\$version"
 Write-Host "Ricing Manager $version"
 
+$programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe', 'rmw-elevated.exe'
 if (-not $NoBuild) {
+    # Every program is made by this build: one a build left out (v1.8.0: no Slint SDK, no bar and no
+    # settings window) must not ship as the copy an older build left in bin\.
+    $started = Get-Date
+    foreach ($program in $programs) { Remove-Item (Join-Path $bin $program) -Force -ErrorAction SilentlyContinue }
     & (Join-Path $PSScriptRoot 'build.ps1') -Preset release -Test
     Push-Location $root
     try {
@@ -40,10 +45,17 @@ if (-not $NoBuild) {
         if ($LASTEXITCODE -ne 0) { throw 'Drawing or packing the official rices failed.' }
     }
     finally { Pop-Location }
+    foreach ($program in $programs) {
+        $file = Get-Item (Join-Path $bin $program) -ErrorAction SilentlyContinue
+        if (-not $file -or $file.LastWriteTime -lt $started) { throw "$program was not made by this build ($bin)." }
+    }
 }
-$programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe'
 foreach ($program in $programs + 'slint_cpp.dll') {
     if (-not (Test-Path (Join-Path $bin $program))) { throw "Missing $program in $bin (build the release preset with the Slint SDK)." }
+}
+foreach ($program in $programs) {
+    $stamped = (Get-Item (Join-Path $bin $program)).VersionInfo.ProductVersion
+    if ($stamped -ne $version) { throw "$program says version '$stamped', not ${version}: an older build of it is in $bin." }
 }
 if (-not (Test-Path (Join-Path $rices 'diva-stage.rice'))) { throw "No official rices in $rices (cmake --build --preset release --target rices)." }
 

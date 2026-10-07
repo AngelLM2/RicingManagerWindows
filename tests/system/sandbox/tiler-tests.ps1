@@ -770,6 +770,36 @@ Note 'v18-uac-log' (((Tiler-Logs) -split "`n" | Select-Object -Last 6) -join ' |
 Medium "$rmw restore --original --data-dir $data"
 Start-Sleep -Seconds 3
 
+# ---- 16. a "no" to the administrator (or a copy that failed) holds for the sign-in (v1.8.1): a tiler the
+# supervisor starts again does not ask again; turning the advanced mode off and on asks once more.
+[void](Invoke-Rmw @('shutdown', '--wait'))
+Get-Process rmw-tiler, rmw_tiler_test_app -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 1
+$declinedFile = Join-Path $data 'tiler\admin-declined'
+Remove-Item $declinedFile -Force -ErrorAction SilentlyContinue
+function Copies { @(Tilers | Where-Object { $_.CommandLine -match '--elevated-by' }) }
+function Plain-Tiler { Tilers | Where-Object { $_.CommandLine -notmatch '--elevated-by' } | Select-Object -First 1 }
+Write-Settings "[tiling]`nenabled = true`nrun_as_admin = true`n"
+Medium "$rmw settings reload --data-dir $data"
+[void](Wait-Until { (Copies).Count -eq 1 } 20)
+$elevationsBefore = Elevations
+foreach ($copy in Copies) { Stop-Process -Id $copy.ProcessId -Force -ErrorAction SilentlyContinue } # it fails
+Check 'v181:failed-copy-remembered' (Wait-Until { Test-Path $declinedFile } 10) (((Tiler-Logs) -split "`n" | Select-Object -Last 3) -join ' | ')
+$plain = Plain-Tiler
+if ($plain) { Stop-Process -Id $plain.ProcessId -Force -ErrorAction SilentlyContinue } # as after a crash
+$again = Wait-Until { $p = Plain-Tiler; $null -ne $p -and $p.ProcessId -ne $plain.ProcessId } 30
+Start-Sleep -Seconds 5
+Check 'v181:no-second-prompt-after-a-restart' ($again -and (Elevations) -eq $elevationsBefore -and (Copies).Count -eq 0) "restarted=$again; copies started since: $((Elevations) - $elevationsBefore); $(((Tiler-Logs) -split "`n" | Where-Object { $_ -match 'declined' } | Select-Object -Last 1))"
+Write-Settings "[tiling]`nenabled = true`nrun_as_admin = false`n"
+Medium "$rmw settings reload --data-dir $data"
+Start-Sleep -Seconds 2
+Write-Settings "[tiling]`nenabled = true`nrun_as_admin = true`n"
+Medium "$rmw settings reload --data-dir $data"
+Check 'v181:asked-again-after-off-and-on' (Wait-Until { (Elevations) -eq $elevationsBefore + 1 } 20) "copies started since: $((Elevations) - $elevationsBefore); marker: $(Test-Path $declinedFile)"
+Write-Settings "[tiling]`nenabled = false`n"
+Medium "$rmw settings reload --data-dir $data"
+Start-Sleep -Seconds 2
+
 Get-Process rmw_tiler_test_app -ErrorAction SilentlyContinue | Stop-Process -Force
 Invoke-Rmw @('shutdown') | Out-Null
 Start-Sleep -Seconds 2

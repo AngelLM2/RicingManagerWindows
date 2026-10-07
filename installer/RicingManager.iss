@@ -89,7 +89,13 @@ Source: "{#SourceDir}\plugins\template\*"; DestDir: "{app}\plugins\template"; Fl
 Source: "{#SourceDir}\docs\plugins\*"; DestDir: "{app}\docs\plugins"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; The official rices, into the library. They are yours from then on: never replaced (your edits stay)
 ; and never removed by uninstalling unless you choose to remove your data.
-Source: "{#RicesDir}\*"; DestDir: "{#DataFolder}\rices"; Tasks: rices; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs; Excludes: "*.rice"
+; (RicesDir is a build folder: what CMake keeps there stays out.)
+Source: "{#RicesDir}\*"; DestDir: "{#DataFolder}\rices"; Tasks: rices; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs; Excludes: "*.rice,\CMakeFiles,\cmake_install.cmake,*.pdb,*.obj,*.ilk"
+
+[InstallDelete]
+; Up to v1.8.0 those build leftovers went into the rices folder too.
+Type: filesandordirs; Name: "{#DataFolder}\rices\CMakeFiles"
+Type: files; Name: "{#DataFolder}\rices\cmake_install.cmake"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\rmw-settings.exe"; Comment: "Customize Windows: rices, wallpapers, bars, plugins"

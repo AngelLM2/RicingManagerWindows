@@ -1,5 +1,7 @@
 #include "TilerApp.hpp"
 
+#include "AdminChoice.hpp"
+
 #include "rmw/base/Log.hpp"
 #include "rmw/platform/FileSystem.hpp"
 
@@ -483,6 +485,13 @@ void TilerApp::applyPlan(tiling::Plan plan)
     const domain::TilingSettings& now = m_plan.emplace(std::move(plan)).settings;
     // Advanced mode (admin apps' windows too): an elevated copy does the work, or stops doing it. Before
     // the look: painting every window to reset it a moment later made them flicker.
+    if ((!now.enabled || !now.runAsAdmin) && m_options.adminDeclined && !m_options.elevated &&
+        !m_options.elevatedCopy)
+    {
+        // Turned off: a "no" from before does not hold when it is turned on again (see AdminChoice).
+        m_options.adminDeclined = false;
+        forgetAdminDeclined(m_planFile);
+    }
     if (now.enabled && now.runAsAdmin && !m_options.elevated && !m_options.adminDeclined)
     {
         m_ending = Ending::BeAdmin;
