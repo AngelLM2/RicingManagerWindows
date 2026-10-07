@@ -167,6 +167,35 @@ TEST(Pipe, NamesAreOwnedAndServersAreChecked)
               rmw::ErrorCode::NotFound);
 }
 
+// The review of v1.7: a client that connected and left before accept() left the instance failing
+// every accept after it, at once (the core's accept loop spun).
+TEST(Pipe, AClientThatLeftBeforeItWasAcceptedDoesNotBreakTheServer)
+{
+    const std::wstring name = widePipe(randomPipeName());
+    auto server = rmw::platform::PipeServer::create(name);
+    ASSERT_TRUE(server.has_value()) << server.error().toString();
+    const auto self = rmw::platform::currentExecutable().value();
+    {
+        auto gone = rmw::platform::connectPipe(name, 5s, self);
+        ASSERT_TRUE(gone.has_value()) << gone.error().toString();
+    }
+    const auto left = server->accept(500ms);
+    ASSERT_FALSE(left.has_value());
+    EXPECT_EQ(left.error().code(), rmw::ErrorCode::Timeout) << left.error().toString();
+
+    std::thread client([&] {
+        auto connection = rmw::platform::connectPipe(name, 5s, self);
+        ASSERT_TRUE(connection.has_value()) << connection.error().toString();
+        ASSERT_TRUE(connection->send(requestText(1, "hello", helloParams("t")), 5s));
+    });
+    auto connection = server->accept(5s);
+    ASSERT_TRUE(connection.has_value()) << connection.error().toString();
+    const auto message = connection->receive(5s);
+    ASSERT_TRUE(message.has_value()) << message.error().toString();
+    EXPECT_EQ(parseRequest(*message)->method, "hello");
+    client.join();
+}
+
 TEST(Pipe, TimeoutsAreReported)
 {
     const std::wstring name = widePipe(randomPipeName());
