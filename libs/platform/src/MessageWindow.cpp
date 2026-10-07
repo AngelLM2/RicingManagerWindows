@@ -291,9 +291,21 @@ std::intptr_t MessageWindow::handle(unsigned message, std::uintptr_t wParam, std
             const std::scoped_lock lock(m_tasksMutex);
             tasks.swap(m_tasks);
         }
+        // One task that throws must not take the rest of the batch with it.
         for (auto& task : tasks)
         {
-            task();
+            try
+            {
+                task();
+            }
+            catch (const std::exception& e)
+            {
+                log::error("window task failed: {}", e.what());
+            }
+            catch (...)
+            {
+                log::error("window task failed: unknown exception");
+            }
         }
         return 0;
     }
@@ -452,8 +464,30 @@ Result<void> MessageWindow::watchFolder(std::uint32_t id, const std::filesystem:
         FindCloseChangeNotification(handle);
         return fail(ErrorCode::LimitExceeded, "too many folder watches");
     }
-    m_watches.push_back({id, handle});
+    m_watches.push_back({id, handle, folder});
     return {};
+}
+
+void MessageWindow::rearm(std::size_t index)
+{
+    Watch& watch = m_watches[index];
+    if (FindNextChangeNotification(watch.handle) != FALSE)
+    {
+        return;
+    }
+    // The folder went away (deleted, renamed, a network drive lost): its handle stays signaled and
+    // would wake this loop forever. A new watch if the folder is there again, else none.
+    const Error error = lastError("FindNextChangeNotification");
+    FindCloseChangeNotification(watch.handle);
+    const auto handle = FindFirstChangeNotificationW(watch.folder.c_str(), FALSE,
+                                                     FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        watch.handle = handle;
+        return;
+    }
+    log::warn("folder watch {} stopped: {}", watch.id, error.toString());
+    m_watches.erase(m_watches.begin() + static_cast<std::ptrdiff_t>(index));
 }
 
 void MessageWindow::unwatchFolder(std::uint32_t id) noexcept
@@ -484,12 +518,12 @@ int MessageWindow::run()
         if (woken < WAIT_OBJECT_0 + count) // WAIT_OBJECT_0 is 0
         {
             // Re-arm before telling anyone: the handler may add watches.
-            const Watch fired = m_watches[woken - WAIT_OBJECT_0];
-            FindNextChangeNotification(fired.handle);
-            emit({SystemEventKind::FolderChanged, fired.id});
-            continue;
+            const std::uint32_t id = m_watches[woken - WAIT_OBJECT_0].id;
+            rearm(woken - WAIT_OBJECT_0);
+            emit({SystemEventKind::FolderChanged, id});
+            // On to the messages: a folder that keeps changing must not starve hotkeys, the tray, quit.
         }
-        if (woken == WAIT_FAILED)
+        else if (woken == WAIT_FAILED)
         {
             log::error("message loop: {}", lastError("MsgWaitForMultipleObjectsEx").toString());
             return 1;

@@ -52,6 +52,9 @@ Commands:
   history                               Operations you can go back to
   restore --original [--force]          Back to the Windows you had before the first apply
   restore --snapshot <id> [--force]     Back to how things were before operation <id>
+  recover [--discard]                   Undo an operation a crash interrupted, now (safe mode
+                                        leaves it); --discard forgets it without undoing it
+                                        (restore --original puts back what it changed)
   export <folder> [--name <name>]       Save the current look as a rice in a new folder
   pack <folder> [--out <file>]          Make the .rice to share the rice in <folder>
   import <file.rice>                    Add a shared rice to your library (every file is
@@ -136,6 +139,7 @@ struct Options
     bool yes = false;
     bool stop = false;
     bool noLog = false;
+    bool discard = false;
     std::string out;
     std::string id;
     std::optional<std::int64_t> snapshot;
@@ -181,6 +185,10 @@ Result<Options> parseOptions(std::span<const std::string> args)
         else if (arg == "--no-log")
         {
             options.noLog = true;
+        }
+        else if (arg == "--discard")
+        {
+            options.discard = true;
         }
         else if (arg == "--snapshot" || arg == "--path" || arg == "--data-dir" || arg == "--name" ||
                  arg == "--out" || arg == "--id" || arg == "--app")
@@ -880,9 +888,9 @@ int run(std::span<const std::string> args)
     {
         return pluginCommand(*options);
     }
-    constexpr std::array<std::string_view, 15> kCommands = {
+    constexpr std::array<std::string_view, 16> kCommands = {
         "apps",     "apply",   "validate", "status",   "history",   "restore",  "export", "import",
-        "monitors", "inspect", "action",   "settings", "autostart", "shutdown", "pack",
+        "monitors", "inspect", "action",   "settings", "autostart", "shutdown", "pack",   "recover",
     };
     if (std::ranges::find(kCommands, command) == kCommands.end())
     {
@@ -958,6 +966,28 @@ int run(std::span<const std::string> args)
         printReport(*restored, "Restored");
         return Ok;
     }
+    if (command == "recover")
+    {
+        auto recovered = operation(client, "recover", Json{{"discard", options->discard}}, options->wait);
+        if (!recovered)
+        {
+            return failure(recovered.error());
+        }
+        if (!json::boolOr(*recovered, "interrupted", false))
+        {
+            out("No interrupted operation.");
+        }
+        else
+        {
+            out(options->discard ? "The interrupted operation was forgotten; what it changed stays as it is."
+                                 : "The interrupted operation was undone (a restore is finished instead).");
+        }
+        if (json::boolOr(*recovered, "needsRestore", false))
+        {
+            out("Some of it could not be put back: rmw restore --original brings back the rest.");
+        }
+        return Ok;
+    }
     if (command == "status")
     {
         auto status = client.call("status.get", Json::object(), 30s);
@@ -978,7 +1008,21 @@ int run(std::span<const std::string> args)
         out("Managed now: " + (managed.empty() ? std::string("nothing") : managed));
         if (json::boolOr(*status, "needsRestore", false))
         {
-            out("WARNING: an interrupted operation could not be undone yet; it is retried on every start.");
+            out("WARNING: an interrupted operation could not be fully undone; rmw restore --original puts back "
+                "the rest.");
+        }
+        if (const Json interrupted = json::memberOr(*status, "interrupted", Json()); interrupted.is_object())
+        {
+            out(std::format("An interrupted operation ({}, {}) waits: rmw recover undoes it, rmw recover "
+                            "--discard forgets it.",
+                            json::stringOr(interrupted, "operation", "?"),
+                            timeText(json::intOr(interrupted, "startedAt", 0))));
+        }
+        if (const std::string replaced = json::stringOr(*status, "stateReplaced", ""); !replaced.empty())
+        {
+            out("WARNING: state.db was damaged and a new one began (the history is gone; the original Windows "
+                "came back from its copy). The damaged file: " +
+                replaced);
         }
         if (json::boolOr(*status, "busy", false))
         {

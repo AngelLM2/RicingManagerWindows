@@ -389,6 +389,28 @@ SingleInstance::SingleInstance(SingleInstance&& other) noexcept
 {
 }
 
+std::wstring quoteArgument(std::wstring_view argument)
+{
+    // Backslashes are literal unless a quote follows them: then 2n of them read as n, and a quote of
+    // the argument's own needs one more.
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0;
+    for (const wchar_t c : argument)
+    {
+        if (c == L'\\')
+        {
+            ++backslashes;
+            continue;
+        }
+        quoted.append(c == L'"' ? (backslashes * 2) + 1 : backslashes, L'\\');
+        backslashes = 0;
+        quoted += c;
+    }
+    quoted.append(backslashes * 2, L'\\'); // the closing quote follows
+    quoted += L'"';
+    return quoted;
+}
+
 void closeSettingsWindow() noexcept
 {
     const wil::unique_event_nothrow close(OpenEventW(EVENT_MODIFY_STATE, FALSE, kSettingsCloseEvent));

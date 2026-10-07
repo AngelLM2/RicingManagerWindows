@@ -1,6 +1,7 @@
 #include "rmw/modules/Tweaks.hpp"
 
 #include "rmw/domain/Tweaks.hpp"
+#include "rmw/modules/RegistryFields.hpp"
 
 #include <format>
 
@@ -12,101 +13,6 @@ namespace
 using engine::Json;
 
 constexpr char kSeparator = '|';
-constexpr std::size_t kMaxBinaryBytes = 4096;
-
-std::string hex(const std::vector<std::byte>& bytes)
-{
-    static constexpr std::string_view kDigits = "0123456789abcdef";
-    std::string text;
-    text.reserve(bytes.size() * 2);
-    for (const std::byte b : bytes)
-    {
-        text += kDigits[static_cast<unsigned>(b) >> 4U];
-        text += kDigits[static_cast<unsigned>(b) & 0xFU];
-    }
-    return text;
-}
-
-Result<std::vector<std::byte>> unhex(std::string_view text)
-{
-    const auto digit = [](char c) -> int {
-        if (c >= '0' && c <= '9')
-        {
-            return c - '0';
-        }
-        if (c >= 'a' && c <= 'f')
-        {
-            return c - 'a' + 10;
-        }
-        return -1;
-    };
-    if (text.size() % 2 != 0 || text.size() / 2 > kMaxBinaryBytes)
-    {
-        return fail(ErrorCode::InvalidData, "bad binary value");
-    }
-    std::vector<std::byte> bytes;
-    for (std::size_t i = 0; i < text.size(); i += 2)
-    {
-        const int high = digit(text[i]);
-        const int low = digit(text[i + 1]);
-        if (high < 0 || low < 0)
-        {
-            return fail(ErrorCode::InvalidData, "bad binary value");
-        }
-        bytes.push_back(static_cast<std::byte>((high << 4) | low));
-    }
-    return bytes;
-}
-
-Json toJson(const std::optional<ports::RegistryValue>& value)
-{
-    if (!value)
-    {
-        return nullptr;
-    }
-    switch (value->type)
-    {
-    case ports::RegistryValue::Type::Dword:
-        return Json{{"type", "dword"}, {"data", value->dword}};
-    case ports::RegistryValue::Type::String:
-        return Json{{"type", "string"}, {"data", value->text}};
-    case ports::RegistryValue::Type::ExpandString:
-        return Json{{"type", "expand"}, {"data", value->text}};
-    case ports::RegistryValue::Type::Binary:
-        return Json{{"type", "binary"}, {"data", hex(value->bytes)}};
-    }
-    return nullptr;
-}
-
-Result<ports::RegistryValue> fromJson(const Json& json)
-{
-    const std::string type = json::stringOr(json, "type", "");
-    const Json data = json::memberOr(json, "data", Json());
-    if (type == "dword" && data.is_number_unsigned() && data.get<std::uint64_t>() <= 0xFFFF'FFFFU)
-    {
-        return ports::RegistryValue::fromDword(data.get<std::uint32_t>());
-    }
-    if (type == "dword" && data.is_number_integer() && data.get<std::int64_t>() >= 0 &&
-        data.get<std::int64_t>() <= 0xFFFF'FFFF)
-    {
-        return ports::RegistryValue::fromDword(static_cast<std::uint32_t>(data.get<std::int64_t>()));
-    }
-    if ((type == "string" || type == "expand") && data.is_string())
-    {
-        return type == "string" ? ports::RegistryValue::fromString(data.get<std::string>())
-                                : ports::RegistryValue::fromExpandString(data.get<std::string>());
-    }
-    if (type == "binary" && data.is_string())
-    {
-        auto bytes = unhex(data.get<std::string>());
-        if (!bytes)
-        {
-            return std::unexpected(std::move(bytes.error()));
-        }
-        return ports::RegistryValue{ports::RegistryValue::Type::Binary, 0, {}, std::move(*bytes)};
-    }
-    return fail(ErrorCode::InvalidArgument, "a tweak value is { type = dword|string|expand|binary, data }");
-}
 
 } // namespace
 
@@ -194,7 +100,7 @@ Result<engine::CaptureResult> TweaksSystem::captureFields(std::span<const std::s
         {
             return std::unexpected(std::move(value.error()));
         }
-        result.state[field] = toJson(*value);
+        result.state[field] = registryValueJson(*value);
     }
     return result;
 }
@@ -218,7 +124,7 @@ Result<void> TweaksSystem::apply(const engine::Json& desired)
         }
         else
         {
-            auto converted = fromJson(value);
+            auto converted = registryValueFromJson(value);
             if (!converted)
             {
                 return std::unexpected(std::move(converted.error()));

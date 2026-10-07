@@ -54,6 +54,9 @@ public:
     [[nodiscard]] Result<void> commit();
     [[nodiscard]] Result<void> rollback();
 
+    // PRAGMA quick_check: a damaged file fails with an error isDamaged() recognizes.
+    [[nodiscard]] Result<void> quickCheck();
+
     [[nodiscard]] bool isOpen() const noexcept;
     // Rowid of the last successful INSERT on this connection.
     [[nodiscard]] std::int64_t lastInsertRowId() const noexcept;
@@ -72,5 +75,8 @@ private:
     DatabaseOptions m_options;
     sqlite3* m_db = nullptr;
 };
+
+// The file is not a database, or it is corrupt (SQLITE_NOTADB, SQLITE_CORRUPT): no retry helps.
+[[nodiscard]] bool isDamaged(const Error& error) noexcept;
 
 } // namespace rmw::storage

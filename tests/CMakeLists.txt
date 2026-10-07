@@ -20,6 +20,7 @@ add_executable(rmw_unit_tests
     unit/IconsTests.cpp
     unit/LockScreenTests.cpp
     unit/MachineIconsTests.cpp
+    unit/MessageWindowTests.cpp
     unit/IpcTests.cpp
     unit/JsonTests.cpp
     unit/LogTests.cpp
@@ -38,6 +39,7 @@ add_executable(rmw_unit_tests
     unit/SettingsTests.cpp
     unit/SoundsTests.cpp
     unit/StatementTests.cpp
+    unit/StateDbTests.cpp
     unit/SupervisorTests.cpp
     unit/TilingTests.cpp
     unit/TrayTests.cpp

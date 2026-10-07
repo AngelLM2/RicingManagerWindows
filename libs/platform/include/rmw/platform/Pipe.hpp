@@ -69,8 +69,9 @@ public:
     PipeServer(PipeServer&& other) noexcept;
     PipeServer& operator=(PipeServer&& other) noexcept;
 
-    // Waits for the next client; Timeout when none came. The connection is independent of the
-    // server (each client gets its own instance).
+    // Waits for the next client; Timeout when none came (or one left before it was accepted). The
+    // connection is independent of the server (each client gets its own instance). After any other
+    // failure the instance is replaced, so the next accept starts clean.
     [[nodiscard]] Result<PipeConnection> accept(std::chrono::milliseconds timeout);
 
     [[nodiscard]] const std::wstring& name() const noexcept { return m_name; }
@@ -78,6 +79,7 @@ public:
 private:
     PipeServer() noexcept = default;
     [[nodiscard]] Result<void> createInstance(bool first);
+    void recycle() noexcept;
 
     std::wstring m_name;
     void* m_instance = nullptr;   // HANDLE waiting for a client

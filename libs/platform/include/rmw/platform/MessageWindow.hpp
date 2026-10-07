@@ -80,6 +80,7 @@ public:
     void setTimer(std::uint32_t id, std::chrono::milliseconds delay) noexcept; // one shot
     void killTimer(std::uint32_t id) noexcept;
     // Signals FolderChanged when a file in `folder` (not its subfolders) is created, renamed or written.
+    // A folder that goes away ends its watch (one last FolderChanged).
     [[nodiscard]] Result<void> watchFolder(std::uint32_t id, const std::filesystem::path& folder);
     void unwatchFolder(std::uint32_t id) noexcept;
 
@@ -98,6 +99,8 @@ private:
     void emit(const SystemEvent& event);
     void showMenu();
     void addTrayIcon() noexcept;
+    // Re-arms a watch that fired; one whose folder went away is made again or dropped.
+    void rearm(std::size_t index);
 
     void* m_window = nullptr; // HWND
     Handler m_handler;
@@ -115,6 +118,7 @@ private:
     {
         std::uint32_t id = 0;
         void* handle = nullptr; // FindFirstChangeNotification
+        std::filesystem::path folder;
     };
     std::vector<Watch> m_watches;
 

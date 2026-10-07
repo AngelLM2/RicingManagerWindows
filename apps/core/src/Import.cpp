@@ -80,10 +80,11 @@ Result<Unpacked> unpackInWorker(const fs::path& dataDirectory, const fs::path& a
     platform::ChildOptions options;
     options.memoryLimitBytes = kWorkerMemoryLimit;
     options.noChildProcesses = true;
-    const std::wstring arguments = std::format(
-        LR"(--import-worker --data-dir "{}" --kind {} --archive "{}" --staging "{}" --report "{}")",
-        dataDirectory.native(), kind == package::Kind::Rice ? L"rice" : L"plugin", archive.native(),
-        staging.native(), report.native());
+    using platform::quoteArgument;
+    const std::wstring arguments =
+        std::format(L"--import-worker --data-dir {} --kind {} --archive {} --staging {} --report {}",
+                    quoteArgument(dataDirectory.native()), kind == package::Kind::Rice ? L"rice" : L"plugin",
+                    quoteArgument(archive.native()), quoteArgument(staging.native()), quoteArgument(report.native()));
     auto child = platform::ChildProcess::spawn(*self, arguments, options);
     if (!child)
     {

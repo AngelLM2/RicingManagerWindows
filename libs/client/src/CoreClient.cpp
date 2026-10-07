@@ -145,7 +145,7 @@ Result<void> CoreClient::connectOrStart()
         std::wstring arguments;
         if (!m_dataDirectory.empty())
         {
-            arguments = L"--data-dir \"" + m_dataDirectory.native() + L"\"";
+            arguments = L"--data-dir " + platform::quoteArgument(m_dataDirectory.native());
         }
         // Outside the caller's job: closing a terminal (or the settings) must not end the core.
         auto core = platform::ChildProcess::spawn(
