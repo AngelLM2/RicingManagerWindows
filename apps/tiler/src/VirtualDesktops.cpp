@@ -61,10 +61,14 @@ void press(std::vector<INPUT>& inputs, WORD vk, bool up)
     inputs.push_back(input);
 }
 
-// Ctrl+Win+arrow `times` times. The modifiers already held (the shortcut that asked, as Ctrl+Win+3)
-// are not pressed again, nor let go.
-void slide(bool next, int times) noexcept
+} // namespace
+
+std::uint32_t VirtualDesktops::slide(bool next, int times) noexcept
 {
+    if (times <= 0)
+    {
+        return 0;
+    }
     try
     {
         const bool ctrlHeld = (static_cast<unsigned short>(GetAsyncKeyState(VK_CONTROL)) & 0x8000U) != 0;
@@ -95,15 +99,17 @@ void slide(bool next, int times) noexcept
         {
             press(inputs, VK_LCONTROL, true);
         }
-        SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+        if (SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT)) == inputs.size())
+        {
+            return inputs.back().ki.wVk;
+        }
     }
     catch (...)
     {
         log::warn("tiler: could not switch the virtual desktop");
     }
+    return 0;
 }
-
-} // namespace
 
 std::unique_ptr<VirtualDesktops> VirtualDesktops::create()
 {
@@ -219,19 +225,16 @@ std::optional<int> VirtualDesktops::desktopOf(Window window, const State& state)
     return static_cast<int>(found - state.desktops.begin());
 }
 
-void VirtualDesktops::goTo(int index, const State& state) noexcept
+int VirtualDesktops::slidesTo(int index, const State& state) noexcept
 {
     const int last = static_cast<int>(state.desktops.size()) - 1;
-    const int target = std::clamp(index, 0, std::max(last, 0));
-    if (target != state.current)
-    {
-        slide(target > state.current, std::abs(target - state.current));
-    }
+    return std::clamp(index, 0, std::max(last, 0)) - state.current;
 }
 
-void VirtualDesktops::step(bool next) noexcept
+void VirtualDesktops::goTo(int index, const State& state) noexcept
 {
-    slide(next, 1);
+    const int slides = slidesTo(index, state);
+    slide(slides > 0, std::abs(slides));
 }
 
 } // namespace rmw::tilerapp

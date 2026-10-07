@@ -1,5 +1,6 @@
 #include "KeyHook.hpp"
 
+#include "VirtualDesktops.hpp"
 #include "WindowOps.hpp"
 
 #include "rmw/base/Log.hpp"
@@ -7,14 +8,21 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <utility>
 
 namespace rmw::tilerapp
 {
 namespace
 {
 
-constexpr UINT kSendMask = WM_APP + 1; // to the hook's thread
+constexpr UINT kRelease = WM_APP + 1; // to the hook's thread: nothing to wait for but the mask
+constexpr UINT kAnswer = WM_APP + 2;  // to the hook's thread: lParam = Ctrl+Win+arrow slides
+constexpr WORD kMaskKey = 0xE8;       // unassigned: changes nothing, but Win or Alt was not alone
+// Longer than any command takes; short enough that a busy tiler never holds a key in a person's way.
+constexpr UINT kAnswerWaitMs = 250;
 
 KeyHook* g_hook = nullptr; // the one hook of this process
 
@@ -112,9 +120,32 @@ struct KeyHook::Access
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr): the hook's contract
             const auto* event = reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
+            const bool pressed = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
+            if (event->dwExtraInfo == kOurKeys && !pressed && g_hook->m_inFlight != 0 &&
+                event->vkCode == g_hook->m_inFlight)
+            {
+                // The last of what we sent is through: what was let go before it can go now.
+                g_hook->m_inFlight = 0;
+                if (!g_hook->m_heldUps.empty() || g_hook->m_maskOwed)
+                {
+                    PostThreadMessageW(GetCurrentThreadId(), kRelease, 0, 0);
+                }
+            }
+            // Until then (a release already on its way when we sent ours would pass ours), they wait.
+            if (event->dwExtraInfo != kOurKeys && isModifier(event->vkCode) &&
+                (g_hook->m_waiting > 0 || g_hook->m_maskOwed || g_hook->m_inFlight != 0))
+            {
+                if (!pressed)
+                {
+                    g_hook->m_heldUps.push_back(
+                        {event->vkCode, event->scanCode, (event->flags & LLKHF_EXTENDED) != 0});
+                    return 1;
+                }
+                // Down again: the release held back is not the last word anymore.
+                std::erase_if(g_hook->m_heldUps, [&](const HeldKey& key) { return key.vk == event->vkCode; });
+            }
             if (event->dwExtraInfo != kOurKeys && !isModifier(event->vkCode) && event->vkCode < 256)
             {
-                const bool pressed = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
                 if (!pressed && g_hook->m_swallowed[event->vkCode])
                 {
                     g_hook->m_swallowed[event->vkCode] = false;
@@ -133,16 +164,21 @@ struct KeyHook::Access
                         // means; turning tiling off and on 30 times a second is not.
                         const bool repeat = g_hook->m_swallowed[event->vkCode];
                         g_hook->m_swallowed[event->vkCode] = true;
-                        if (!repeat || repeats(match->command))
-                        {
+                        if ((!repeat || repeats(match->command)) &&
                             PostMessageW(static_cast<HWND>(g_hook->m_target), kCommandMessage,
-                                         static_cast<WPARAM>(match->command), match->number);
+                                         static_cast<WPARAM>(match->command), match->number) != FALSE)
+                        {
+                            g_hook->wait();
                         }
                         // An unassigned key in between: Windows sees a Win shortcut (Start stays closed), and
                         // an app an Alt shortcut (its menu bar does not open when Alt is let go).
                         if ((modifiers & (MOD_WIN | MOD_ALT)) != 0 && !repeat)
                         {
-                            PostThreadMessageW(GetCurrentThreadId(), kSendMask, 0, 0);
+                            g_hook->m_maskOwed = true;
+                            if (g_hook->m_waiting == 0)
+                            {
+                                PostThreadMessageW(GetCurrentThreadId(), kRelease, 0, 0);
+                            }
                         }
                         return 1;
                     }
@@ -189,6 +225,75 @@ void KeyHook::setKeys(Keys keys)
     m_keys.store(std::make_shared<const Keys>(std::move(keys)));
 }
 
+void KeyHook::answer(int slides) noexcept
+{
+    if (const auto thread = m_threadId.load(); thread != 0)
+    {
+        PostThreadMessageW(thread, kAnswer, 0, slides);
+    }
+}
+
+void KeyHook::wait()
+{
+    ++m_waiting;
+    armTimer();
+}
+
+void KeyHook::armTimer()
+{
+    if (m_timer != 0)
+    {
+        KillTimer(nullptr, m_timer);
+    }
+    m_timer = SetTimer(nullptr, 0, kAnswerWaitMs, nullptr);
+}
+
+void KeyHook::release()
+{
+    std::vector<INPUT> inputs;
+    const auto key = [&](WORD vk, WORD scan, DWORD flags) {
+        INPUT input{};
+        input.type = INPUT_KEYBOARD;
+        input.ki.wVk = vk;
+        input.ki.wScan = scan;
+        input.ki.dwFlags = flags;
+        input.ki.dwExtraInfo = kOurKeys;
+        inputs.push_back(input);
+    };
+    if (std::exchange(m_maskOwed, false))
+    {
+        key(kMaskKey, 0, 0);
+        key(kMaskKey, 0, KEYEVENTF_KEYUP);
+    }
+    for (const HeldKey& held : m_heldUps)
+    {
+        key(static_cast<WORD>(held.vk), static_cast<WORD>(held.scan),
+            KEYEVENTF_KEYUP | (held.extended ? KEYEVENTF_EXTENDEDKEY : 0U));
+    }
+    m_heldUps.clear();
+    if (!inputs.empty())
+    {
+        // From the loop, never from inside the hook: SendInput there runs the hooks again.
+        sent(SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT)) == inputs.size()
+                 ? inputs.back().ki.wVk
+                 : 0);
+    }
+    else if (m_inFlight == 0 && m_timer != 0)
+    {
+        KillTimer(nullptr, m_timer);
+        m_timer = 0;
+    }
+}
+
+void KeyHook::sent(std::uint32_t lastKey)
+{
+    m_inFlight = lastKey;
+    if (lastKey != 0)
+    {
+        armTimer(); // a hook before ours that eats it does not keep the person's keys
+    }
+}
+
 void KeyHook::run()
 {
     MSG message{};
@@ -204,24 +309,53 @@ void KeyHook::run()
     m_active = true;
     while (GetMessageW(&message, nullptr, 0, 0) > 0)
     {
-        if (message.message == kSendMask)
+        if (message.hwnd == nullptr && message.message == kAnswer)
         {
-            // From here, never from inside the hook: SendInput there runs the hooks again.
-            std::array<INPUT, 2> inputs{};
-            for (auto& input : inputs)
+            // Sent while the modifiers held back are still down, so Windows sees Ctrl+Win+arrow.
+            if (const int slides = static_cast<int>(message.lParam); slides != 0)
             {
-                input.type = INPUT_KEYBOARD;
-                input.ki.wVk = 0xE8;
-                input.ki.dwExtraInfo = kOurKeys;
+                if (const std::uint32_t last = VirtualDesktops::slide(slides > 0, std::abs(slides));
+                    last != 0)
+                {
+                    sent(last);
+                }
             }
-            inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-            SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+            m_waiting = std::max(m_waiting - 1, 0);
+            if (m_waiting == 0)
+            {
+                release();
+            }
+            continue;
+        }
+        if (message.hwnd == nullptr && message.message == kRelease)
+        {
+            if (m_waiting == 0)
+            {
+                release();
+            }
+            continue;
+        }
+        if (message.hwnd == nullptr && message.message == WM_TIMER && message.wParam == m_timer)
+        {
+            // Nothing answered or came back in time: the keys go as they are.
+            m_waiting = 0;
+            m_inFlight = 0;
+            KillTimer(nullptr, m_timer);
+            m_timer = 0;
+            release();
             continue;
         }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
     UnhookWindowsHookEx(hook);
+    // Nothing held back stays down (after the unhook: what goes out now passes no hook of ours).
+    m_waiting = 0;
+    release();
+    if (m_timer != 0)
+    {
+        KillTimer(nullptr, m_timer);
+    }
     m_active = false;
 }
 

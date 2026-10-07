@@ -384,12 +384,20 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
         m_settleRounds = kSettleRounds;
         SetTimer(self, kSettleTimer, kAfterAnimationMs, nullptr);
         return 0;
-    case KeyHook::kCommandMessage:
-        if (wParam < domain::kTilingCommandCount)
+    case KeyHook::kCommandMessage: {
+        // Always answered: until then, the hook keeps the shortcut's modifiers down (see KeyHook).
+        const int slides =
+            wParam < domain::kTilingCommandCount ? command(static_cast<TilingCommand>(wParam), static_cast<int>(lParam)) : 0;
+        if (m_keys)
         {
-            command(static_cast<TilingCommand>(wParam), static_cast<int>(lParam));
+            m_keys->answer(slides);
+        }
+        else
+        {
+            VirtualDesktops::slide(slides > 0, std::abs(slides));
         }
         return 0;
+    }
     case tiling::kGoToMessage: {
         const int x = GET_X_LPARAM(lParam);
         const int y = GET_Y_LPARAM(lParam);
@@ -1193,12 +1201,12 @@ void TilerApp::onMoved(Window window)
     publish();
 }
 
-void TilerApp::command(TilingCommand command, int number)
+int TilerApp::command(TilingCommand command, int number)
 {
     log::info("tiler: {}{}", domain::toString(command), number != 0 ? std::format(" {}", number) : std::string());
     if (m_desktop && m_desktop->monitorCount() == 0)
     {
-        return; // no screen at all (all off, a remote session starting): nothing to move or show
+        return 0; // no screen at all (all off, a remote session starting): nothing to move or show
     }
     if (command == TilingCommand::Toggle)
     {
@@ -1217,11 +1225,11 @@ void TilerApp::command(TilingCommand command, int number)
             m_keys->setKeys(hookKeys());
         }
         publish();
-        return;
+        return 0;
     }
     if (!m_desktop)
     {
-        return;
+        return 0;
     }
     if (const auto direction = directionOf(command))
     {
@@ -1234,12 +1242,13 @@ void TilerApp::command(TilingCommand command, int number)
         {
             focusToward(*direction);
         }
-        return;
+        return 0;
     }
     auto* const window = foreground();
     const tiling::WindowId id = idOf(window);
     const auto place = m_desktop->find(id);
     const std::size_t monitor = place ? place->monitor : currentMonitor();
+    int slides = 0;
     switch (command)
     {
     case TilingCommand::WorkspacePrevious:
@@ -1247,7 +1256,7 @@ void TilerApp::command(TilingCommand command, int number)
         const bool next = command == TilingCommand::WorkspaceNext;
         if (mac())
         {
-            VirtualDesktops::step(next);
+            slides = next ? 1 : -1;
             break;
         }
         const int count = m_desktop->workspaceCount();
@@ -1262,7 +1271,7 @@ void TilerApp::command(TilingCommand command, int number)
         {
             // As Windows has it now: a switch a moment ago may not have reached us yet, and a stale
             // "current" sends no keys at all. (A copy: syncDesktops() still sees the change.)
-            VirtualDesktops::goTo(number - 1, m_virtual ? m_virtual->read() : m_virtualState);
+            slides = VirtualDesktops::slidesTo(number - 1, m_virtual ? m_virtual->read() : m_virtualState);
         }
         else
         {
@@ -1317,6 +1326,7 @@ void TilerApp::command(TilingCommand command, int number)
     default:
         break;
     }
+    return slides;
 }
 
 void TilerApp::focusToward(tiling::Direction direction)

@@ -97,7 +97,8 @@ private:
     // Where a window goes: its slot, grown to the size the app keeps, inside the monitor's area.
     [[nodiscard]] tiling::Rect targetOf(tiling::WindowId id, const tiling::Rect& slot, const tiling::Rect& area) const;
     [[nodiscard]] bool animations() const noexcept;
-    void command(domain::TilingCommand command, int number);
+    // The Ctrl+Win+arrow slides it wants sent (Mac style; negative: to the left), for KeyHook::answer.
+    int command(domain::TilingCommand command, int number);
     void focusToward(tiling::Direction direction);
     void moveToward(tiling::Direction direction);
     // `side`: where the windows come from (see placeComing); 0 works it out from the numbers.
