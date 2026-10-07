@@ -292,6 +292,46 @@ Result<fs::path> newRiceFolder(const fs::path& dataDirectory, std::string_view n
     return fail(ErrorCode::AlreadyExists, std::format("too many rices called {}", base));
 }
 
+std::expected<std::string, RiceNameProblem> checkRiceName(std::string_view name)
+{
+    while (!name.empty() && (name.front() == ' ' || name.front() == '\t'))
+    {
+        name.remove_prefix(1);
+    }
+    while (!name.empty() && (name.back() == ' ' || name.back() == '\t'))
+    {
+        name.remove_suffix(1);
+    }
+    if (name.empty())
+    {
+        return std::unexpected(RiceNameProblem::Empty);
+    }
+    if (name.size() > limits::kShortTextMaxBytes)
+    {
+        return std::unexpected(RiceNameProblem::TooLong);
+    }
+    if (!isValidUtf8(name))
+    {
+        return std::unexpected(RiceNameProblem::Character);
+    }
+    for (const char c : name)
+    {
+        if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F || std::string_view(R"(/\:*?"<>|)").contains(c))
+        {
+            return std::unexpected(RiceNameProblem::Character);
+        }
+    }
+    if (name.back() == '.')
+    {
+        return std::unexpected(RiceNameProblem::TrailingDot);
+    }
+    if (domain::isReservedDeviceName(name))
+    {
+        return std::unexpected(RiceNameProblem::DeviceName);
+    }
+    return std::string(name);
+}
+
 Result<fs::path> duplicateRice(const fs::path& dataDirectory, const fs::path& from, std::string_view name)
 {
     auto loaded = loadRice(from);

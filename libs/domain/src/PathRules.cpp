@@ -36,6 +36,8 @@ bool equalsIgnoreCase(std::string_view a, std::string_view b) noexcept
     return true;
 }
 
+} // namespace
+
 bool isReservedDeviceName(std::string_view component) noexcept
 {
     // The device name applies to the part before the first dot: "con.txt" is reserved too.
@@ -67,6 +69,9 @@ bool isReservedDeviceName(std::string_view component) noexcept
     }
     return false;
 }
+
+namespace
+{
 
 bool looksLikeShortName(std::string_view component) noexcept
 {

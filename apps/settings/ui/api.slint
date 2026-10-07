@@ -38,6 +38,8 @@ export enum NoticeKind {
     failed,
     connecting,
     not-connected,
+    copying,    // a picked file is being copied into the rice (a video can take a while)
+    not-saved,  // a change the rice could not keep: `detail` says why
 }
 
 export struct Notice {
@@ -68,6 +70,7 @@ export struct RiceRow {
     preview: image,
     has-preview: bool,
     shareable: bool, // false: it holds Wallpaper Engine files; it stays on this computer
+    remembered: bool, // a folder the user added (not the library's): it can be forgotten
 }
 
 export struct MonitorBox {
@@ -281,6 +284,9 @@ export global Api {
     in property <string> version;
     in property <bool> connected;
     in property <bool> busy;            // an operation runs in the core
+    // Goes up each time C++ shows the edited rice again (a save, a refusal, another rice): the
+    // controls that show a value of it take it again (one the user moved no longer follows a binding).
+    in property <int> refreshed;
     in property <Notice> notice;
     callback dismiss-notice();
     callback undo-last();               // the info bar's "Undo"
@@ -295,6 +301,7 @@ export global Api {
     in property <string> active-name;
     in property <string> active-folder;
     in property <[string]> managed;     // module names: appearance, wallpaper, cursors, sounds, taskbar, bar, tweaks
+    in property <string> managed-names; // the same, as the user reads them, " · " between them
     in property <bool> safe-mode;
     in property <bool> original-captured;
     in property <[StatusLine]> status-lines;
@@ -312,6 +319,7 @@ export global Api {
     callback share-rice(string /* folder */);
     callback new-rice();
     callback export-current();
+    callback forget-rice-folder(string /* folder */); // a folder the user added, off the list
 
     // ---- the rice being edited -----------------------------------------------------------------
     in property <bool> editing;
@@ -322,7 +330,11 @@ export global Api {
     in property <bool> edit-hand-written;
     in property <[string]> edit-warnings;
     callback apply-edited();
+    // A new name for the edited rice (its [meta] name): checked like a file name, since it is shared
+    // as "<name>.rice". `rename-problem` says why one was refused.
     callback rename-edited(string);
+    in-out property <bool> renaming;
+    in property <string> rename-problem;
     callback edit-active-rice();
 
     // ---- appearance ------------------------------------------------------------------------
@@ -333,6 +345,9 @@ export global Api {
     in-out property <int> transparency;         // 0 leave, 1 on, 2 off
     in-out property <int> accent-on-taskbar;    // 0 leave, 1 on, 2 off
     in property <[SwatchColor]> palette-colors; // the rice's palette, for the swatches
+    // Why a field was not saved (the others were): shown under it, until it reads.
+    in property <string> schedule-problem;
+    in property <string> accent-problem;
     callback appearance-edited();
 
     // ---- wallpapers ------------------------------------------------------------------------
@@ -358,6 +373,7 @@ export global Api {
     callback engine-add-folder();
     callback engine-use(int /* item */);
     callback engine-close();
+    in property <bool> has-wallpaper;            // the rice has [wallpaper]: its pause and FPS settings show
     in-out property <bool> pause-fullscreen: true;
     in-out property <bool> pause-battery: true;
     in-out property <bool> pause-covered: true;
@@ -390,6 +406,10 @@ export global Api {
     in-out property <string> windows-caption;
     in-out property <string> windows-title;
     in-out property <string> windows-exclude;  // "code.exe, steam.exe"
+    in property <string> windows-border-problem;  // why that field was not saved (the others were)
+    in property <string> windows-caption-problem;
+    in property <string> windows-title-problem;
+    in property <string> windows-exclude-problem;
     callback windows-edited();
 
     // ---- the lock screen (M14) -------------------------------------------------------------
@@ -446,9 +466,9 @@ export global Api {
 
     // ---- plugins ---------------------------------------------------------------------------
     in property <[PluginRow]> plugins;
-    in-out property <int> selected-plugin: -1;
+    in property <int> selected-plugin: -1;      // where the selected plugin sits in `plugins` now
     in property <[ConfigField]> plugin-config;  // the selected plugin's settings in the edited rice
-    callback plugin-selected(int);
+    callback plugin-selected(string /* id; empty: none */);
     callback plugin-install();
     callback plugin-install-file();     // a .rmwp
     callback plugin-approve(string);
@@ -462,7 +482,7 @@ export global Api {
     in property <string> settings-problem;      // settings.toml does not read: not overwritten
     in property <[ActionChoice]> actions;
     in property <[string]> action-labels;       // the same, as the user reads them
-    pure callback action-index(string) -> int;  // of an action name in actions (0 when unknown)
+    pure callback action-index(string) -> int;  // of an action name in actions (-1 when unknown)
     pure callback match-index(string) -> int;   // of a monitor selector in match-choices
     in property <[HotkeyRow]> hotkeys;
     in property <[RuleRow]> rules-list;

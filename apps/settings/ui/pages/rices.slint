@@ -43,13 +43,42 @@ component RiceCard inherits Rectangle {
                 image-fit: cover;
             }
 
-            if !root.rice.has-preview: Text {
+            if !root.rice.has-preview && root.rice.problem == "": Text {
                 text: "\u{E8B9}";
                 font-family: "Segoe Fluent Icons";
                 font-size: 32px;
                 color: Palette.foreground.transparentize(55%);
                 horizontal-alignment: center;
                 vertical-alignment: center;
+            }
+
+            // A rice that does not read has no picture: why it does not read shows there, so the card
+            // keeps its size (v1.7 pushed its buttons out of the card).
+            if root.rice.problem != "": VerticalLayout {
+                padding: 10px;
+                spacing: 6px;
+                alignment: center;
+
+                Text {
+                    text: root.rice.problem;
+                    wrap: word-wrap;
+                    overflow: elide;
+                    vertical-stretch: 1;
+                    color: Palette.foreground;
+                    font-size: Metrics.small-text;
+                    accessible-role: AccessibleRole.text;
+                }
+
+                if root.rice.remembered: HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Forget this folder");
+                        accessible-label: @tr("Take {} off the list (its folder stays)", root.rice.name);
+                        clicked => {
+                            Api.forget-rice-folder(root.rice.folder);
+                        }
+                    }
+                }
             }
 
             if root.rice.active: Rectangle {
@@ -85,27 +114,24 @@ component RiceCard inherits Rectangle {
             Hint {
                 text: root.rice.author != "" ? @tr("by {}", root.rice.author) : " ";
                 overflow: elide;
+                wrap: no-wrap;
             }
 
-            if root.rice.problem != "": Problem {
-                text: root.rice.problem;
+            // Apply, then the icons, each on a row of their own: together they ran past a 260 px
+            // card in Portuguese ("Aplicar de novo").
+            Button {
+                text: root.rice.active ? @tr("Apply again") : @tr("Apply");
+                primary: !root.rice.active;
+                enabled: root.rice.problem == "" && !Api.busy;
+                accessible-label: @tr("Apply {}", root.rice.name);
+                clicked => {
+                    Api.apply-rice(root.rice.folder);
+                }
             }
 
             HorizontalLayout {
                 spacing: 2px;
                 alignment: start;
-
-                Button {
-                    text: root.rice.active ? @tr("Apply again") : @tr("Apply");
-                    primary: !root.rice.active;
-                    enabled: root.rice.problem == "" && !Api.busy;
-                    accessible-label: @tr("Apply {}", root.rice.name);
-                    clicked => {
-                        Api.apply-rice(root.rice.folder);
-                    }
-                }
-
-                Rectangle { width: 6px; }
 
                 IconButton {
                     glyph: "\u{E70F}";
@@ -146,6 +172,47 @@ component RiceCard inherits Rectangle {
     }
 }
 
+component NewRiceButtons inherits HorizontalLayout {
+    spacing: 8px;
+    alignment: start;
+
+    Button {
+        text: @tr("New rice");
+        primary: true;
+        clicked => {
+            Api.new-rice();
+        }
+    }
+
+    Button {
+        text: @tr("Import a .rice…");
+        enabled: !Api.busy;
+        clicked => {
+            Api.import-rice();
+        }
+    }
+}
+
+component MoreRiceButtons inherits HorizontalLayout {
+    spacing: 8px;
+    alignment: start;
+
+    Button {
+        text: @tr("Save my current look as a rice");
+        enabled: !Api.busy;
+        clicked => {
+            Api.export-current();
+        }
+    }
+
+    Button {
+        text: @tr("Add a rice folder…");
+        clicked => {
+            Api.add-rice-folder();
+        }
+    }
+}
+
 export component RicesPage inherits ScrollView {
     VerticalLayout {
         padding: 28px;
@@ -157,40 +224,18 @@ export component RicesPage inherits ScrollView {
             subtitle: @tr("A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share.");
         }
 
-        HorizontalLayout {
+        // One row when it fits, two when the window is narrow (they need ~760 px in Portuguese).
+        if root.width >= 860px: HorizontalLayout {
             spacing: 8px;
             alignment: start;
+            NewRiceButtons { }
+            MoreRiceButtons { }
+        }
 
-            Button {
-                text: @tr("New rice");
-                primary: true;
-                clicked => {
-                    Api.new-rice();
-                }
-            }
-
-            Button {
-                text: @tr("Import a .rice…");
-                enabled: !Api.busy;
-                clicked => {
-                    Api.import-rice();
-                }
-            }
-
-            Button {
-                text: @tr("Save my current look as a rice");
-                enabled: !Api.busy;
-                clicked => {
-                    Api.export-current();
-                }
-            }
-
-            Button {
-                text: @tr("Add a rice folder…");
-                clicked => {
-                    Api.add-rice-folder();
-                }
-            }
+        if root.width < 860px: VerticalLayout {
+            spacing: 8px;
+            NewRiceButtons { }
+            MoreRiceButtons { }
         }
 
         if Api.rices.length == 0: Hint {
@@ -202,7 +247,8 @@ export component RicesPage inherits ScrollView {
             property <length> gap: 14px;
             property <int> columns: max(1, floor((self.width + self.gap) / (260px + self.gap)));
             property <length> card-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
-            property <length> card-height: self.card-width * 9 / 16 + 136px;
+            // The picture, then name, author, Apply and the icons (a problem shows in the picture).
+            property <length> card-height: self.card-width * 9 / 16 + 172px;
             height: ceil(Api.rices.length / self.columns) * (self.card-height + self.gap);
 
             for rice[index] in Api.rices: RiceCard {

@@ -19,6 +19,7 @@
 #include <objbase.h>
 
 #include <array>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -68,7 +69,11 @@ std::filesystem::path dataDirectoryFrom(const wchar_t* commandLine)
     return standard ? *standard : std::filesystem::path();
 }
 
-int run(HANDLE showEvent, HANDLE closeEvent)
+// How long a closed window waits for the worker's task (a call the core takes minutes over, a large
+// copy) before the process leaves without it.
+constexpr std::chrono::seconds kWorkerPatience{3};
+
+int run(HANDLE showEvent, HANDLE closeEvent, wil::unique_mutex_nothrow& instance)
 {
     const auto dataDirectory = dataDirectoryFrom(GetCommandLineW());
     if (dataDirectory.empty())
@@ -107,6 +112,21 @@ int run(HANDLE showEvent, HANDLE closeEvent)
     log::info("settings: open");
     app.run();
     log::info("settings: closed");
+    // The window is gone: starting rmw-settings again opens a new one at once. (v1.7 kept the
+    // instance while the worker waited on an import, and a new start brought nothing to the front.)
+    if (watcher.joinable())
+    {
+        watcher.request_stop();
+        watcher.join();
+    }
+    instance.reset();
+    if (!app.stop(kWorkerPatience))
+    {
+        // Its reply would come to no window: what the core was asked, the core finishes by itself.
+        log::warn("settings: a task is still running; leaving without it");
+        log::instance().flush();
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
     return 0;
 }
 
@@ -117,7 +137,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     // One window: started again, it brings the running one to the front and is gone at once (no
     // exit work: it started nothing, and the DLLs' teardown has nothing to do for it).
-    const wil::unique_mutex_nothrow instance(CreateMutexW(nullptr, FALSE, kInstanceMutex));
+    wil::unique_mutex_nothrow instance(CreateMutexW(nullptr, FALSE, kInstanceMutex));
     const bool first = instance && GetLastError() != ERROR_ALREADY_EXISTS;
     const wil::unique_event_nothrow show(CreateEventW(nullptr, FALSE, FALSE, kShowEvent));
     const wil::unique_event_nothrow close(CreateEventW(nullptr, FALSE, FALSE, rmw::platform::kSettingsCloseEvent));
@@ -137,7 +157,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     }
     try
     {
-        return run(show.get(), close.get());
+        return run(show.get(), close.get(), instance);
     }
     catch (const std::exception& e)
     {

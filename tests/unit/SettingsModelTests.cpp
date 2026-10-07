@@ -177,6 +177,26 @@ TEST_F(SettingsModel, CursorFilesKeepTheNamesInstallInfGivesThem)
     EXPECT_TRUE(fs::exists(copied / L"install.inf"));
 }
 
+TEST_F(SettingsModel, RiceNamesAreNamesWindowsKeeps)
+{
+    using P = settings::RiceNameProblem;
+    EXPECT_EQ(settings::checkRiceName("  Night drive  ").value(), "Night drive");
+    EXPECT_EQ(settings::checkRiceName("Catppuccin (Mocha) v2.1").value(), "Catppuccin (Mocha) v2.1");
+    EXPECT_EQ(settings::checkRiceName("夜景 🎴").value(), "夜景 🎴");
+    EXPECT_EQ(settings::checkRiceName("console").value(), "console"); // starts with "con", is not CON
+    EXPECT_EQ(settings::checkRiceName("   ").error(), P::Empty);
+    EXPECT_EQ(settings::checkRiceName(std::string(129, 'a')).error(), P::TooLong);
+    for (const char* bad : {"a/b", "a\\b", "a:b", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b", "a\tb"})
+    {
+        EXPECT_EQ(settings::checkRiceName(bad).error(), P::Character) << bad;
+    }
+    EXPECT_EQ(settings::checkRiceName("Night.").error(), P::TrailingDot);
+    for (const char* device : {"CON", "nul", "Com1", "LPT9", "aux.txt"})
+    {
+        EXPECT_EQ(settings::checkRiceName(device).error(), P::DeviceName) << device;
+    }
+}
+
 TEST_F(SettingsModel, CursorFoldersBringOnlyCursors)
 {
     auto folder = settings::newRiceFolder(data(), "R");
