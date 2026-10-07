@@ -274,6 +274,17 @@ Result<std::filesystem::path> StoreAssetSink::fromPackage(std::string_view relat
         return source;
     }
     const std::string extension = extensionOf(*source);
+    // A picture is one by its bytes, not only by its name: an executable named .png went in as a wallpaper.
+    if (extension == "jpg" || extension == "jpeg" || extension == "png" || extension == "bmp" || extension == "gif")
+    {
+        if (const std::string type = platform::sniffFileType(*source);
+            type != "jpg" && type != "png" && type != "bmp" && type != "gif")
+        {
+            return fail(ErrorCode::InvalidData,
+                        std::format("asset '{}' is not a picture (its contents are not a .{} file)", relativePath,
+                                    extension));
+        }
+    }
     return m_store.import(*source, assetSizeLimit(extension), extension).transform_error([&](Error error) {
         return std::move(error).withContext(std::format("asset '{}'", relativePath));
     });

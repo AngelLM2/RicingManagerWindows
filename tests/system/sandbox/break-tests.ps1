@@ -111,7 +111,7 @@ Step 'odd-paths' {
     [void](Wait-Until { $script:bar = Get-Process rmw-bar -ErrorAction SilentlyContinue | Select-Object -First 1; $null -ne $script:bar } 15)
     Check 'break:odd-paths-bar-runs' ($null -ne $script:bar -and $script:bar.Path -like "$oddBin*") "bar: $(if ($script:bar) { $script:bar.Path })"
     $s = Run $oddRmw @('status', '--data-dir', $oddData)
-    Check 'break:odd-paths-status' ($s.code -eq 0 -and $s.output -match 'Sakura') $s.output
+    Check 'break:odd-paths-status' ($s.code -eq 0 -and $s.output -match 'Managed now:.*wallpaper') $s.output
     $r = Run $oddRmw @('restore', '--original', '--wait', '--data-dir', $oddData) 180
     Check 'break:odd-paths-restore' ($r.code -eq 0) $r.output
     [void](Run $oddRmw @('shutdown', '--wait', '--data-dir', $oddData))
@@ -157,6 +157,10 @@ Step 'settings-damaged' {
 
 # ---- 3. apply after apply after apply, without waiting; a restore in the middle -----------------------------
 Step 'rapid-fire' {
+    # With the tray icon kept, the core stays between operations: another core now would be a crash.
+    Write-Settings "schema = 1`n[core]`nkeep_in_tray = true`n"
+    [void](Rmw @('settings', 'reload'))
+    Start-Sleep -Seconds 1
     $coreBefore = Core
     $runs = foreach ($rice in @($sakura, $mocha, $diva, $sakura)) {
         $p = Start-Process $rmw -ArgumentList @('apply', "`"$rice`"", '--data-dir', "`"$data`"") -NoNewWindow -PassThru
@@ -277,8 +281,10 @@ Step 'absurd-bars' {
         Start-Sleep -Seconds 3
         # (Not $work: PowerShell names ignore case, and $Work is this script's folder.)
         $area = Work-Area
-        $sane = $area.Width -ge $screen.Width / 2 - 2 -and $area.Height -ge $screen.Height / 2 - 2
-        Check "break:absurd-bar-$($results.Count)" (-not (Crashed $r) -and $sane -and ((Rmw @('status')).code -eq 0)) "apply=$($r.code) work=$area screen=${screen}: $(($bar -split "`n")[1..3] -join ' ')"
+        # Refused (4, with the reason) or applied with at most half the screen for the bar (and Windows' own
+        # taskbar strip, 48 px here, besides it).
+        $sane = $r.code -eq 4 -or ($r.code -eq 0 -and $area.Width -ge $screen.Width / 2 - 2 -and $area.Height -ge $screen.Height / 2 - 60)
+        Check "break:absurd-bar-$($results.Count)" (-not (Crashed $r) -and $sane -and ((Rmw @('status')).code -eq 0)) "apply=$($r.code) work=$area screen=${screen}: $(($bar -split "`n")[1..3] -join ' '); $(($r.output -split "`n" | Select-Object -Last 1))"
     }
     $r = Rmw @('restore', '--original', '--wait') 180
     $back = Wait-Until { $a = Work-Area; $a.Width -eq $screen.Width -and $a.Height -ge $screen.Height - 100 } 15
