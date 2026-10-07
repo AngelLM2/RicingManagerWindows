@@ -568,7 +568,7 @@ Result<std::string> importAsset(const fs::path& riceFolder, const fs::path& sour
         // Its own name when a package may hold it: install.inf names the files as they are ("Help
         // (1).cur" became "Help -1-.cur", and the pack no longer applied).
         const std::string original = utf8(it->path().filename());
-        const std::string name = domain::validatePackagePath(sub + folderName + "/" + original)
+        const std::string name = domain::validatePackagePath(std::format("{}{}/{}", sub, folderName, original))
                                      ? original
                                      : domain::safeFileName(original, "file");
         if (auto stored =

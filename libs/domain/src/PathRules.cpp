@@ -3,6 +3,7 @@
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Utf.hpp"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <vector>
@@ -154,12 +155,12 @@ std::string_view extensionOf(std::string_view name) noexcept
     {
         return {};
     }
-    for (const char c : name.substr(dot + 1))
+    const auto alphanumeric = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    };
+    if (!std::ranges::all_of(name.substr(dot + 1), alphanumeric))
     {
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')))
-        {
-            return {};
-        }
+        return {};
     }
     return name.substr(dot);
 }

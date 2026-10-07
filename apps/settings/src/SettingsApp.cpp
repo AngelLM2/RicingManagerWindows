@@ -1232,7 +1232,6 @@ void SettingsApp::refreshSettings()
     {
         return;
     }
-    showHotkeys(true);
     std::vector<RuleRow> rules;
     for (const auto& rule : m_settings->rules)
     {
@@ -1278,6 +1277,7 @@ void SettingsApp::refreshSettings()
     api.set_language(m_settings->language == domain::kLanguageEnglish      ? 1
                      : m_settings->language == domain::kLanguagePortuguese ? 2
                                                                            : 0);
+    showHotkeys(true);
     if (api.get_language() != m_appliedLanguage)
     {
         applyLanguage(); // settings.toml chose another
@@ -1410,7 +1410,7 @@ void SettingsApp::ensureEditing(Page page)
     call(
         "rice.export", Json{{"path", utf8(*folder)}, {"name", riceName}},
         // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
-        [this, folder = *folder, page](Reply reply) {
+        [this, folder = *folder](Reply reply) {
             m_preparingEdit = false;
             m_ui->global<Api>().set_preparing_edit(false);
             if (!reply)
@@ -2154,15 +2154,16 @@ void SettingsApp::saveEdited(bool show)
     {
         return;
     }
-    if (auto saved = settings::saveRice(m_edit->folder, m_edit->loaded.rice); !saved)
+    Edit& edit = *m_edit;
+    if (auto saved = settings::saveRice(edit.folder, edit.loaded.rice); !saved)
     {
         // Not written (it would not read back, or the disk said no): the pages go back to what the
         // file says, and the user hears why.
-        log::warn("settings: {} not saved: {}", utf8(m_edit->folder), saved.error().toString());
+        log::warn("settings: {} not saved: {}", utf8(edit.folder), saved.error().toString());
         notice(NoticeKind::NotSaved, saved.error().message());
-        if (auto reread = settings::loadRice(m_edit->folder))
+        if (auto reread = settings::loadRice(edit.folder))
         {
-            m_edit->loaded = std::move(*reread);
+            edit.loaded = std::move(*reread);
         }
         showEdited();
         return;
