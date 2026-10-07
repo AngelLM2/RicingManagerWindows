@@ -85,6 +85,9 @@ WinKeyHook::WinKeyHook(std::function<void()> open)
     }
     g_hook = this;
     m_thread = std::jthread([this] { run(); });
+    // Its id first: a hook destroyed before the thread said who it is could not be told to stop, and the
+    // join would wait forever.
+    m_threadId.wait(0);
 }
 
 WinKeyHook::~WinKeyHook()
@@ -108,6 +111,7 @@ void WinKeyHook::run()
     MSG message{};
     PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE); // the thread's queue, first
     m_threadId = GetCurrentThreadId();
+    m_threadId.notify_all();
     HHOOK hook = SetWindowsHookExW(WH_KEYBOARD_LL, &Access::proc, GetModuleHandleW(nullptr), 0);
     if (hook == nullptr)
     {

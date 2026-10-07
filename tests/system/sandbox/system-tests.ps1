@@ -246,6 +246,11 @@ public static extern bool SystemParametersInfoW(uint action, uint uiParam, Syste
 $pristine = @(Registry-Snapshot)
 $pristineState = Read-State
 
+# JSON from the command line, or $null (with PowerShell 5.1, ConvertFrom-Json's error ends the whole script).
+function Parse-Json([string] $Text) {
+    try { $Text | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+}
+
 # ---- 0. diagnostics (never fail the run) ----------------------------------------------------------
 Add-Type -Namespace Rmw -Name Native -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
@@ -300,8 +305,9 @@ Check 'apply:file-type-icon' ("$($after.TypeIcon)" -like '*\store\*.ico,0' -and 
 Check 'apply:lockscreen' ("$($after.LockImage)" -like '*\store\*.jpg' -and "$($after.Spotlight)" -eq '0' -and "$($after.LockTips)" -eq '0' -and "$($after.LockTips2)" -eq '0') "image=$($after.LockImage) spotlight=$($after.Spotlight) tips=$($after.LockTips)/$($after.LockTips2) (before: $($before.LockImage) $($before.Spotlight) $($before.LockTips))"
 Check 'apply:cursors' ("$($after.Arrow)" -like '*\store\*.cur' -and "$($after.Wait)" -like '*\store\*.ani') "arrow=$($after.Arrow) wait=$($after.Wait)"
 $wallpaperAfter = (Invoke-Rmw @('inspect', 'wallpaper')).output
-$shown = @(($wallpaperAfter | ConvertFrom-Json).state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } | ForEach-Object { $_.Value.file })
-Check 'apply:wallpaper' ($shown.Count -gt 0 -and @($shown | Where-Object { $_ -notlike '*\store\*' }).Count -eq 0) ($shown -join ', ')
+$wallpaperJson = Parse-Json $wallpaperAfter
+$shown = @($wallpaperJson.state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } | ForEach-Object { $_.Value.file })
+Check 'apply:wallpaper' ($shown.Count -gt 0 -and @($shown | Where-Object { $_ -notlike '*\store\*' }).Count -eq 0) "$($shown -join ', ') (inspect said: $(if ($null -eq $wallpaperJson) { $wallpaperAfter } else { 'json' }))"
 
 $exported = Join-Path $Work 'exported'
 $r = Invoke-Rmw @('export', $exported, '--name', 'Exported from the Sandbox')
@@ -397,7 +403,7 @@ function Stop-Core {
 function Get-Managed([string] $Module) {
     $r = Invoke-Rmw @('inspect', $Module)
     if ($r.code -ne 0) { return $null }
-    return @(($r.output | ConvertFrom-Json).managed)
+    return @((Parse-Json $r.output).managed)
 }
 
 # ---- 4. a global hotkey runs its action; settings.toml is picked up while the core runs ----------
@@ -484,7 +490,7 @@ Check 'drift:wallpaper-detached' $detached "set=$set managed=$((Get-Managed 'wal
 Start-Sleep -Seconds 3
 $shownNow = (Invoke-Rmw @('inspect', 'wallpaper')).output
 # The picture on the monitors (Settings' recent pictures may still list the rice's: a restore puts that list back).
-$pictures = @(($shownNow | ConvertFrom-Json).state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } | ForEach-Object { $_.Value.file })
+$pictures = @((Parse-Json $shownNow).state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } | ForEach-Object { $_.Value.file })
 Check 'drift:user-wallpaper-stays' ($pictures.Count -gt 0 -and @($pictures | Where-Object { $_ -match '\\store\\' }).Count -eq 0) $shownNow
 $cursorsManaged = Get-Managed 'cursors'
 Check 'drift:other-modules-still-managed' (@($cursorsManaged).Count -gt 0) ($cursorsManaged -join ', ')
