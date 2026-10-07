@@ -47,9 +47,10 @@ function Run([string] $Exe, [string[]] $Arguments, [int] $Seconds = 60) {
     $stderr = "$stdout.err"
     $quoted = @($Arguments | ForEach-Object { if ($_ -match '[\s"]' -or $_ -eq '') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } })
     $p = Start-Process $Exe -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $null = $p.Handle # (Windows PowerShell keeps the exit code only for a process whose handle it read)
     $done = $p.WaitForExit($Seconds * 1000)
     if (-not $done) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
-    $text = ((Get-Content $stdout -Raw -ErrorAction SilentlyContinue) + (Get-Content $stderr -Raw -ErrorAction SilentlyContinue)).Trim()
+    $text = ((Get-Content $stdout -Raw -Encoding UTF8 -ErrorAction SilentlyContinue) + (Get-Content $stderr -Raw -Encoding UTF8 -ErrorAction SilentlyContinue)).Trim()
     Remove-Item $stdout, $stderr -Force -ErrorAction SilentlyContinue
     [pscustomobject]@{ code = $(if ($done) { $p.ExitCode } else { -1 }); output = $text; timedOut = -not $done }
 }
@@ -106,8 +107,9 @@ Step 'odd-paths' {
     $oddRmw = Join-Path $oddBin 'rmw.exe'
     $r = Run $oddRmw @('apply', $sakura, '--wait', '--data-dir', $oddData) 180
     Check 'break:odd-paths-apply' ($r.code -eq 0) $r.output
-    $bar = Get-Process rmw-bar -ErrorAction SilentlyContinue | Select-Object -First 1
-    Check 'break:odd-paths-bar-runs' ($null -ne $bar -and $bar.Path -like "$oddBin*") "bar: $(if ($bar) { $bar.Path })"
+    $bar = $null
+    [void](Wait-Until { $script:bar = Get-Process rmw-bar -ErrorAction SilentlyContinue | Select-Object -First 1; $null -ne $script:bar } 15)
+    Check 'break:odd-paths-bar-runs' ($null -ne $script:bar -and $script:bar.Path -like "$oddBin*") "bar: $(if ($script:bar) { $script:bar.Path })"
     $s = Run $oddRmw @('status', '--data-dir', $oddData)
     Check 'break:odd-paths-status' ($s.code -eq 0 -and $s.output -match 'Sakura') $s.output
     $r = Run $oddRmw @('restore', '--original', '--wait', '--data-dir', $oddData) 180
@@ -157,10 +159,13 @@ Step 'settings-damaged' {
 Step 'rapid-fire' {
     $coreBefore = Core
     $runs = foreach ($rice in @($sakura, $mocha, $diva, $sakura)) {
-        Start-Process $rmw -ArgumentList @('apply', "`"$rice`"", '--data-dir', "`"$data`"") -NoNewWindow -PassThru
+        $p = Start-Process $rmw -ArgumentList @('apply', "`"$rice`"", '--data-dir', "`"$data`"") -NoNewWindow -PassThru
+        $null = $p.Handle
+        $p
         Start-Sleep -Milliseconds 150
     }
     $restoring = Start-Process $rmw -ArgumentList @('restore', '--original', '--data-dir', "`"$data`"") -NoNewWindow -PassThru
+    $null = $restoring.Handle
     $codes = @($runs + $restoring | ForEach-Object { [void]$_.WaitForExit(120000); $_.ExitCode })
     Check 'break:rapid-fire-no-crash' (@($codes | Where-Object { $_ -lt 0 -or $_ -gt 4 }).Count -eq 0) "exit codes: $($codes -join ', ') (3 = busy)"
     # Whatever got through, it settles: one state, the core the same, nothing fatal.
@@ -245,13 +250,13 @@ Step 'huge-picture' {
     $graphics.FillRectangle($brush, 0, 0, 7000, 7000)
     $bitmap.Save((Join-Path $folder 'huge.png'), [System.Drawing.Imaging.ImageFormat]::Png)
     $graphics.Dispose(); $bitmap.Dispose(); $brush.Dispose()
-    Write-Rice $folder "[wallpaper]`nfile = `"huge.png`"`nfit = `"fill`"`n"
+    Write-Rice $folder "[wallpaper]`n`n[[wallpaper.monitor]]`nmatch = `"all`"`nkind = `"image`"`nsource = `"huge.png`"`nfit = `"fill`"`n"
     $r = Rmw @('apply', $folder, '--wait') 240
     Check 'break:huge-picture' (-not (Crashed $r)) "$($r.code): $($r.output)"
     $fake = Join-Path $Work 'fake-picture'
     New-Item -ItemType Directory -Force $fake | Out-Null
     Copy-Item $rmw (Join-Path $fake 'picture.png') # an executable named like a picture
-    Write-Rice $fake "[wallpaper]`nfile = `"picture.png`"`n"
+    Write-Rice $fake "[wallpaper]`n`n[[wallpaper.monitor]]`nmatch = `"all`"`nkind = `"image`"`nsource = `"picture.png`"`n"
     $r = Rmw @('apply', $fake, '--wait') 120
     Check 'break:fake-picture-refused' ($r.code -ne 0 -and -not (Crashed $r)) "$($r.code): $($r.output)"
     $r = Rmw @('restore', '--original', '--wait') 180
@@ -276,7 +281,8 @@ Step 'absurd-bars' {
         Check "break:absurd-bar-$($results.Count)" (-not (Crashed $r) -and $sane -and ((Rmw @('status')).code -eq 0)) "apply=$($r.code) work=$area screen=${screen}: $(($bar -split "`n")[1..3] -join ' ')"
     }
     $r = Rmw @('restore', '--original', '--wait') 180
-    Check 'break:absurd-bars-restore' ($r.code -eq 0 -and (Wait-Until { (Work-Area).Height -ge $screen.Height - 100 } 15)) "work=$(Work-Area)"
+    $back = Wait-Until { $a = Work-Area; $a.Width -eq $screen.Width -and $a.Height -ge $screen.Height - 100 } 15
+    Check 'break:absurd-bars-restore' ($r.code -eq 0 -and $back) "work=$(Work-Area) screen=$screen"
 }
 
 # ---- 9. a time zone change in the middle of a light/dark schedule: it follows at once ----------------------------

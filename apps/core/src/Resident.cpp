@@ -75,7 +75,9 @@ constexpr auto kDisplaySettle = 2s;  // geometry read too early is wrong (docs/0
 constexpr auto kExplorerSettle = 3s; // let the new Explorer build its windows first
 constexpr auto kSettingsDebounce = 500ms;
 constexpr auto kScheduleMargin = 1500ms; // fire just after the minute starts, never before
-constexpr auto kScheduleMaxWait = 1h;    // re-check the clock at least hourly
+// Re-check the clock every minute: a time zone changed by the automatic time zone service (or Set-TimeZone)
+// tells no app, and a switch waited up to an hour (the break suite, v1.8).
+constexpr auto kScheduleMaxWait = 1min;
 constexpr std::int32_t kDueWindowSeconds = 120;
 constexpr auto kFiredGuard = 150s;
 // rmw-tiler puts every window back and leaves when asked; past this it is ended and the core does it.
@@ -906,7 +908,12 @@ void Resident::syncBar()
             m_emergencyKey = true;
         }
     }
-    // A running bar follows the plan file by itself; a new plan restarts one that gave up.
+    // A running bar follows the plan file by itself; a new plan restarts one that gave up, and so does
+    // "bar on".
+    if (m_core->takeBarRetry())
+    {
+        m_barStartedFor.reset();
+    }
     if (m_barStartedFor && (*m_barStartedFor == *plan || json::boolOr(m_core->barStatus(), "running", false)))
     {
         m_barStartedFor = plan;

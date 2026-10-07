@@ -128,6 +128,9 @@ public:
     [[nodiscard]] bool barOff() const;
     // The user's switch (bar.off, the emergency hotkey): saved, and the resident follows.
     void setBarOff(bool off);
+    // "Bar on" while the bar is on but its worker gave up (it failed too often): the resident starts it
+    // again once (true, then false until asked again).
+    [[nodiscard]] bool takeBarRetry() noexcept { return m_barRetry.exchange(false); }
     // The folder of the rice the bars come from: saving its rice.toml updates them live.
     [[nodiscard]] std::optional<std::filesystem::path> barSource() const;
     // Work queue: reads the bars of that rice again (the rest waits for the next apply).
@@ -256,6 +259,7 @@ private:
     bool m_startWinKey = false;                           // settings.toml [start] win_key
     std::string m_startLanguage = "en";                   // the words of our Start menu
     bool m_barOff = false;                                // mirrors meta "bar_off"
+    std::atomic<bool> m_barRetry{false};                  // see takeBarRetry()
     std::optional<std::filesystem::path> m_barSource;     // mirrors meta "bar_source"
     std::optional<std::string> m_videoPlan;               // mirrors meta "video_plan"
     domain::TilingSettings m_tiling;                      // settings.toml [tiling]
