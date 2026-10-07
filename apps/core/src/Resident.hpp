@@ -73,6 +73,9 @@ private:
     void onPowerSource(bool onAc);
     void onClockJump();
     void onScheduleTimer();
+    // The schedule's light/dark period on the local clock differs from the one at the last look:
+    // a switch passed, also when only the local clock moved (time zone, daylight saving).
+    [[nodiscard]] bool periodChanged(const domain::AppearanceSchedule& schedule, std::int32_t now) const;
     [[nodiscard]] bool due(const std::string& key, domain::TimeOfDay at, std::int32_t now);
     void armSchedule();
     void syncPages();
@@ -109,6 +112,7 @@ private:
     std::chrono::steady_clock::time_point m_displaySettlingUntil;
     std::chrono::steady_clock::time_point m_started;
     std::chrono::system_clock::time_point m_lastWallClock;
+    std::int32_t m_lastLocalSeconds = 0; // the local clock (seconds of the day) at the same moment
     std::map<std::string, std::chrono::steady_clock::time_point> m_lastFired;
     struct Pages
     {

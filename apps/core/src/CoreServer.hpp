@@ -126,6 +126,8 @@ public:
     // bar plan, now and from now on.
     void setStartOptions(bool winKey, std::string language);
     [[nodiscard]] bool barOff() const;
+    // The user's switch (bar.off, the emergency hotkey): saved, and the resident follows.
+    void setBarOff(bool off);
     // The folder of the rice the bars come from: saving its rice.toml updates them live.
     [[nodiscard]] std::optional<std::filesystem::path> barSource() const;
     // Work queue: reads the bars of that rice again (the rest waits for the next apply).
@@ -177,6 +179,8 @@ private:
 
     void acceptLoop(platform::PipeServer& server, const std::stop_token& stop);
     void handleClient(platform::PipeConnection connection);
+    // The reply to one request; an exception becomes an error reply.
+    [[nodiscard]] std::string answer(const ipc::Request& request);
     [[nodiscard]] Result<ipc::Json> dispatch(const ipc::Request& request);
     // `changesWindows`: false for reads (inspect, export), which must not hide change events.
     [[nodiscard]] Result<ipc::Json> exclusive(const std::function<Result<ipc::Json>()>& operation,
@@ -191,6 +195,14 @@ private:
     [[nodiscard]] Result<ipc::Json> applyRice(const ipc::Json& params, Origin origin);
     [[nodiscard]] Result<ipc::Json> setAppearance(std::string_view action, Origin origin);
     [[nodiscard]] Result<ipc::Json> restore(const ipc::Json& params, bool original);
+    // `rmw recover [--discard]`: undoes (or forgets) an operation a crash interrupted, now.
+    [[nodiscard]] Result<ipc::Json> recoverInterrupted(const ipc::Json& params);
+    // What the core keeps outside the modules, saved with every snapshot (RiceEngine::setCoreState).
+    [[nodiscard]] ipc::Json coreState() const;
+    // Sets it back as coreState() saw it; an empty one ends it all (bars, video, look, schedule...).
+    void bringBack(const ipc::Json& core);
+    // The tiler, asked to put every window back and leave (the core is exiting); waits a moment.
+    void leaveTiler();
     [[nodiscard]] Result<ipc::Json> monitors();
     [[nodiscard]] Result<ipc::Json> inspect(const ipc::Json& params);
     [[nodiscard]] Result<ipc::Json> exportRice(const ipc::Json& params);
@@ -211,7 +223,9 @@ private:
     void setSchedule(std::optional<domain::AppearanceSchedule> schedule);
     void setRotation(const ipc::Json& plan);
     void setBarPlan(const std::optional<std::string>& plan);
-    void setBarOff(bool off);
+    // `newBars`: other bars, meant to be seen (the off switch goes); not when only the Win key or the
+    // language of the same bars changed.
+    void writeBarPlan(const std::optional<std::string>& plan, bool newBars);
     void setBarSource(const std::optional<std::filesystem::path>& folder);
     void setVideoPlan(const std::optional<std::string>& plan);
     // The rice's video wallpapers, their files copied into the store; nullopt when it plays none.
@@ -221,6 +235,8 @@ private:
 
     CoreOptions m_options;
     SafeModeReason m_safeMode = SafeModeReason::None;
+    // Where a damaged state.db went at this start (a new one began).
+    std::optional<std::filesystem::path> m_stateMovedTo;
     std::unique_ptr<ModuleLogic> m_logic;
     std::unique_ptr<ModuleSystems> m_systems; // --in-process only
     std::unique_ptr<HelperModuleRunner> m_helper;
@@ -251,7 +267,8 @@ private:
     std::shared_ptr<MachineJob> m_machineJob;
     // rmw-elevated through the UAC, on a thread of its own (the prompt waits for the person).
     void runMachineHelper(const machine::Command& command);
-    void collectMachineJob();    std::unique_ptr<platform::Supervisor> m_supervisor;   // workers (rmw-bar); while run() runs
+    void collectMachineJob();
+    std::unique_ptr<platform::Supervisor> m_supervisor; // workers (rmw-bar); while run() runs
 
     // Plugins (docs/12). The pipes are named once per run: the bar serves the bridge, the host
     // the control pipe; `m_blame` is the mapping where the host writes which plugin runs.

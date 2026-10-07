@@ -174,12 +174,15 @@ Result<std::size_t> PipeConnection::transfer(bool write, void* buffer, std::size
         if (WaitForSingleObject(event, waitMs(timeout)) == WAIT_TIMEOUT)
         {
             CancelIoEx(m_pipe, &overlapped);
-            GetOverlappedResult(m_pipe, &overlapped, &done,
-                                TRUE); // the I/O must end before `overlapped` dies
-            return fail(ErrorCode::Timeout,
-                        write ? "timed out writing to the pipe" : "timed out waiting for a message");
+            // The I/O must end before `overlapped` dies, and it may have completed just before the
+            // cancel: those bytes count (dropped, the frames after them would never decode again).
+            if (GetOverlappedResult(m_pipe, &overlapped, &done, TRUE) == FALSE || done == 0)
+            {
+                return fail(ErrorCode::Timeout,
+                            write ? "timed out writing to the pipe" : "timed out waiting for a message");
+            }
         }
-        if (GetOverlappedResult(m_pipe, &overlapped, &done, FALSE) == FALSE)
+        else if (GetOverlappedResult(m_pipe, &overlapped, &done, FALSE) == FALSE)
         {
             const DWORD finished = GetLastError();
             if (finished == ERROR_BROKEN_PIPE || finished == ERROR_PIPE_NOT_CONNECTED)
@@ -358,24 +361,30 @@ Result<PipeConnection> PipeServer::accept(std::chrono::milliseconds timeout)
     ResetEvent(m_event);
     if (ConnectNamedPipe(m_instance, &overlapped) == FALSE)
     {
-        const DWORD error = GetLastError();
+        DWORD error = GetLastError();
         if (error == ERROR_IO_PENDING)
         {
+            DWORD ignored = 0;
             if (WaitForSingleObject(m_event, waitMs(timeout)) == WAIT_TIMEOUT)
             {
                 CancelIoEx(m_instance, &overlapped);
-                DWORD ignored = 0;
+                // A client that connected as we gave up is taken by the next accept (PIPE_CONNECTED).
                 GetOverlappedResult(m_instance, &overlapped, &ignored, TRUE);
                 return fail(ErrorCode::Timeout, "no client connected");
             }
-            DWORD ignored = 0;
-            if (GetOverlappedResult(m_instance, &overlapped, &ignored, FALSE) == FALSE)
-            {
-                return std::unexpected(lastError("ConnectNamedPipe"));
-            }
+            error = GetOverlappedResult(m_instance, &overlapped, &ignored, FALSE) != FALSE ? ERROR_SUCCESS
+                                                                                          : GetLastError();
         }
-        else if (error != ERROR_PIPE_CONNECTED)
+        if (error == ERROR_NO_DATA)
         {
+            // A client came and went before it was accepted: the instance is of no use any more.
+            recycle();
+            return fail(ErrorCode::Timeout, "a client left before it was accepted");
+        }
+        if (error != ERROR_SUCCESS && error != ERROR_PIPE_CONNECTED)
+        {
+            // Kept, a failed instance fails every accept after it at once (a core spinning).
+            recycle();
             return std::unexpected(win32Error(error, "ConnectNamedPipe"));
         }
     }
@@ -385,6 +394,17 @@ Result<PipeConnection> PipeServer::accept(std::chrono::milliseconds timeout)
     PipeConnection connection(std::exchange(m_instance, nullptr), client);
     // The next client gets a fresh instance (created lazily on the next accept).
     return connection;
+}
+
+void PipeServer::recycle() noexcept
+{
+    if (m_instance == nullptr)
+    {
+        return;
+    }
+    DisconnectNamedPipe(m_instance);
+    CloseHandle(m_instance);
+    m_instance = nullptr; // the next accept makes a fresh one
 }
 
 // ---- client -----------------------------------------------------------------------------------

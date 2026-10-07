@@ -8,6 +8,7 @@
 #include "rmw/bar/Plan.hpp"
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
+#include "rmw/base/ScopeExit.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
 #include "rmw/domain/CursorFiles.hpp"
@@ -45,19 +46,25 @@ using namespace std::chrono_literals;
 
 constexpr auto kHelloTimeout = 5s;
 constexpr auto kPoll = 1s;
+constexpr std::chrono::milliseconds kAcceptBackOff{50};
+constexpr std::chrono::milliseconds kAcceptMaxBackOff{2000};
 constexpr auto kSendTimeout = 10s;
 // Windows keeps broadcasting our own change for a moment after an operation (docs/03 §5.2).
 constexpr auto kOwnChangesGrace = 4s;
 constexpr auto kWindowAnswer = 10s;
-constexpr std::array<std::string_view, 25> kMethods = {
+constexpr std::array<std::string_view, 26> kMethods = {
     "status.get",       "rice.validate",   "rice.apply",     "restore.original", "snapshot.list",
     "snapshot.restore", "monitors.list",   "action.run",     "action.list",      "module.inspect",
     "rice.export",      "settings.reload", "autostart.get",  "autostart.set",    "plugin.list",
     "plugin.approve",   "plugin.enable",   "plugin.disable", "plugin.dev",       "plugin.install",
     "plugin.remove",    "plugin.status",   "plugin.report",  "apps.list",        "rice.import",
+    "recover",
 };
 constexpr std::string_view kScheduleMeta = "appearance_schedule";
 constexpr std::string_view kRotationMeta = "wallpaper_rotation";
+// The slideshow plan of an apply that is running: it keeps its pages from the apply's clean-up
+// and becomes the plan only once the apply worked (a crash in between leaves no plan behind).
+constexpr std::string_view kRotationPendingMeta = "wallpaper_rotation_pending";
 constexpr std::string_view kBarPlanMeta = "bar_plan";
 constexpr std::string_view kWindowLookMeta = "window_look"; // the applied rice's [windows] (M14)
 constexpr std::string_view kMachineIconsMeta = "machine_icons"; // rmw-elevated changed Shell Icons (M14)
@@ -73,6 +80,7 @@ constexpr std::uint64_t kVideoStatusMaxBytes = std::uint64_t{64} << 10; // rmw-w
 constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20;      // the bar's budget is 25 MB
 constexpr std::string_view kTilerWorker = "tiler";
 constexpr std::uint64_t kTilerMemoryLimit = std::uint64_t{64} << 20; // it keeps a list of windows
+constexpr auto kTilerLeaveWait = 3s; // putting a few hundred windows back takes well under a second
 constexpr std::string_view kPluginWorker = "plugins";
 // 16 MB per plugin VM (docs/12 §6), a dozen plugins and the host itself.
 constexpr std::uint64_t kPluginHostMemoryLimit = std::uint64_t{256} << 20;
@@ -317,10 +325,18 @@ Result<void> CoreServer::initialize()
                   m_safeMode == SafeModeReason::Requested ? "requested" : "the last starts crashed");
     }
 
-    auto state = engine::StateDb::open(m_options.dataDirectory / L"state.db");
+    // A damaged state.db must not keep the core from ever starting (safe mode needs it too): it is
+    // moved aside and a new one begins, the original snapshot coming back from its copy below.
+    auto state = engine::StateDb::openOrReplace(m_options.dataDirectory / L"state.db", {}, m_stateMovedTo);
     if (!state)
     {
         return std::unexpected(std::move(state.error()).withContext("open state.db"));
+    }
+    if (m_stateMovedTo)
+    {
+        log::error("state.db was damaged: it was moved to {} and a new one is used; the history is gone, the "
+                   "original Windows comes back from its copy",
+                   utf16To8Lossy(m_stateMovedTo->native()));
     }
     m_state = std::make_unique<engine::StateDb>(std::move(*state));
     m_store = std::make_unique<engine::ContentStore>(m_options.dataDirectory / L"store");
@@ -359,6 +375,12 @@ Result<void> CoreServer::initialize()
         runner = m_helper.get();
     }
     m_engine = std::make_unique<engine::RiceEngine>(*m_state, *m_store, m_logic->catalog, *runner);
+    m_engine->setOriginalBackup(m_options.dataDirectory / L"original.json");
+    m_engine->setCoreState([this] { return coreState(); });
+    if (auto original = m_engine->originalSnapshot(); !original)
+    {
+        log::error("original snapshot: {}", original.error().toString());
+    }
     if (!m_options.testPauseAfterModule.empty())
     {
         log::warn("TEST HOOK: pausing {} ms after module {}", m_options.testPause.count(),
@@ -409,10 +431,17 @@ Result<void> CoreServer::initialize()
             m_rotation = std::move(*plan);
         }
     }
+    // The slideshow plan of an apply a crash interrupted: that apply is undone below.
+    if (auto pending = m_state->meta(kRotationPendingMeta); pending && *pending)
+    {
+        log::warn("the slideshow plan of an interrupted apply is dropped");
+        [[maybe_unused]] auto dropped = m_state->setMeta(kRotationPendingMeta, std::nullopt);
+    }
 
     if (m_safeMode != SafeModeReason::None)
     {
-        // The undo itself may be what crashes: leave it for an explicit restore.
+        // The undo itself may be what crashes: leave it for an explicit restore (or `rmw recover`,
+        // which can also forget it without undoing it).
         log::warn("safe mode: an interrupted operation, if any, is not undone automatically");
         return {};
     }
@@ -492,12 +521,19 @@ int CoreServer::run(platform::PipeServer& server)
         m_stop = true;
     } // joins the accept thread, which joins every client thread
     work.stop();
-    m_supervisor.reset(); // ends the bar...
+    m_resident = nullptr;
+    // The tiler hides the windows of the other workspaces: asked, it puts every one back and leaves.
+    // Ended with the other workers it could not, and they stayed hidden (a clean exit, the tray's
+    // Exit, the uninstaller's `rmw shutdown --wait`).
+    leaveTiler();
+    m_supervisor.reset(); // ends the bar and the rest...
+    putBackTiledWindows(); // (a tiler that did not leave in time left its list behind)
     if (barPlan())
     {
-        platform::showNativeTaskbars(); // ...so Windows' taskbar comes back
+        // ...so Windows' taskbar comes back, and its tray gets the icons the bar's tray held.
+        platform::showNativeTaskbars();
+        platform::askAppsForTrayIcons();
     }
-    m_resident = nullptr;
     m_window = nullptr;
     if (m_helper)
     {
@@ -510,6 +546,7 @@ int CoreServer::run(platform::PipeServer& server)
 
 void CoreServer::acceptLoop(platform::PipeServer& server, const std::stop_token& stop)
 {
+    auto backOff = kAcceptBackOff;
     while (!m_stop && !stop.stop_requested())
     {
         auto connection = server.accept(kPoll);
@@ -517,19 +554,45 @@ void CoreServer::acceptLoop(platform::PipeServer& server, const std::stop_token&
         std::erase_if(m_workers, [](const Worker& worker) { return worker.done->load(); });
         if (connection)
         {
+            backOff = kAcceptBackOff;
             ++m_clients;
             m_lastActivity = nowTicks();
             auto done = std::make_shared<std::atomic<bool>>(false);
-            m_workers.push_back({done, std::jthread([this, done, c = std::move(*connection)]() mutable {
-                                     handleClient(std::move(c));
-                                     *done = true;
-                                 })});
+            try
+            {
+                m_workers.push_back({done, std::jthread([this, done, c = std::move(*connection)]() mutable {
+                                         // Nothing a client sends may end the core (docs/08 §3 rule 5).
+                                         try
+                                         {
+                                             handleClient(std::move(c));
+                                         }
+                                         catch (const std::exception& e)
+                                         {
+                                             log::error("client: {}", e.what());
+                                         }
+                                         catch (...)
+                                         {
+                                             log::error("client: unknown exception");
+                                         }
+                                         *done = true;
+                                     })});
+            }
+            catch (const std::exception& e)
+            {
+                --m_clients; // no thread for it: the connection closed with the lambda
+                log::error("client: {}", e.what());
+            }
             continue;
         }
-        if (connection.error().code() != ErrorCode::Timeout)
+        if (connection.error().code() == ErrorCode::Timeout)
         {
-            log::warn("accept failed: {}", connection.error().toString());
+            continue;
         }
+        // The server recycles its instance; waiting a little keeps an error that comes back at once
+        // (no handles left, a pipe in a bad state) from spinning a core.
+        log::warn("accept failed: {}", connection.error().toString());
+        std::this_thread::sleep_for(backOff);
+        backOff = std::min<std::chrono::milliseconds>(backOff * 2, kAcceptMaxBackOff);
     }
     m_stop = true;
     m_workers.clear(); // joins: client loops see m_stop within a poll
@@ -636,11 +699,16 @@ void CoreServer::setStartOptions(bool winKey, std::string language)
     }
     if (plan)
     {
-        setBarPlan(plan); // the bar hears of it
+        writeBarPlan(plan, false); // the bar hears of it; switched off, it stays off
     }
 }
 
-void CoreServer::setBarPlan(const std::optional<std::string>& given)
+void CoreServer::setBarPlan(const std::optional<std::string>& plan)
+{
+    writeBarPlan(plan, true);
+}
+
+void CoreServer::writeBarPlan(const std::optional<std::string>& given, bool newBars)
 {
     // The user's Win key choice (settings.toml) goes with the rice's bars.
     std::optional<std::string> plan = given;
@@ -661,7 +729,7 @@ void CoreServer::setBarPlan(const std::optional<std::string>& given)
             return;
         }
         m_barPlan = plan;
-        if (plan)
+        if (plan && newBars)
         {
             m_barOff = false; // a new bar is meant to be seen
         }
@@ -672,7 +740,7 @@ void CoreServer::setBarPlan(const std::optional<std::string>& given)
     {
         log::warn("cannot save the bar plan: {}", saved.error().toString());
     }
-    if (plan)
+    if (plan && newBars)
     {
         [[maybe_unused]] const auto cleared = m_state->setMeta(kBarOffMeta, std::nullopt);
     }
@@ -1214,6 +1282,25 @@ bool CoreServer::tilerRunning() const
     return json::boolOr(tilerStatus(), "running", false);
 }
 
+void CoreServer::leaveTiler()
+{
+    if (!m_supervisor || !tilerRunning())
+    {
+        return;
+    }
+    log::info("tiler: asking it to put every window back");
+    stopTiler(false);
+    const auto deadline = std::chrono::steady_clock::now() + kTilerLeaveWait;
+    while (tilerRunning() && std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(50ms);
+    }
+    if (tilerRunning())
+    {
+        log::warn("tiler: it did not leave in time; ended (its list puts the windows back)");
+    }
+}
+
 Json CoreServer::tilerStatus() const
 {
     Json status{{"configured", tilerPlan().has_value()}, {"running", false}};
@@ -1367,17 +1454,17 @@ Result<Json> CoreServer::onWindow(const std::function<Json()>& task)
 
 void CoreServer::handleClient(platform::PipeConnection connection)
 {
-    const auto done = [this] {
+    // However this ends (an exception included), the client is gone: the idle exit counts on it.
+    const ScopeExit gone([this]() noexcept {
         m_lastActivity = nowTicks();
         --m_clients;
-    };
+    });
 
     // The first message must be a compatible hello.
     auto first = connection.receive(kHelloTimeout);
     auto hello = first ? ipc::parseRequest(*first) : Result<ipc::Request>(std::unexpected(first.error()));
     if (!hello || hello->method != "hello")
     {
-        done();
         return;
     }
     if (auto compatible = ipc::checkHello(hello->params); !compatible)
@@ -1386,7 +1473,6 @@ void CoreServer::handleClient(platform::PipeConnection connection)
             connection.send(ipc::errorText(hello->id, ipc::rpcError(ipc::RpcCode::Incompatible,
                                                                     compatible.error().message())),
                             kSendTimeout);
-        done();
         return;
     }
     Json helloReply = ipc::helloParams(kVersion);
@@ -1394,7 +1480,6 @@ void CoreServer::handleClient(platform::PipeConnection connection)
     helloReply["dataDirectory"] = utf8Path(m_options.dataDirectory);
     if (!connection.send(ipc::resultText(hello->id, helloReply), kSendTimeout))
     {
-        done();
         return;
     }
 
@@ -1433,28 +1518,43 @@ void CoreServer::handleClient(platform::PipeConnection connection)
         }
         else
         {
-            auto result = dispatch(*request);
-            if (result)
-            {
-                reply = ipc::resultText(request->id, *result);
-            }
-            else if (result.error().code() == ErrorCode::Busy)
-            {
-                reply =
-                    ipc::errorText(request->id, ipc::rpcError(ipc::RpcCode::Busy, result.error().message()));
-            }
-            else
-            {
-                log::warn("{} failed: {}", request->method, result.error().toString());
-                reply = ipc::errorText(request->id, ipc::toRpcError(result.error()));
-            }
+            reply = answer(*request);
         }
         if (!request->id.is_null() && !connection.send(reply, kSendTimeout))
         {
             break;
         }
     }
-    done();
+}
+
+std::string CoreServer::answer(const ipc::Request& request)
+{
+    // A request that throws (a path that does not convert, a bad_alloc) is answered with an error;
+    // the core and this client's other requests go on.
+    try
+    {
+        auto result = dispatch(request);
+        if (result)
+        {
+            return ipc::resultText(request.id, *result);
+        }
+        if (result.error().code() == ErrorCode::Busy)
+        {
+            return ipc::errorText(request.id, ipc::rpcError(ipc::RpcCode::Busy, result.error().message()));
+        }
+        log::warn("{} failed: {}", request.method, result.error().toString());
+        return ipc::errorText(request.id, ipc::toRpcError(result.error()));
+    }
+    catch (const std::exception& e)
+    {
+        log::error("{} failed: {}", request.method, e.what());
+        return ipc::errorText(request.id, ipc::rpcError(ipc::RpcCode::InternalError, e.what()));
+    }
+    catch (...)
+    {
+        log::error("{} failed: unknown exception", request.method);
+        return ipc::errorText(request.id, ipc::rpcError(ipc::RpcCode::InternalError, "unexpected failure"));
+    }
 }
 
 Result<Json> CoreServer::exclusive(const std::function<Result<Json>()>& operation, bool changesWindows)
@@ -1655,6 +1755,10 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     {
         return exclusive([&] { return restore(request.params, false); });
     }
+    if (method == "recover")
+    {
+        return exclusive([&] { return recoverInterrupted(request.params); });
+    }
     if (method == "snapshot.list")
     {
         auto history = m_state->history();
@@ -1776,14 +1880,27 @@ Result<Json> CoreServer::status()
         return value && *value && !(*value)->empty() ? Json(**value) : Json(nullptr);
     };
     Json rice{{"current", metaText(kRiceCurrentMeta)}, {"previous", metaText(kRicePreviousMeta)}};
-    const std::unique_lock probe(m_operation, std::try_to_lock);
+    // Only a look: held while the rest of the reply is built, it turned a concurrent apply away as busy.
+    bool busy = false;
+    {
+        const std::unique_lock probe(m_operation, std::try_to_lock);
+        busy = !probe.owns_lock();
+    }
+    Json interrupted = nullptr;
+    if (auto journal = m_state->openJournal(); journal && *journal)
+    {
+        interrupted = Json{{"operation", (*journal)->operation}, {"startedAt", (*journal)->startedAt}};
+    }
     return Json{{"version", kVersion},
                 {"dataDirectory", utf8Path(m_options.dataDirectory)},
                 {"originalCapturedAt", *base ? Json((*base)->createdAt) : Json(nullptr)},
                 {"managedModules", *applied},
                 {"rice", std::move(rice)},
                 {"needsRestore", *needsRestore},
-                {"busy", !probe.owns_lock()},
+                // Safe mode leaves an interrupted operation as it is (`rmw recover`).
+                {"interrupted", std::move(interrupted)},
+                {"stateReplaced", m_stateMovedTo ? Json(utf8Path(*m_stateMovedTo)) : Json(nullptr)},
+                {"busy", busy},
                 {"safeMode", std::move(safeMode)},
                 {"schedule", std::move(schedule)},
                 {"slideshows", slideshows},
@@ -1895,9 +2012,11 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
     const std::vector<std::string> others =
         firstApply ? platform::detectOtherCustomizers() : std::vector<std::string>{};
 
-    // Slideshows Windows cannot play are turned by the core. The plan is saved first: the
-    // apply's garbage collection must already see the pages it keeps in the store.
-    const Json previousRotation = rotation();
+    // Slideshows Windows cannot play are turned by the core. Their pages go into the store now: the
+    // plan waits in meta while the apply runs (its clean-up must see them) and becomes the plan only
+    // once the apply worked — a crash in between must not leave the core turning pages of a rice that
+    // was undone.
+    std::optional<Json> rotationPlan;
     if (rice.wallpaper)
     {
         auto monitors = m_logic->topology.monitors();
@@ -1911,8 +2030,18 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
         {
             return std::unexpected(std::move(plan.error()));
         }
-        setRotation(*plan);
+        rotationPlan = std::move(*plan);
+        if (auto pending = m_state->setMeta(kRotationPendingMeta, json::dump(*rotationPlan)); !pending)
+        {
+            log::warn("cannot keep the slideshow plan: {}", pending.error().toString());
+        }
     }
+    const auto dropPending = [&] {
+        if (rotationPlan)
+        {
+            [[maybe_unused]] auto dropped = m_state->setMeta(kRotationPendingMeta, std::nullopt);
+        }
+    };
 
     // Ricing Manager's bars and the window look are the core's, not a module's: a rice of bars (or
     // [windows]) only still does something.
@@ -1924,8 +2053,13 @@ Result<Json> CoreServer::applyRice(const Json& params, Origin origin)
                                                  std::format("Automatic: {}", rice.meta.name), bars);
     if (!report)
     {
-        setRotation(previousRotation);
+        dropPending();
         return std::unexpected(std::move(report.error()));
+    }
+    if (rotationPlan)
+    {
+        setRotation(*rotationPlan);
+        dropPending();
     }
     for (auto& note : tweakNotes)
     {
@@ -2062,20 +2196,19 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
     {
         return std::unexpected(std::move(report.error()));
     }
-    setSchedule(std::nullopt); // going back ends any schedule and slideshow
-    setRotation(Json::object());
     bool hadLook = false;
     {
         const std::scoped_lock lock(m_scheduleMutex);
         hadLook = m_windowLook.has_value();
     }
-    setBarPlan(std::nullopt);
-    setBarSource(std::nullopt);
-    setVideoPlan(std::nullopt);
-    setWindowLook(std::nullopt);
+    // A history entry brings back what the core had then (bars, live wallpaper, schedule...); the
+    // original Windows, or an entry older than v1.8 that did not keep it, ends all of that.
+    const Json then = report && !original ? report->core : Json::object();
+    bringBack(then);
     collectMachineJob();
     bool machineAsked = false;
-    if (auto marked = m_state->meta(kMachineIconsMeta); marked && *marked)
+    if (auto marked = m_state->meta(kMachineIconsMeta);
+        marked && *marked && !json::boolOr(then, "machineIcons", false))
     {
         runMachineHelper(machine::Command{machine::Command::Kind::RestoreDefaults, {}});
         machineAsked = true;
@@ -2085,17 +2218,100 @@ Result<Json> CoreServer::restore(const Json& params, bool original)
                 "icons: Windows asks for administrator to bring back the folder and drive icons of the whole PC");
         }
     }
-    m_plugins->setRicePlugins({});
-    [[maybe_unused]] auto current = m_state->setMeta(kRiceCurrentMeta, std::nullopt);
     notifyResident();
     if (!report)
     {
         return std::unexpected(std::move(report.error()));
     }
     Json result = reportJson(*report);
-    result["windowLook"] = hadLook; // taken off other apps' windows
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        result["windowLook"] = hadLook && !m_windowLook; // taken off other apps' windows
+    }
     result["machineIcons"] = machineAsked;
     return result;
+}
+
+Result<Json> CoreServer::recoverInterrupted(const Json& params)
+{
+    const bool discard = json::boolOr(params, "discard", false);
+    auto done = discard ? m_engine->discardJournal() : m_engine->recover();
+    if (!done)
+    {
+        return std::unexpected(std::move(done.error()));
+    }
+    if (*done)
+    {
+        // An undone apply may have left its slideshow plan waiting.
+        [[maybe_unused]] auto dropped = m_state->setMeta(kRotationPendingMeta, std::nullopt);
+    }
+    return Json{{"interrupted", *done},
+                {"discarded", discard && *done},
+                {"needsRestore", m_engine->needsRestore().value_or(false)}};
+}
+
+Json CoreServer::coreState() const
+{
+    Json core = Json::object();
+    {
+        const std::scoped_lock lock(m_scheduleMutex);
+        const auto text = [](const std::optional<std::string>& value) { return value ? Json(*value) : Json(nullptr); };
+        core["schedule"] = m_schedule ? Json(scheduleText(*m_schedule)) : Json(nullptr);
+        core["rotation"] = m_rotation;
+        core["barPlan"] = text(m_barPlan);
+        core["barSource"] = m_barSource ? Json(utf8Path(*m_barSource)) : Json(nullptr);
+        core["videoPlan"] = text(m_videoPlan);
+        core["windowLook"] = m_windowLook ? Json(tiling::toJson(*m_windowLook)) : Json(nullptr);
+    }
+    auto current = m_state->meta(kRiceCurrentMeta);
+    core["riceCurrent"] = current && *current ? Json(**current) : Json(nullptr);
+    auto machine = m_state->meta(kMachineIconsMeta);
+    core["machineIcons"] = machine && machine->has_value();
+    return core;
+}
+
+void CoreServer::bringBack(const Json& core)
+{
+    const auto text = [&](std::string_view key) -> std::optional<std::string> {
+        const Json value = json::memberOr(core, key, Json());
+        return value.is_string() ? std::optional<std::string>(value.get<std::string>()) : std::nullopt;
+    };
+    const auto schedule = text("schedule");
+    setSchedule(schedule ? parseScheduleText(*schedule) : std::nullopt);
+    setRotation(json::memberOr(core, "rotation", Json::object()));
+    setBarPlan(text("barPlan"));
+    std::optional<std::filesystem::path> source;
+    if (const auto saved = text("barSource"))
+    {
+        if (auto wide = utf8To16(*saved))
+        {
+            source = std::filesystem::path(*wide);
+        }
+    }
+    setBarSource(source);
+    setVideoPlan(text("videoPlan"));
+    std::optional<tiling::WindowLook> look;
+    if (const auto saved = text("windowLook"))
+    {
+        if (auto parsed = tiling::parseLook(*saved))
+        {
+            look = std::move(*parsed);
+        }
+    }
+    setWindowLook(look);
+    // What that rice asked of plugins, read again from its folder (gone: none).
+    const auto riceFolder = text("riceCurrent");
+    RicePlugins plugins;
+    if (riceFolder)
+    {
+        if (auto loaded = loadRice(Json{{"path", *riceFolder}}); loaded && loaded->rice)
+        {
+            plugins = RicePlugins::of(*loaded->rice);
+        }
+    }
+    m_plugins->setRicePlugins(plugins);
+    [[maybe_unused]] auto saved = m_state->setMeta(
+        kRiceCurrentMeta, riceFolder ? std::optional<std::string_view>(*riceFolder) : std::nullopt);
 }
 
 Result<Json> CoreServer::monitors()
