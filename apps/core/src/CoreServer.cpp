@@ -858,11 +858,10 @@ Result<void> CoreServer::startBar()
     platform::WorkerSpec spec;
     spec.name = std::string(kBarWorker);
     spec.executable = self->parent_path() / L"rmw-bar.exe";
-    spec.arguments =
-        std::format(L"--plan \"{}\"", (m_options.dataDirectory / L"bar" / L"bars.json").native());
+    spec.arguments = L"--plan " + platform::quoteArgument((m_options.dataDirectory / L"bar" / L"bars.json").native());
     if (!m_bridgePipe.empty())
     {
-        spec.arguments += std::format(L" --bridge \"{}\"", m_bridgePipe);
+        spec.arguments += L" --bridge " + platform::quoteArgument(m_bridgePipe);
     }
     spec.memoryLimitBytes = kBarMemoryLimit;
     spec.hangAfter = std::chrono::milliseconds(2000);
@@ -1002,8 +1001,7 @@ Result<void> CoreServer::startVideo()
     platform::WorkerSpec spec;
     spec.name = std::string(kVideoWorker);
     spec.executable = self->parent_path() / L"rmw-wallpaper.exe";
-    spec.arguments =
-        std::format(L"--plan \"{}\"", (m_options.dataDirectory / L"wallpaper" / L"video.json").native());
+    spec.arguments = L"--plan " + platform::quoteArgument((m_options.dataDirectory / L"wallpaper" / L"video.json").native());
     spec.memoryLimitBytes = kVideoMemoryLimit;
     // docs/04 M6: a hung window thread is found in < 2 s (1.5 s of silence, plus the checks). The
     // thread beats every 250 ms and between the monitors while it builds the decoders.
@@ -1251,7 +1249,7 @@ Result<void> CoreServer::startTiler()
     platform::WorkerSpec spec;
     spec.name = std::string(kTilerWorker);
     spec.executable = self->parent_path() / L"rmw-tiler.exe";
-    spec.arguments = std::format(L"--plan \"{}\"", (m_options.dataDirectory / L"tiler" / L"plan.json").native());
+    spec.arguments = L"--plan " + platform::quoteArgument((m_options.dataDirectory / L"tiler" / L"plan.json").native());
     spec.memoryLimitBytes = kTilerMemoryLimit;
     spec.hangAfter = std::chrono::milliseconds(2000);
     spec.startGrace = std::chrono::milliseconds(10'000);
@@ -1344,7 +1342,7 @@ void CoreServer::putBackTiledWindows() const
     platform::ChildOptions options;
     options.ownJob = false; // a moment's work that must finish even if the core goes
     auto child = platform::ChildProcess::spawn(self->parent_path() / L"rmw-tiler.exe",
-                                               std::format(L"--restore \"{}\"", file.native()), options);
+                                               L"--restore " + platform::quoteArgument(file.native()), options);
     if (!child)
     {
         log::error("cannot put the tiled windows back: {}", child.error().toString());
@@ -2725,8 +2723,9 @@ Result<void> CoreServer::startPluginHost()
     platform::WorkerSpec spec;
     spec.name = std::string(kPluginWorker);
     spec.executable = self->parent_path() / L"rmw-plugin-host.exe";
-    spec.arguments = std::format(L"--data \"{}\" --bridge \"{}\" --control \"{}\"",
-                                 m_options.dataDirectory.native(), m_bridgePipe, m_controlPipe);
+    spec.arguments = std::format(L"--data {} --bridge {} --control {}",
+                                 platform::quoteArgument(m_options.dataDirectory.native()),
+                                 platform::quoteArgument(m_bridgePipe), platform::quoteArgument(m_controlPipe));
     if (m_blame != nullptr)
     {
         spec.arguments += std::format(L" --blame {}", reinterpret_cast<std::uintptr_t>(m_blame));
