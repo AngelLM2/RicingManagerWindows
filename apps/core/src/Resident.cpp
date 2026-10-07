@@ -8,6 +8,7 @@
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/json/Json.hpp"
+#include "rmw/modules/Appearance.hpp"
 #include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
@@ -85,6 +86,11 @@ std::int32_t localSecondsOfDay() noexcept
     SYSTEMTIME now{};
     GetLocalTime(&now);
     return (now.wHour * 3600) + (now.wMinute * 60) + now.wSecond;
+}
+
+domain::TimeOfDay timeOfDay(std::int32_t seconds) noexcept
+{
+    return {static_cast<std::uint8_t>(seconds / 3600 % 24), static_cast<std::uint8_t>(seconds / 60 % 60)};
 }
 
 std::optional<std::filesystem::file_time_type> stampOf(const std::filesystem::path& file)
@@ -479,7 +485,7 @@ void Resident::openSettings()
         return;
     }
     const auto settings = self->parent_path() / L"rmw-settings.exe";
-    const std::wstring arguments = std::format(L"--data-dir \"{}\"", m_core->dataDirectory().native());
+    const std::wstring arguments = L"--data-dir " + platform::quoteArgument(m_core->dataDirectory().native());
     if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", settings.c_str(), arguments.c_str(),
                                                 nullptr, SW_SHOWNORMAL)) <= 32)
     {
@@ -635,6 +641,12 @@ void Resident::onPowerSource(bool onAc)
     }
 }
 
+bool Resident::periodChanged(const domain::AppearanceSchedule& schedule, std::int32_t now) const
+{
+    return modules::isLightPeriod(schedule, timeOfDay(m_lastLocalSeconds)) !=
+           modules::isLightPeriod(schedule, timeOfDay(now));
+}
+
 void Resident::onClockJump()
 {
     // A switch that happened while the computer slept (or the clock moved past it) is applied
@@ -645,7 +657,9 @@ void Resident::onClockJump()
                                                                           m_lastWallClock)
                              .count();
         const std::int32_t now = localSecondsOfDay();
-        const bool missed = gap >= domain::kSecondsPerDay ||
+        // UTC for sleep and clock changes; the local period for a time zone or daylight saving change,
+        // which moves the local clock past a switch while UTC hardly moves.
+        const bool missed = gap >= domain::kSecondsPerDay || periodChanged(*schedule, now) ||
                             (gap > 0 && (domain::secondsSince(schedule->lightAt, now) < gap ||
                                          domain::secondsSince(schedule->darkAt, now) < gap));
         if (missed)
@@ -686,6 +700,12 @@ void Resident::onScheduleTimer()
             log::info("scheduled switch to {}", light ? "light" : "dark");
             queueScheduleSync();
         }
+        else if (periodChanged(*schedule, now))
+        {
+            // The timer was armed on another local clock (daylight saving began or ended since).
+            log::info("a scheduled switch passed on a moved clock");
+            queueScheduleSync();
+        }
     }
     const auto& rules = m_loaded.settings.rules;
     for (std::size_t i = 0; i < rules.size(); ++i)
@@ -709,6 +729,7 @@ void Resident::armSchedule()
 {
     m_window->killTimer(kScheduleTimer);
     m_lastWallClock = std::chrono::system_clock::now();
+    m_lastLocalSeconds = localSecondsOfDay();
     if (safe())
     {
         return;
@@ -957,11 +978,12 @@ void Resident::syncTiler()
 void Resident::emergency()
 {
     log::warn("emergency hotkey: the bar is off and Windows' taskbar is back");
-    // Right now, on this thread: an operation may be running and the bar may be hung.
+    // Right now, on this thread: an operation may be running and the bar may be hung. The switch
+    // too: queued behind that operation, a refresh before it started the bar again.
     m_core->stopBar();
     m_barStartedFor.reset();
     platform::showNativeTaskbars();
-    queueAction({.name = "bar.off", .ricePath = {}, .app = {}}, Origin::User);
+    m_core->setBarOff(true);
     const UiStrings& text = uiStrings();
     notify(text.barOffTitle, std::wstring(text.barOffText));
 }

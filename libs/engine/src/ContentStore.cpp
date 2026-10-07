@@ -49,9 +49,8 @@ std::string cleanExtension(std::string_view extension)
 
 std::string extensionOf(const std::filesystem::path& path)
 {
-    const std::u8string extension = path.extension().u8string();
-    return cleanExtension(
-        std::string_view(reinterpret_cast<const char*>(extension.data()), extension.size()));
+    // Lossy, never throwing: an extension that does not convert is no extension cleanExtension keeps.
+    return cleanExtension(utf16To8Lossy(path.extension().native()));
 }
 
 // "<64 hex>" or "<64 hex>.<ext>" -> the hash; empty otherwise.
@@ -224,7 +223,7 @@ Result<std::size_t> ContentStore::collectGarbage(
         else if (ec)
         {
             // In use (e.g. a cursor Windows still holds open): try again next time.
-            log::warn("content store: cannot remove {}: {}", path.filename().string(), ec.message());
+            log::warn("content store: cannot remove {}: {}", utf16To8Lossy(path.filename().native()), ec.message());
         }
     }
     return removed;
@@ -310,8 +309,14 @@ Result<std::vector<std::string>> StoreAssetSink::listPackageFolder(std::string_v
         {
             continue;
         }
-        const std::u8string name = it->path().filename().u8string();
-        std::string utf8(name.begin(), name.end());
+        // Strict, and without throwing: a name that is not valid UTF-16 (u8string() throws on it) is
+        // no name a package could have produced.
+        auto converted = utf16To8(it->path().filename().native());
+        if (!converted)
+        {
+            continue;
+        }
+        std::string utf8 = std::move(*converted);
         if (!domain::validatePackagePath(utf8) || utf8.find('/') != std::string::npos)
         {
             continue; // names a package could not have produced are skipped

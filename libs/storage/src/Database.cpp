@@ -159,6 +159,41 @@ Result<void> Database::rollback()
     return execute("ROLLBACK;");
 }
 
+Result<void> Database::quickCheck()
+{
+    if (!isOpen())
+    {
+        return fail(ErrorCode::InvalidArgument, "database is not open");
+    }
+    sqlite3_stmt* statement = nullptr;
+    int rc = sqlite3_prepare_v2(m_db, "PRAGMA quick_check(1);", -1, &statement, nullptr);
+    if (rc != SQLITE_OK)
+    {
+        return std::unexpected(lastError("quick_check", rc));
+    }
+    rc = sqlite3_step(statement);
+    std::string verdict;
+    if (rc == SQLITE_ROW)
+    {
+        if (const auto* text = sqlite3_column_text(statement, 0); text != nullptr)
+        {
+            verdict = reinterpret_cast<const char*>(text);
+        }
+    }
+    Result<void> checked;
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE)
+    {
+        checked = std::unexpected(lastError("quick_check", rc));
+    }
+    else if (verdict != "ok")
+    {
+        checked = fail(ErrorCode::Database, std::format("quick_check: {}", verdict.empty() ? "no answer" : verdict),
+                       SQLITE_CORRUPT);
+    }
+    sqlite3_finalize(statement);
+    return checked;
+}
+
 bool Database::isOpen() const noexcept
 {
     return m_db != nullptr;
@@ -232,6 +267,16 @@ Error Database::lastError(std::string_view context, int code) const
     const char* message = m_db != nullptr ? sqlite3_errmsg(m_db) : sqlite3_errstr(code);
     return Error(ErrorCode::Database, message != nullptr ? message : "unknown SQLite error", code)
         .withContext(context);
+}
+
+bool isDamaged(const Error& error) noexcept
+{
+    if (error.code() != ErrorCode::Database)
+    {
+        return false;
+    }
+    const auto primary = error.nativeCode() & 0xFF; // extended result codes keep the primary one below
+    return primary == SQLITE_CORRUPT || primary == SQLITE_NOTADB;
 }
 
 } // namespace rmw::storage

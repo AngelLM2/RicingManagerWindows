@@ -74,6 +74,10 @@ private:
     std::uint32_t m_pid = 0;
 };
 
+// One argument for a child's command line, in quotes, as CommandLineToArgvW and the CRT read it back:
+// "C:\data\" written as is would end in \" (an escaped quote) and swallow the arguments after it.
+[[nodiscard]] std::wstring quoteArgument(std::wstring_view argument);
+
 // The strict policies of ADR-0002 for the core and its apply helper: no dynamic code (ACG), no
 // extension points, no remote/low-label images and only Microsoft-signed DLLs from now on. Set
 // RMW_DISABLE_MITIGATIONS=1 to skip them while diagnosing a machine; never applied under ASan.
