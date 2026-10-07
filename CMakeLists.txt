@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 
 project(
     RicingManagerWindows
-    VERSION 1.7.0
+    VERSION 1.8.0
     DESCRIPTION "Open-source, lightweight and reversible Windows customizer"
     HOMEPAGE_URL "https://github.com/AngelLM2/RicingManagerWindows"
     LANGUAGES CXX
