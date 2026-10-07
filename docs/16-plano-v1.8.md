@@ -122,6 +122,21 @@ Quatro revisões adversariais (barra, *tiler*, core e motor, configurações e p
 | Q42 | Cartões e linhas que vazavam em português; janela mais alta que uma tela 1080p a 200% | linhas que quebram; altura mínima 420 |
 | — | Em parte: cópias longas não podem ser canceladas no meio; a lista do seletor de apps não recebe foco pelo teclado; mensagens que vêm do core seguem em inglês; **plugins não usam mais proxy** (o endereço de destino é conferido antes de enviar; numa rede que só sai por proxy, o recurso de rede dos plugins para, com uma mensagem que diz o motivo) | |
 
+**A suíte `break` e as suítes de sempre na Sandbox** (o que só apareceu rodando):
+
+| # | O que quebrava | Correção | Teste |
+|---|---|---|---|
+| Q43 | Com o Iniciar próprio aberto, a barra usa ~55 MB; o teto de 96 MB deixava pouca folga | teto de 128 MB (aviso a 80%) | `bar` §4d |
+| Q44 | Esc no Iniciar e um clique logo depois no botão Iniciar não abria nada (a proteção de 300 ms valia para qualquer fechamento) | só um menu que perdeu o foco ignora o próximo clique | `bar` §4d |
+| Q45 | Depois de a barra cair várias vezes e o supervisor desistir, `rmw bar on` não fazia nada até reiniciar o core | `bar on` com a barra parada a inicia de novo | `break` bar-killed |
+| Q46 | Trocar o fuso horário (ou o serviço automático trocá-lo) não mudava a agenda claro/escuro: o C *runtime* guarda o fuso que leu primeiro, e uma atualização da agenda escondia o salto do relógio | `_tzset` antes de ler a hora local (agenda, relógio dos plugins, datas da janela); a agenda anota o relógio só quando olha para ele e confere a hora a cada minuto | `break` time-zone |
+| Q47 | Um executável com nome `.png` era aceito como papel de parede | uma imagem é conferida pelos bytes (JPEG, PNG, BMP, GIF) | `break` huge-picture |
+| Q48 | A caixa de número mudava de largura com o valor; um `settings.toml` que não carrega não deixava rastro | largura fixa; aviso no log | `settings` |
+| Q49 | O gancho da tecla Win podia ser parado antes de saber o próprio *thread* (a barra esperava para sempre ao sair) | o *thread* é conhecido antes de qualquer um poder pará-lo | revisão do código |
+| Q50 | **Modo Mac: Ctrl+Win+número tocado rápido às vezes não trocava de área** (a falha "intermitente" desde a v1.4): o *tiler* olhava se Ctrl e Win ainda estavam apertados e mandava só a seta, mas quando ela chegava a pessoa já os tinha soltado (o Windows via uma seta sozinha). O mesmo com a tecla neutra depois de um atalho com Win ou Alt: chegando depois do Win solto, o Iniciar abria | o gancho segura as teclas modificadoras soltas até o comando responder e o que ele mandou passar pelo gancho, e as solta depois, na ordem (no máximo 250 ms) | `tiler` §9 |
+
+A suíte `break` (56 verificações, todas passando) faz: instalação e dados em pastas com apóstrofo e acento (como o perfil `C:\Users\user'` do dono); `settings.toml` vazio, lixo, JSON, com NUL, com 5000 níveis, de 6 MB, com tipos, atalhos e regras errados, só leitura e apagado; cinco aplicações e uma restauração de uma vez (as que chegam com outra em curso recebem "ocupado", o core é o mesmo no fim); apagar o rice aplicado e desfazer/restaurar; matar a barra até o supervisor desistir e pedir `bar on`; 39 chamadas da CLI com argumentos faltando, errados, de 32 000 letras, com emoji e japonês, arquivos aleatórios e vazios; imagem de 7000×7000 e um executável disfarçado de imagem; quatro barras absurdas (espessura 512 com margens de 1024, espessura 4 com raio 1000, comprimento 0, espessura 300 à direita); troca de fuso com a agenda ligada; `state.db` corrompido e vazio. No fim, a barra do Windows está de volta e nenhum `fatal` aparece nos logs.
+
 ## Ordem
 
 R1 → R2 → R3 → R4, depois a campanha (achados corrigidos à medida que aparecem). Cada um com testes de unidade, a suíte da Sandbox que o cobre, clang-tidy e o registro em `PROGRESSO.md`; no fim, todas as suítes, o instalador e a v1.8.0 local. O teste real e os dois monitores continuam com o dono.

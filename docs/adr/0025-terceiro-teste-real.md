@@ -14,6 +14,9 @@
 6. **Barras fluidas sem pedir espaço de novo.** A faixa reservada não depende do comprimento da barra: uma barra `auto` muda de comprimento quadro a quadro só com `UpdateLayeredWindow` (o DIB só cresce). Os itens que entram crescem (`init` + `animate`), e as listas da barra (janelas, dock, bandeja) mudam linha a linha (`syncRows`), para que um título que muda não refaça os botões.
 7. **Repetidores de *widgets* de plugin:** só um número escrito (≤ 256) ou uma propriedade de lista; ≤ 4096 elementos multiplicando os aninhados.
 8. **A campanha de quebra** virou uma suíte da Sandbox (`break`) e se repete a cada versão: caminhos com apóstrofo e acento (o perfil do dono é `C:\Users\user'`), configurações e banco danificados, rajadas de operações, CLI com lixo, imagens enormes, barras absurdas, mudança de fuso durante uma agenda.
+9. **A hora local é lida com o fuso de agora.** O C *runtime* guarda o fuso que leu na primeira vez (`localtime_s`), e um core residente passaria dias com o fuso velho; `_tzset` vem antes de cada leitura (agenda, relógio dos plugins, datas da janela). O serviço de fuso automático do Windows não avisa nenhum app: a agenda confere a hora a cada minuto, além de `WM_TIMECHANGE`.
+10. **Uma imagem de um rice é uma imagem pelos bytes** (`sniffFileType`: JPEG, PNG, BMP, GIF), não só pela extensão, ao entrar no armazém. O `.rice` importado já era conferido assim; uma pasta aplicada direto não era.
+11. **O teto de memória da barra é 128 MB.** Com o Iniciar próprio aberto em "Todos os apps", a barra medida na Sandbox (438 apps) fica perto de 55 MB; os apps que ela abre não contam mais (decisão 1).
 
 ## Consequências
 
