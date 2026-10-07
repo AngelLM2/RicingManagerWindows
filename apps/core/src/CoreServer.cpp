@@ -77,7 +77,8 @@ constexpr std::string_view kVideoWorker = "wallpaper";
 constexpr std::uint64_t kVideoMemoryLimit = std::uint64_t{768} << 20;
 constexpr std::uint64_t kVideoMaxBytes = std::uint64_t{4} << 30;        // what one video may weigh
 constexpr std::uint64_t kVideoStatusMaxBytes = std::uint64_t{64} << 10; // rmw-wallpaper's status.json
-constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{96} << 20;      // the bar's budget is 25 MB
+// A bar alone takes ~20 MB; with Ricing Manager's Start (its Slint compiled) ~55 MB, measured in the Sandbox.
+constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{128} << 20; // a net for leaks, not the budget
 constexpr std::string_view kTilerWorker = "tiler";
 constexpr std::uint64_t kTilerMemoryLimit = std::uint64_t{64} << 20; // it keeps a list of windows
 constexpr auto kTilerLeaveWait = 3s; // putting a few hundred windows back takes well under a second
