@@ -1497,6 +1497,10 @@ void SettingsApp::importInto(fs::path source, settings::AssetKind kind, std::fun
             if (!reply)
             {
                 failed(reply.error());
+                if (stillEditing(folder))
+                {
+                    showWallpapers(); // a kind picked for the file shows the rule's own again
+                }
                 return;
             }
             // Another rice is edited now: the copy stays in the first one's folder, unused.
@@ -2821,7 +2825,7 @@ void SettingsApp::bind()
             auto color = domain::Color::parse(v);
             if (!color)
             {
-                failed(color.error());
+                refused("color");
                 showWallpapers(); // the color it has comes back in the box
                 return;
             }
@@ -3831,6 +3835,7 @@ void SettingsApp::bind()
             return;
         }
         domain::BarConfig& bar = rice->bars[static_cast<std::size_t>(index)];
+        const domain::BarConfig before = bar; // what a refused change goes back to
         // Compared with what it shows (its style filled in): only what the user changed is its own.
         const domain::BarConfig shown = domain::withStyle(bar);
         const BarModel model = m_ui->global<Api>().get_bar();
@@ -3931,12 +3936,9 @@ void SettingsApp::bind()
         };
         if (!known(bar.background.tint) || !known(bar.foreground))
         {
-            // Not saved: the bar shows what the rice has again.
+            // Not kept: the bar goes back to what it was (other changes still waiting to be saved stay).
             refused("palette");
-            if (auto reread = settings::loadRice(m_edit->folder))
-            {
-                m_edit->loaded = std::move(*reread);
-            }
+            bar = before;
             showBars();
             return;
         }
