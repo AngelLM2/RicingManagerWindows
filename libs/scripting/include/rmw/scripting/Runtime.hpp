@@ -126,8 +126,10 @@ public:
     Runtime& operator=(Runtime&&) = delete;
 
     // Starts a plugin in a fresh VM (replacing one with the same id): its script runs once and
-    // registers what it does. Widgets of the plugin that were shown are created again.
+    // registers what it does. Widgets of the plugin that were shown are created again. What the one
+    // it replaces stored and was not taken yet (takeDirtyStorage) wins over `spec.storage`.
     [[nodiscard]] Result<void> load(PluginSpec spec, Clock::time_point now);
+    // Its storage, when not taken yet, is still given by takeDirtyStorage().
     void unload(std::string_view id);
     [[nodiscard]] std::vector<PluginStatus> status() const;
 
@@ -171,6 +173,8 @@ private:
     std::vector<std::unique_ptr<Plugin>> m_plugins;
     std::vector<InstanceSpec> m_instances; // what the bars show (also for plugins loaded later)
     std::vector<std::string> m_watched;
+    // rmw.storage of plugins unloaded before it was taken: v1.7 lost up to 5 s of it on each reload.
+    std::vector<std::pair<std::string, domain::Value::Table>> m_unsavedStorage;
     Clock::time_point m_now;
 };
 
