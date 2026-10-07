@@ -385,11 +385,21 @@ Write-Rice $styled "[[bar]]`nstyle = `"dock`"`n"
 [void](Invoke-Rmw @('apply', $styled, '--wait'))
 Start-Sleep -Seconds 2
 
-# The dock: as long as its apps; another app, a longer dock.
+# The dock: as long as its apps; another app, a longer dock. v1.8: it grows over several frames (the owner:
+# "as barras precisam ser mais fluidas quando vão expandir").
 $before = (Bar-Rect).Width
+$widths = New-Object System.Collections.Generic.List[int]
 $console = Start-Process cmd.exe -PassThru
+$sampleUntil = (Get-Date).AddSeconds(3)
+while ((Get-Date) -lt $sampleUntil) {
+    $w = (Bar-Rect).Width
+    if ($widths.Count -eq 0 -or $widths[$widths.Count - 1] -ne $w) { $widths.Add($w) }
+    Start-Sleep -Milliseconds 4
+}
 $grew = Wait-Until { (Bar-Rect).Width -ge $before + 30 -and (Centered (Bar-Rect)) } 10
 Check 'bar:dock-grows-with-its-apps' $grew "before=$before now=$((Bar-Rect).Width)"
+$between = @($widths | Where-Object { $_ -gt $before -and $_ -lt (Bar-Rect).Width }).Count
+Check 'v18:dock-grows-smoothly' ($between -ge 3) "widths seen: $($widths -join ' ')"
 Shot 'bar-4b-dock-more-apps'
 $bar = Bar-Process
 if ($bar) {
@@ -490,6 +500,72 @@ Start-Sleep -Seconds 1
 Check 'start:win-key-is-windows-again' (-not (Start-Visible)) ''
 [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
 Start-Sleep -Milliseconds 500
+
+# ---- 4d. v1.8: Start with hundreds of apps (the owner's PC: 239, and "Todos os apps" restarted the bar) --
+$stressFolder = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\RmwStress'
+New-Item -ItemType Directory -Force $stressFolder | Out-Null
+$shell = New-Object -ComObject WScript.Shell
+foreach ($i in 0..399) {
+    $link = $shell.CreateShortcut((Join-Path $stressFolder ('RmwStress App {0:D3}.lnk' -f $i)))
+    $link.TargetPath = Join-Path $env:WINDIR 'System32\charmap.exe' # a Win32 app: started by the bar itself
+    $link.IconLocation = "$env:WINDIR\System32\shell32.dll,$($i % 300)"
+    $link.Save()
+}
+Note 'stress-apps' "$(@(Get-ChildItem $stressFolder).Count) shortcuts"
+# A new bar plan makes the menu again, with the new list.
+Write-Rice $startRice ("[start]`nmenu = `"ours`"`n`n[[bar]]`nstyle = `"status`"`nthickness = 30`n")
+$r = Invoke-Rmw @('apply', $startRice, '--wait')
+[void](Wait-Until { (Bar-Rect).Height -eq 30 } 20)
+Start-Sleep -Seconds 8 # the list and the icons load on their own thread
+$barBefore = Bar-Process
+$barId = if ($barBefore) { $barBefore.Id } else { 0 }
+$memoryBefore = if ($barBefore) { $barBefore.PrivateMemorySize64 / 1MB } else { 0 }
+$coreLog = Join-Path $data 'logs\core.log'
+$restartsBefore = @(Select-String -Path $coreLog -Pattern 'worker bar passed its memory limit' -ErrorAction SilentlyContinue).Count
+[void](Press-Start)
+Start-Sleep -Milliseconds 600
+$menu = New-Object Rmw.Win+RECT
+[void][Rmw.Win]::GetWindowRect([Rmw.Win]::FindWindowW('RicingManagerWindows.Start', [NullString]::Value), [ref]$menu)
+$menuScale = ($menu.Right - $menu.Left) / 640.0
+# "All apps ›": the top right of the panel (22 px of padding, below the search field).
+Click ($menu.Left + [int](576 * $menuScale)) ($menu.Top + [int](84 * $menuScale))
+Start-Sleep -Seconds 1
+Shot 'bar-4d-start-all-apps'
+# Down the whole list and back, while the icons come.
+[void][Rmw.Win]::SetCursorPos($menu.Left + [int](300 * $menuScale), $menu.Top + [int](350 * $menuScale))
+foreach ($notch in 1..60) { [Rmw.Win]::mouse_event(0x0800, 0, 0, [uint32]4294967176, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 } # -120
+Shot 'bar-4d-start-all-apps-scrolled'
+foreach ($notch in 1..60) { [Rmw.Win]::mouse_event(0x0800, 0, 0, 120, [UIntPtr]::Zero); Start-Sleep -Milliseconds 15 }
+$bar = Bar-Process
+$memoryOpen = if ($bar) { $bar.Refresh(); $bar.PrivateMemorySize64 / 1MB } else { 0 }
+$restarts = @(Select-String -Path $coreLog -Pattern 'worker bar passed its memory limit' -ErrorAction SilentlyContinue).Count - $restartsBefore
+Check 'v18:start-all-apps-keeps-the-bar' ($bar -and $bar.Id -eq $barId -and $restarts -eq 0 -and (Start-Visible)) "bar $barId -> $(if ($bar) { $bar.Id }); memory restarts: $restarts"
+Check 'v18:start-all-apps-memory' ($memoryOpen -lt 50) ('{0:N1} MB before, {1:N1} MB with 400+ apps open' -f $memoryBefore, $memoryOpen)
+Note 'start-log' ((Get-Content (Join-Path $data 'logs\bar.log') -Tail 30 | Where-Object { $_ -match 'start menu' }) -join ' | ')
+[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+[void](Wait-Until { -not (Start-Visible) } 3)
+# A search typed fast, then Enter: an app the bar starts lives on its own (not in the bar's job: it had the
+# bar's memory ceiling and died with it).
+[void](Press-Start)
+Start-Sleep -Milliseconds 300
+$typed = [Diagnostics.Stopwatch]::StartNew()
+[System.Windows.Forms.SendKeys]::SendWait('RmwStress App 123')
+$typingMs = $typed.ElapsedMilliseconds
+Start-Sleep -Milliseconds 500
+Shot 'bar-4d-start-search'
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+$charmap = $null
+$started = Wait-Until { $script:charmap = Get-Process charmap -ErrorAction SilentlyContinue | Select-Object -First 1; $null -ne $script:charmap } 10
+Check 'v18:start-opens-from-the-search' $started "typing took $typingMs ms"
+$barNow = Bar-Process
+if ($started -and $barNow) {
+    Stop-Process -Id $barNow.Id -Force
+    [void](Wait-Until { $b = Bar-Process; $null -ne $b -and $b.Id -ne $barNow.Id } 15)
+    Start-Sleep -Seconds 2
+    Check 'v18:app-outlives-the-bar' ($null -ne (Get-Process -Id $script:charmap.Id -ErrorAction SilentlyContinue)) "charmap $($script:charmap.Id)"
+}
+Get-Process charmap -ErrorAction SilentlyContinue | Stop-Process -Force
+Remove-Item $stressFolder -Recurse -Force -ErrorAction SilentlyContinue
 
 # Back to the two reserving bars the next steps expect.
 $r = Invoke-Rmw @('apply', $acrylic, '--wait')

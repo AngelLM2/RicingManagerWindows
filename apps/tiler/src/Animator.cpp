@@ -57,7 +57,7 @@ Animator::~Animator()
     }
 }
 
-void Animator::start(std::vector<Move> moves, std::chrono::milliseconds duration)
+void Animator::start(const std::vector<Move>& moves, std::chrono::milliseconds duration)
 {
     if (moves.empty())
     {
@@ -66,13 +66,13 @@ void Animator::start(std::vector<Move> moves, std::chrono::milliseconds duration
     const auto now = std::chrono::steady_clock::now();
     {
         const std::scoped_lock lock(m_mutex);
-        for (auto& move : moves)
+        for (const auto& move : moves)
         {
             const tiling::WindowId id = idOf(move.window);
             std::erase_if(m_running, [&](const Running& running) { return idOf(running.move.window) == id; });
             const std::int32_t width = move.from.width();
             const std::int32_t height = move.from.height();
-            m_running.push_back({std::move(move), now, duration, width, height});
+            m_running.push_back({move, now, duration, width, height});
         }
     }
     m_wake.notify_all();
@@ -130,7 +130,8 @@ void Animator::run(const std::stop_token& stop)
             const double t =
                 it->duration.count() <= 0
                     ? 1.0
-                    : std::chrono::duration<double, std::milli>(now - it->start).count() / it->duration.count();
+                    : std::chrono::duration<double, std::milli>(now - it->start).count() /
+                          static_cast<double>(it->duration.count());
             const tiling::Rect frame = tiling::slideFrame(it->move.from, it->move.to, t);
             const bool resize = frame.width() != it->width || frame.height() != it->height;
             it->width = frame.width();

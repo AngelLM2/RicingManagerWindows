@@ -63,9 +63,30 @@ O dono pediu para tentar quebrar tudo. O método:
 
 ### Achados
 
-| # | Área | O que quebrou | Causa | Correção | Teste |
-|---|---|---|---|---|---|
-| Q1 | *Tiler* | Laço de pedidos de administrador | C5 | R2.4 | `tiler` |
+Quatro revisões adversariais (barra, *tiler*, core e motor, configurações e plugins) acharam 87 problemas; cada um foi conferido no código antes de corrigir. Os principais:
+
+| # | Área | O que quebrava | Correção | Teste |
+|---|---|---|---|---|
+| Q1 | *Tiler* | Laço de pedidos de administrador (C5) | `wantsAdmin` igual ao `applyPlan`; uma cópia que sai na hora não é pedida de novo | `tiler` §15 |
+| Q2 | Barra | **Apps abertos pelo Iniciar e pelo dock entravam no *job* da barra**: herdavam o teto de 96 MB, contavam no limite dela e morriam com ela — provável causa real do "crash" em Todos os apps | `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` no *job* da barra; abrir apps numa *thread* própria (um app que pede administrador segurava a barra até ela ser morta) | `bar` §4d |
+| Q3 | Barra | Com o core morto, a barra girava a 100% de CPU e a barra do Windows nunca voltava | o laço lê as mensagens mesmo quando um *handle* fica sinalizado; o core é observado uma vez | revisão do código |
+| Q4 | Barra | Texto do rice com caracteres japoneses ou acentos cortado no meio de um caractere: o Slint aborta e a barra cai em todo início | `utf8Prefix` corta entre caracteres | `UtfTests` |
+| Q5 | Barra | Clicar num número do widget de áreas do Windows não fazia nada (callback com outro nome) | `-select`, e um aviso no log se faltar | revisão do código |
+| Q6 | Barra | Plugins podiam criar milhões de elementos (`for x in 200*200*200`, laços aninhados, um número vindo do script) | repetidor só com número escrito (≤ 256) ou lista; ≤ 4096 elementos somando os aninhados | `WidgetSourceTests` |
+| Q7 | Barra | Com o Explorer lento, posicionar a barra esperava até 4,5 s e ela era morta como travada | chamadas de app bar esperam 500 ms | — |
+| Q8 | Barra | Ícone animado recusado pelo Explorer acumulava um GDI *handle* por quadro por 2 min (visto no PC do dono) | uma atualização substitui a que espera; até 8 por ícone | — |
+| Q9 | Barra | Iniciar: lista e ícones no *thread* da barra (recriar a barra ou digitar podia passar do *heartbeat*); 25 MB de *buffers* a 200% mesmo fechado | carregamento numa *thread* própria em lotes; *buffers* só com o menu aberto | `bar` §4d |
+| Q10 | *Tiler* | Janela em tela cheia (F11, vídeo, jogo) puxada de volta para o *tile* | deixada em paz como uma maximizada | `tiler` §12 |
+| Q11 | *Tiler* | Discord/Spotify fechados na bandeja reapareciam maximizados ao desligar o *tiling* | janela que o app escondeu fica escondida | `tiler` §13 |
+| Q12 | *Tiler* | Redimensionar um *tile* trocava a janela com a vizinha | um arrasto que muda o tamanho é redimensionar | `tiler` §14 |
+| Q13 | *Tiler* | Troca de área podia voltar para a anterior (o eco do foco da janela escondida) | 400 ms de calma depois da nossa troca | `tiler` §3 |
+| Q14 | *Tiler* | Janelas de app de administrador escondidas para sempre depois de uma queda da cópia elevada | ficam no `windows.json` até um *tiler* que possa movê-las | revisão do código |
+| Q15 | *Tiler* | Monitor que muda de nome (DisplayPort acordando) embaralhava as áreas; monitor desligado empilhava tudo na área visível | mesmo lugar = mesmo monitor; áreas juntam por número | `TilingTests` |
+| Q16 | *Tiler* | Ao soltar Alt de um atalho Ctrl+Alt, o menu do app abria; segurar a tecla de Toggle ligava e desligava 30 vezes por segundo | tecla neutra depois de Alt; repetição só para foco, mover e próxima área | revisão do código |
+| Q17 | *Tiler* | Janela volta para fora de todas as telas quando o monitor dela sumiu | volta para a área de trabalho do monitor mais próximo | revisão do código |
+| Q18 | Ambos | Tooltips e listas suspensas voltavam como fantasmas; arquivo do plano perdido durante leitura; salvar a cada troca esperava o disco | ver o commit do *tiler* | — |
+
+Os achados do core e do motor (restauração que trava por um diário de desfazer com falha, banco compartilhado entre *threads*, `state.db` corrompido que impede o início, saída limpa que deixa janelas escondidas…) e os das configurações (nomes de arquivo longos que estragam o rice, cursores importados que perdem os arquivos, cópias grandes no *thread* da janela, edições perdidas…) estão sendo corrigidos à parte e entram aqui ao fim.
 
 ## Ordem
 

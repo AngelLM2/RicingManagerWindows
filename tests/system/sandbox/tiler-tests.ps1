@@ -64,7 +64,16 @@ public static extern System.IntPtr WindowFromPoint(POINT point);
 public static extern System.IntPtr GetAncestor(System.IntPtr window, uint flags);
 [System.Runtime.InteropServices.DllImport("gdi32.dll")]
 public static extern bool BitBlt(System.IntPtr target, int x, int y, int width, int height, System.IntPtr source, int sourceX, int sourceY, uint operation);
+[System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+public static extern bool SpiSetPointer(uint action, uint param, System.IntPtr value, uint winIni);
+[System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+public static extern bool SpiGetBool(uint action, uint param, ref int value, uint winIni);
 '@
+# v1.8: windows slide when Windows' animation effects are on (Settings > Accessibility). On for these tests,
+# whatever the Sandbox starts with.
+$animationsWere = 0
+[void][Rmw.Win]::SpiGetBool(0x1042, 0, [ref]$animationsWere, 0) # SPI_GETCLIENTAREAANIMATION
+[void][Rmw.Win]::SpiSetPointer(0x1043, 0, [IntPtr]1, 2)          # SPI_SETCLIENTAREAANIMATION, SPIF_SENDCHANGE
 
 function Invoke-Rmw([string[]] $Arguments) {
     $output = & $rmw @Arguments --data-dir $data 2>&1 | Out-String
@@ -180,6 +189,7 @@ $windows = [IntPtr[]]@($names | ForEach-Object { Find $_ })
 $before = @{}
 foreach ($w in $windows) { $before[[int64]$w] = Outer $w }
 Note 'work-area' "$(Work-Area)"
+Note 'animations' "Windows' animation effects were $animationsWere; on for these tests"
 Note 'before' (Describe $windows)
 Shot 'tiler-0-before'
 
@@ -271,24 +281,44 @@ function Sample-Switch([byte] $Key, [IntPtr[]] $Coming, [IntPtr[]] $Going) {
         foreach ($w in $Coming) {
             if (-not (Visible $w)) { continue }
             $f = Frame $w
-            if (-not $seen.ContainsKey("$w")) { $seen["$w"] = New-Object System.Collections.Generic.HashSet[string] }
-            [void]$seen["$w"].Add("$($f.X),$($f.Y),$($f.Width),$($f.Height)")
+            if (-not $seen.ContainsKey("$w")) { $seen["$w"] = New-Object System.Collections.Generic.List[object] }
+            $list = $seen["$w"]
+            if ($list.Count -eq 0 -or "$($list[$list.Count - 1])" -ne "$f") { $list.Add($f) }
             $point = New-Object Rmw.Win+POINT
             $point.X = $f.X + [int]($f.Width / 2); $point.Y = $f.Y + [int]($f.Height / 2)
             $top = [Rmw.Win]::GetAncestor([Rmw.Win]::WindowFromPoint($point), 2) # GA_ROOT
             if ($Going -contains $top) { $covered++ }
         }
-        Start-Sleep -Milliseconds 10
+        Start-Sleep -Milliseconds 5
     }
-    $moved = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 }).Count
-    $where = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 } | ForEach-Object { "$(Title ([IntPtr][long]$_)) at $(@($seen[$_]) -join ' then ')" }) -join ', '
+    # v1.8: a window that slides in passes through several places, all of its size, on its row, one way;
+    # a jolt is anything else (a size that changes, a move back, a move up or down).
+    $jolted = @()
+    $slid = 0
+    # (Not $key: PowerShell names ignore case, and $Key is this function's byte.)
+    foreach ($handle in $seen.Keys) {
+        $frames = $seen[$handle]
+        if ($frames.Count -le 1) { continue }
+        $steps = @(for ($i = 1; $i -lt $frames.Count; $i++) { [math]::Sign($frames[$i].X - $frames[$i - 1].X) })
+        $oneWay = @($steps | Where-Object { $_ -ne 0 } | Select-Object -Unique).Count -le 1
+        $sameSize = @($frames | ForEach-Object { "$($_.Width)x$($_.Height)" } | Select-Object -Unique).Count -eq 1
+        $sameRow = @($frames | ForEach-Object { $_.Y } | Select-Object -Unique).Count -eq 1
+        if ($oneWay -and $sameSize -and $sameRow) {
+            if ($frames.Count -ge 3) { $slid++ }
+        }
+        else {
+            $jolted += "$(Title ([IntPtr][long]$handle)) at $(($frames | ForEach-Object { "$_" }) -join ' then ')"
+        }
+    }
+    $moved = $jolted.Count
+    $where = $jolted -join ', '
     $appsAfter = Apps-Shown ($Coming + $Going)
     if ($moved -gt 0 -and $appsAfter -ne $appsBefore) {
         # Another window came or went meanwhile: the move was the tiler making room, not a jolt.
         $where += " (not counted: the windows changed from [$appsBefore] to [$appsAfter])"
         $moved = 0
     }
-    [pscustomobject]@{ moved = $moved; covered = $covered; seen = $seen.Count; where = $where }
+    [pscustomobject]@{ moved = $moved; covered = $covered; seen = $seen.Count; slid = $slid; where = $where }
 }
 # The layout of workspace 2 changes while it is hidden (a window sent there): its windows get new slots.
 Click-On $windows[1]
@@ -299,15 +329,17 @@ Start-Sleep -Milliseconds 500
 $stay = [IntPtr[]]@($windows | Where-Object { $_ -ne $travel })
 $jolts = @()
 $s = Sample-Switch 0x32 @($t5, $travel) $stay
-$jolts += "to 2 (new slots): moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"
-$moved = $s.moved; $covered = $s.covered
+$jolts += "to 2 (new slots): moved=$($s.moved) covered=$($s.covered) slid=$($s.slid) of $($s.seen) $($s.where)"
+$moved = $s.moved; $covered = $s.covered; $slid = $s.slid
 foreach ($round in 1..2) {
     $s = Sample-Switch 0x31 $stay @($t5, $travel)
-    $jolts += "to 1: moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered
+    $jolts += "to 1: moved=$($s.moved) covered=$($s.covered) slid=$($s.slid) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered; $slid += $s.slid
     $s = Sample-Switch 0x32 @($t5, $travel) $stay
-    $jolts += "to 2: moved=$($s.moved) covered=$($s.covered) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered
+    $jolts += "to 2: moved=$($s.moved) covered=$($s.covered) slid=$($s.slid) of $($s.seen) $($s.where)"; $moved += $s.moved; $covered += $s.covered; $slid += $s.slid
 }
 Check 'tiler:switch-without-jolts' ($moved -eq 0) ($jolts -join '; ')
+# v1.8 (the owner: "falta animação quando volto para uma área com janela"): the windows that come slide in.
+Check 'v18:switch-slides-in' ($slid -ge 3) ($jolts -join '; ')
 # Each app takes the show in its own time (all asynchronous: a hung app never stops the tiler): up to two
 # samples (~20 ms) per switch.
 Check 'tiler:switch-covers-first' ($covered -le 2 * 5) ($jolts -join '; ')
@@ -638,6 +670,105 @@ Check 'look:tiler-leaves' (Wait-Until { $null -eq (Tiler-Process) } 15) ''
 Click-On $l2
 Check 'look:caption-back' (Wait-Until { -not (Magenta (Caption $l2)) } 10) "before=$captionBefore now=$(Caption $l2)"
 Shot 'tiler-10-look-back'
+
+# ==== v1.8: the third real test and the break-it campaign =============================================
+function Tiler-Logs { (Get-ChildItem (Join-Path $data 'logs') -Filter 'tiler*.log' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Raw }) -join "`n" }
+function Fresh-Tiling([string] $Extra = '') {
+    Get-Process rmw_tiler_test_app -ErrorAction SilentlyContinue | Stop-Process -Force
+    Write-Settings "[tiling]`nenabled = true`n$Extra"
+    [void](Invoke-Rmw @('settings', 'reload'))
+    $on = Wait-Until { $null -ne (Tiler-Process) } 15
+    Start-Sleep -Seconds 1
+    $on
+}
+function Open([string] $Name, [string[]] $More = @()) {
+    Start-Process $app (@($Name) + $More) | Out-Null
+    [void](Wait-Until { (Find $Name) -ne [IntPtr]::Zero } 5)
+    Start-Sleep -Milliseconds 300
+    Find $Name
+}
+function Inside($Frame, $Room) {
+    $Frame.Left -ge $Room.Left - 2 -and $Frame.Top -ge $Room.Top - 2 -and $Frame.Right -le $Room.Right + 2 -and $Frame.Bottom -le $Room.Bottom + 2
+}
+
+# ---- 11. apps that refuse to shrink (Discord, Spotify on the owner's PC): the others make room -------
+Check 'v18:tiling-on' (Fresh-Tiling) ''
+$room = Work-Area
+$minW = [int]($room.Width * 0.62); $minH = [int]($room.Height * 0.3)
+$n1 = Open 'N1'
+$n2 = Open 'N2' @('--min', "$($minW)x$($minH)")
+$pair = [IntPtr[]]@($n1, $n2)
+# (The minimum is the outer window's: the visible frame is the invisible borders smaller.)
+$roomy = Wait-Until { (Tiled $pair) -and (Frame $n2).Width -ge $minW - 20 } 8
+Check 'v18:min-size-gets-room' $roomy "min ${minW}x$minH; $(Describe $pair)"
+Check 'v18:min-size-learned' ((Tiler-Logs) -match 'keeps at least') ''
+Shot 'tiler-11-min-size'
+# Crowded: more than fits. Nothing leaves the screen, none goes under the bar's strip.
+$bigW = [int]($room.Width * 0.55); $bigH = [int]($room.Height * 0.55)
+$crowd = [IntPtr[]]@($n1, $n2, (Open 'N3'), (Open 'N4'), (Open 'N5' @('--min', "$($bigW)x$($bigH)")), (Open 'N6' @('--min', "$($bigW)x$($bigH)")))
+Start-Sleep -Seconds 3
+$outside = @($crowd | Where-Object { -not (Inside (Frame $_) $room) })
+Check 'v18:crowded-none-off-screen' ($outside.Count -eq 0) "room=$room; $(Describe $crowd)"
+Shot 'tiler-11b-crowded'
+
+# ---- 12. a window that goes full screen (F11, a game) is left alone ---------------------------------
+[void](Fresh-Tiling)
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$f1 = Open 'F1'
+$f2 = Open 'F2' @('--fullscreen-after', '1500')
+Check 'v18:fullscreen-taken' (Wait-Until { "$(Outer $f2)" -eq "$screen" } 5) "F2=$(Outer $f2) screen=$screen"
+$f3 = Open 'F3' # a new window: the others are laid out again
+Start-Sleep -Seconds 2
+Check 'v18:fullscreen-left-alone' ("$(Outer $f2)" -eq "$screen") "F2=$(Outer $f2) screen=$screen"
+# The others keep their slots (the full-screen one keeps its own, for when it comes back).
+Check 'v18:fullscreen-others-placed' (Wait-Until { -not (Overlap (Frame $f1) (Frame $f3)) -and (Inside (Frame $f1) $room) -and (Inside (Frame $f3) $room) } 5) (Describe @($f1, $f3))
+Shot 'tiler-12-fullscreen'
+
+# ---- 13. an app closed to the tray (Discord, Spotify): tiling off does not pop it up maximized --------
+[void](Fresh-Tiling)
+$g1 = Open 'G1' @('--maximized', '--tray-after', '2500')
+$g2 = Open 'G2'
+Check 'v18:maximized-app-tiled' (Wait-Until { Tiled @($g1, $g2) } 5) (Describe @($g1, $g2))
+Check 'v18:tray-app-hides-itself' (Wait-Until { -not (Visible $g1) } 6) ''
+Check 'v18:tray-app-leaves-the-tiles' (Wait-Until { Tiled @($g2) } 5) "G2=$(Frame $g2)"
+Write-Settings "[tiling]`nenabled = false`n"
+[void](Invoke-Rmw @('settings', 'reload'))
+[void](Wait-Until { $null -eq (Tiler-Process) } 10)
+Start-Sleep -Seconds 1
+Check 'v18:tray-app-stays-hidden' (-not (Visible $g1)) "G1 visible=$(Visible $g1)"
+
+# ---- 14. dragging an edge resizes; it does not swap the window with its neighbour ---------------------
+[void](Fresh-Tiling)
+$r1 = Open 'R1'
+$r2 = Open 'R2'
+[void](Wait-Until { Tiled @($r1, $r2) } 5)
+$leftOne = if ((Frame $r1).X -lt (Frame $r2).X) { $r1 } else { $r2 }
+$rightOne = if ($leftOne -eq $r1) { $r2 } else { $r1 }
+$edge = Frame $leftOne
+$x = $edge.Right + 3; $y = $edge.Top + [int]($edge.Height / 2) # the resize border, outside the visible frame
+[void][Rmw.Win]::SetCursorPos($x, $y)
+Start-Sleep -Milliseconds 200
+[Rmw.Win]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+foreach ($step in 1..15) { [void][Rmw.Win]::SetCursorPos($x + ($step * 20), $y); Start-Sleep -Milliseconds 20 }
+[Rmw.Win]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+Start-Sleep -Milliseconds 1500
+Check 'v18:resize-does-not-swap' ((Frame $leftOne).X -lt (Frame $rightOne).X -and (Tiled @($r1, $r2))) (Describe @($r1, $r2))
+
+# ---- 15. advanced mode with tiling off while a window look runs the tiler: no UAC loop (17:38 on the
+# owner's PC: six prompts in a row). A core at medium integrity, as on a PC with the UAC on.
+[void](Invoke-Rmw @('shutdown', '--wait'))
+Get-Process rmw-tiler, rmw_tiler_test_app -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 1
+function Elevations { ([regex]::Matches((Tiler-Logs), 'an elevated copy does the work')).Count }
+$elevationsBefore = Elevations
+Write-Settings "[tiling]`nenabled = false`nrun_as_admin = true`n"
+Medium "$rmw apply $lookRice --data-dir $data"
+Start-Sleep -Seconds 8
+$elevations = (Elevations) - $elevationsBefore
+Check 'v18:no-uac-loop' ($elevations -eq 0) "elevated copies started: $elevations; tilers now: $(@(Tilers).Count)"
+Note 'v18-uac-log' (((Tiler-Logs) -split "`n" | Select-Object -Last 6) -join ' | ')
+Medium "$rmw restore --original --data-dir $data"
+Start-Sleep -Seconds 3
 
 Get-Process rmw_tiler_test_app -ErrorAction SilentlyContinue | Stop-Process -Force
 Invoke-Rmw @('shutdown') | Out-Null

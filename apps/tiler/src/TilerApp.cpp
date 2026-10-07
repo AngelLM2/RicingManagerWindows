@@ -897,7 +897,7 @@ void TilerApp::layout()
         }
     }
     m_justShown.clear();
-    m_animator->start(std::move(moves), kMoveDuration);
+    m_animator->start(moves, kMoveDuration);
     m_settleRounds = kSettleRounds;
     SetTimer(static_cast<HWND>(m_window), kSettleTimer, kSettleDelayMs, nullptr);
 }
@@ -994,7 +994,7 @@ void TilerApp::placeComing(std::span<const tiling::WindowId> coming, int side)
             m_justShown.insert(id);
         }
     }
-    m_animator->start(std::move(moves), kSwitchDuration);
+    m_animator->start(moves, kSwitchDuration);
 }
 
 void TilerApp::settle()

@@ -129,7 +129,9 @@ the clock, media, volume, network, battery and more (plugins add widgets). In **
 **Style** gives a whole bar at once: **Windows** (apps in the middle), **Dock** (floating, icons
 that grow under the mouse), **Island** (a pill at the top), **Status line** or **Side**. Whatever
 you change below the style stays yours. A dock shows the apps you pin (**Pin an app…**) and every
-app with a window open; a bar can be **auto** long, as long as what it shows. Every bar keeps
+app with a window open; a bar can be **auto** long, as long as what it shows, and it grows and shrinks
+smoothly as apps come and go or the tray's hidden icons slide in. The apps you open from the bar (its
+Start, the dock) live on their own: if the bar stops, they stay open. Every bar keeps
 maximized windows clear of it (**Reserve**, the default since v1.7, the dock included); choose
 **Float** and windows go under it, like a bar drawn over the desktop. **If anything goes
 wrong, Ctrl+Alt+Win+T** turns the bar off and brings Windows' taskbar back. If the bar hangs or
@@ -150,6 +152,11 @@ and hide the recent files and tips; restoring brings back what you had.
 In **Tiling**, turn on **Organize the windows**. Every app window then takes a place beside the
 others, with a small gap; turning it off puts every window back where it was. Dialogs, windows of a
 fixed size and the apps you list under **Apps** float; apps running as administrator are left alone.
+An app that will not get smaller than a size of its own (Discord, Spotify...) gets that room and the
+others share the rest; when they cannot all fit, none goes off the screen. A window in full screen (a
+browser's F11, a video, a game) is left alone. With **Animations** on (and Windows' own animation
+effects), windows slide to their places: a workspace that comes in, a window that opens, two that trade
+places.
 
 Workspaces:
 

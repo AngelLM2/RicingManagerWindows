@@ -347,6 +347,38 @@ $scale = $bar.Height / 44.0
 Left-Click ($bar.Left + [int]((6 + 11) * $scale)) ($bar.Top + [int]($bar.Height / 2)) # the chevron
 Check 'tray:chevron-shows-the-rest' (Wait-Until { (Shown) -contains $dNumber } 5) "shown: $(Shown)"
 Shot 'tray-4-overflow-open'
+# v1.8 (the owner: "as barras precisam ser mais fluidas quando vão expandir"): closing and opening the
+# overflow slides the icons; the row of pixels across the tray passes through several states.
+function Tray-Row {
+    $width = [int](300 * $scale)
+    $bitmap = New-Object System.Drawing.Bitmap $width, 1
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $target = $graphics.GetHdc()
+    $screenDc = [Rmw.Win]::GetDC([IntPtr]::Zero)
+    # Past the chevron (its own hover fades in and out): only the icons.
+    [void][Rmw.Win]::BitBlt($target, 0, 0, $width, 1, $screenDc, $bar.Left + [int](30 * $scale), $bar.Top + [int]($bar.Height / 2), 0x40CC0020)
+    [void][Rmw.Win]::ReleaseDC([IntPtr]::Zero, $screenDc)
+    $graphics.ReleaseHdc($target)
+    $row = (0..($width - 1) | Where-Object { $_ % 3 -eq 0 } | ForEach-Object { $bitmap.GetPixel($_, 0).ToArgb() }) -join ','
+    $graphics.Dispose(); $bitmap.Dispose()
+    $row
+}
+function Frames-After-Chevron {
+    $states = New-Object System.Collections.Generic.List[string]
+    Mouse ($bar.Left + [int]((6 + 11) * $scale)) ($bar.Top + [int]($bar.Height / 2)) @(0x0002, 0x0004) 0
+    $until = (Get-Date).AddMilliseconds(700)
+    while ((Get-Date) -lt $until) {
+        $row = Tray-Row
+        if ($states.Count -eq 0 -or $states[$states.Count - 1] -ne $row) { $states.Add($row) }
+    }
+    $states.Count
+}
+Start-Sleep -Milliseconds 500
+$closing = Frames-After-Chevron
+Start-Sleep -Milliseconds 500
+$opening = Frames-After-Chevron
+Check 'v18:tray-slides-open-and-closed' ($closing -ge 3 -and $opening -ge 3) "states while closing: $closing, opening: $opening"
+Check 'v18:tray-open-again' (Wait-Until { (Shown) -contains $dNumber } 5) "shown: $(Shown)"
 
 # ---- 8. a plugin sees the tray and clicks it -------------------------------------------------------------
 $clicker = Join-Path $Work 'plugin-tray-clicker'

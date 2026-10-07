@@ -214,11 +214,12 @@ IconPixels shrinkPixels(const IconPixels& pixels, int side)
             const auto lastX = std::min(static_cast<std::size_t>(std::ceil(right)), sourceWidth);
             for (auto sy = static_cast<std::size_t>(top); sy < lastY; ++sy)
             {
-                const double rowWeight = std::min(bottom, sy + 1.0) - std::max(top, static_cast<double>(sy));
+                const double rowWeight =
+                    std::min(bottom, static_cast<double>(sy) + 1.0) - std::max(top, static_cast<double>(sy));
                 for (auto sx = static_cast<std::size_t>(left); sx < lastX; ++sx)
                 {
                     const double weight =
-                        rowWeight * (std::min(right, sx + 1.0) - std::max(left, static_cast<double>(sx)));
+                        rowWeight * (std::min(right, static_cast<double>(sx) + 1.0) - std::max(left, static_cast<double>(sx)));
                     const std::size_t at = ((sy * sourceWidth) + sx) * 4;
                     const double opaque = pixels.rgba[at + 3] / 255.0 * weight;
                     for (std::size_t c = 0; c < color.size(); ++c)
