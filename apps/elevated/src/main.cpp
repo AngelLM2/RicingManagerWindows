@@ -208,11 +208,12 @@ std::optional<std::wstring> userSid()
 }
 
 // `data` ("<path>,0") names a file under `folder`.
-bool within(std::wstring_view data, const fs::path& folder) noexcept
+bool within(std::wstring_view data, const fs::path& folder)
 {
     const std::wstring prefix = folder.native() + L"\\";
+    const std::wstring start(data.substr(0, prefix.size()));
     return data.size() > prefix.size() &&
-           CompareStringOrdinal(data.data(), static_cast<int>(prefix.size()), prefix.data(),
+           CompareStringOrdinal(start.c_str(), static_cast<int>(start.size()), prefix.c_str(),
                                 static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
 }
 
@@ -220,7 +221,7 @@ bool within(std::wstring_view data, const fs::path& folder) noexcept
 fs::path iconFileOf(std::wstring_view data)
 {
     const auto comma = data.rfind(L',');
-    return fs::path(std::wstring(comma == std::wstring_view::npos ? data : data.substr(0, comma)));
+    return {std::wstring(comma == std::wstring_view::npos ? data : data.substr(0, comma))};
 }
 
 // The source, read once from a handle: a regular file with one name, no link, the size limit; its
