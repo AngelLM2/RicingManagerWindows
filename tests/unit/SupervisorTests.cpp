@@ -4,6 +4,8 @@
 
 #include <windows.h>
 
+#include <shellapi.h>
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -228,6 +230,29 @@ TEST(Heartbeat, WithoutTheFlagItDoesNothing)
     heartbeat->beat();
     const std::vector<std::wstring_view> bad{L"--heartbeat", L"nope"};
     EXPECT_FALSE(Heartbeat::fromArguments(bad).has_value());
+}
+
+// The review of v1.7: --data-dir "C:\data\" reached the child as one argument with the rest in it.
+TEST(QuoteArgument, ArgumentsComeBackAsTheyWere)
+{
+    const std::array<std::wstring, 6> arguments{L"C:\\Ricing Manager\\data\\", L"plain", L"", L"say \"hi\"",
+                                                L"a\\\\\"b\\", L"\\\\server\\share\\"};
+    std::wstring line = L"rmw-core.exe";
+    for (const auto& argument : arguments)
+    {
+        line += L" " + quoteArgument(argument);
+    }
+    line += L" --last";
+    int count = 0;
+    wchar_t** parsed = CommandLineToArgvW(line.c_str(), &count);
+    ASSERT_NE(parsed, nullptr);
+    ASSERT_EQ(count, static_cast<int>(arguments.size()) + 2);
+    for (std::size_t i = 0; i < arguments.size(); ++i)
+    {
+        EXPECT_EQ(std::wstring(parsed[i + 1]), arguments[i]);
+    }
+    EXPECT_EQ(std::wstring(parsed[count - 1]), L"--last");
+    LocalFree(static_cast<HLOCAL>(parsed));
 }
 
 } // namespace

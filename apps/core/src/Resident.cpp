@@ -485,7 +485,7 @@ void Resident::openSettings()
         return;
     }
     const auto settings = self->parent_path() / L"rmw-settings.exe";
-    const std::wstring arguments = std::format(L"--data-dir \"{}\"", m_core->dataDirectory().native());
+    const std::wstring arguments = L"--data-dir " + platform::quoteArgument(m_core->dataDirectory().native());
     if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", settings.c_str(), arguments.c_str(),
                                                 nullptr, SW_SHOWNORMAL)) <= 32)
     {

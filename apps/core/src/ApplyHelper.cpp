@@ -79,7 +79,7 @@ Result<void> HelperModuleRunner::start()
     }
     auto child = platform::ChildProcess::spawn(
         m_executable,
-        std::format(L"--apply-helper --pipe {} --data-dir \"{}\"", name, m_dataDirectory.native()),
+        std::format(L"--apply-helper --pipe {} --data-dir {}", name, platform::quoteArgument(m_dataDirectory.native())),
         {.memoryLimitBytes = kHelperMemoryLimit, .inheritHandles = {}});
     if (!child)
     {
