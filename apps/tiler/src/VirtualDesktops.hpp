@@ -43,7 +43,11 @@ public:
     void rearm() noexcept;
     // To desktop `index`, one slide at a time.
     static void goTo(int index, const State& state) noexcept;
-    static void step(bool next) noexcept;
+    // The slides from the current desktop to desktop `index` (negative: to the left).
+    [[nodiscard]] static int slidesTo(int index, const State& state) noexcept;
+    // Ctrl+Win+arrow `times` times. The modifiers already held (the shortcut that asked, as Ctrl+Win+3)
+    // are not pressed again, nor let go. The key whose release ends what was sent, or 0 for nothing.
+    static std::uint32_t slide(bool next, int times) noexcept;
 
 private:
     VirtualDesktops() = default;
