@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -45,6 +46,19 @@ struct RiceEntry
 // A new, empty folder in the library for a rice called `name` ("My look", "My look 2"...).
 [[nodiscard]] Result<std::filesystem::path> newRiceFolder(const std::filesystem::path& dataDirectory,
                                                           std::string_view name);
+// Why Windows would refuse a rice's name as a file name (it is shared as "<name>.rice").
+enum class RiceNameProblem : std::uint8_t
+{
+    Empty,
+    TooLong,     // over 128 bytes
+    Character,   // / \ : * ? " < > | or a control character
+    TrailingDot, // Windows drops a dot at the end
+    DeviceName,  // CON, PRN, AUX, NUL, COM1, LPT1...
+};
+
+// A new name for a rice, as typed (spaces around it trimmed), or why not.
+[[nodiscard]] std::expected<std::string, RiceNameProblem> checkRiceName(std::string_view name);
+
 // A copy of a rice folder's files (no links followed), into a new folder of the library; its
 // [meta] name gets `name`.
 [[nodiscard]] Result<std::filesystem::path> duplicateRice(const std::filesystem::path& dataDirectory,

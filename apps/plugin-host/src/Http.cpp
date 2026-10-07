@@ -2,6 +2,7 @@
 
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
+#include "rmw/plugins/Url.hpp"
 
 // clang-format off
 #include <winsock2.h>
@@ -42,44 +43,71 @@ std::string lastErrorText(std::string_view what)
 }
 
 // Loopback, private, link-local, carrier-grade NAT and the like: not the Internet.
-bool isLocal(const sockaddr_storage& address)
+bool isLocal(const sockaddr* address)
 {
-    if (address.ss_family == AF_INET)
+    if (address != nullptr && address->sa_family == AF_INET)
     {
-        const auto& v4 = reinterpret_cast<const sockaddr_in&>(address);
-        const auto b = std::bit_cast<std::array<std::uint8_t, 4>>(v4.sin_addr.s_addr);
-        return b[0] == 0 || b[0] == 10 || b[0] == 127 || (b[0] == 169 && b[1] == 254) ||
-               (b[0] == 172 && (b[1] & 0xF0) == 16) || (b[0] == 192 && b[1] == 168) ||
-               (b[0] == 100 && (b[1] & 0xC0) == 64) || b[0] >= 224;
+        const auto* v4 = reinterpret_cast<const sockaddr_in*>(address);
+        const auto bytes = std::bit_cast<std::array<std::uint8_t, 4>>(v4->sin_addr.s_addr);
+        return plugins::isLocalAddress(bytes);
     }
-    if (address.ss_family == AF_INET6)
+    if (address != nullptr && address->sa_family == AF_INET6)
     {
-        const auto& v6 = reinterpret_cast<const sockaddr_in6&>(address);
-        const auto* b = v6.sin6_addr.u.Byte;
-        const bool loopback = std::all_of(b, b + 15, [](std::uint8_t x) { return x == 0; }) && b[15] == 1;
-        const bool mapped =
-            std::all_of(b, b + 10, [](std::uint8_t x) { return x == 0; }) && b[10] == 0xFF && b[11] == 0xFF;
-        if (mapped)
-        {
-            sockaddr_storage v4{};
-            auto& inner = reinterpret_cast<sockaddr_in&>(v4);
-            inner.sin_family = AF_INET;
-            std::memcpy(&inner.sin_addr, b + 12, 4);
-            return isLocal(v4);
-        }
-        return loopback || (b[0] & 0xFE) == 0xFC /* unique local */ ||
-               (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) || b[0] == 0xFF;
+        const auto* v6 = reinterpret_cast<const sockaddr_in6*>(address);
+        return plugins::isLocalAddress(std::span<const std::uint8_t>(v6->sin6_addr.u.Byte, 16));
     }
     return true;
+}
+
+// Every address the name has now, checked before anything is sent: a name that leads to this PC or
+// its network is refused (v1.7 looked only after the request went out). Empty: fine.
+std::string localProblem(const std::string& host)
+{
+    WSADATA data{};
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
+    {
+        return "cannot start the network";
+    }
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* found = nullptr;
+    const int resolved = getaddrinfo(host.c_str(), "443", &hints, &found);
+    std::string problem;
+    if (resolved != 0 || found == nullptr)
+    {
+        problem = std::format("cannot find {} (error {})", host, resolved);
+    }
+    for (const addrinfo* entry = found; entry != nullptr && problem.empty(); entry = entry->ai_next)
+    {
+        if (isLocal(entry->ai_addr))
+        {
+            problem = std::format("{} leads to a local address: refused", host);
+        }
+    }
+    if (found != nullptr)
+    {
+        freeaddrinfo(found);
+    }
+    WSACleanup();
+    return problem;
 }
 
 } // namespace
 
 scripting::HttpResponse fetch(const scripting::HttpRequest& request)
 {
+    if (const std::string problem = localProblem(request.host); !problem.empty())
+    {
+        return failure(problem);
+    }
+    // Straight to the server, never through a proxy: behind one, the address checked after the
+    // connection was the proxy's (a local proxy refused everything, a public one let a local
+    // target through). A network that reaches the Internet only through a proxy leaves plugins
+    // offline, and the error says so.
     const std::wstring agent = utf8To16Lossy(std::format("RicingManager-PluginHost/{}", kVersion));
-    const Internet session(WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                                       WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    const Internet session(WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME,
+                                       WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session)
     {
         return failure(lastErrorText("WinHttpOpen"));
@@ -132,14 +160,26 @@ scripting::HttpResponse fetch(const scripting::HttpRequest& request)
             FALSE ||
         WinHttpReceiveResponse(handle.get(), nullptr) == FALSE)
     {
-        return failure(lastErrorText("the request"));
+        const DWORD error = GetLastError();
+        if (error == ERROR_WINHTTP_CANNOT_CONNECT || error == ERROR_WINHTTP_TIMEOUT ||
+            error == ERROR_WINHTTP_NAME_NOT_RESOLVED)
+        {
+            return failure(std::format("cannot reach {} directly (error {}); plugins do not go through a proxy",
+                                       request.host, error));
+        }
+        return failure(std::format("the request failed (error {})", error));
     }
 
+    // The name asked again by WinHTTP may answer otherwise (a name that changes its address between
+    // two lookups): the server it reached is checked too (direct: it is the server's own address).
     WINHTTP_CONNECTION_INFO info{};
     DWORD infoSize = sizeof(info);
     info.cbSize = sizeof(info);
-    if (WinHttpQueryOption(handle.get(), WINHTTP_OPTION_CONNECTION_INFO, &info, &infoSize) != FALSE &&
-        isLocal(info.RemoteAddress))
+    if (WinHttpQueryOption(handle.get(), WINHTTP_OPTION_CONNECTION_INFO, &info, &infoSize) == FALSE)
+    {
+        return failure(lastErrorText(std::format("checking the address of {}", request.host)));
+    }
+    if (isLocal(reinterpret_cast<const sockaddr*>(&info.RemoteAddress)))
     {
         return failure(std::format("{} leads to a local address: refused", request.host));
     }

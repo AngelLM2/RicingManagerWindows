@@ -53,6 +53,12 @@ msgstr "Conectando ao Ricing Manager…"
 msgid "Ricing Manager's core is not running: {}"
 msgstr "O núcleo do Ricing Manager não está rodando: {}"
 
+msgid "Copying into the rice: {}…"
+msgstr "Copiando para o rice: {}…"
+
+msgid "Not saved, so the rice stays readable: {}"
+msgstr "Não foi salvo, para o rice continuar legível: {}"
+
 msgid "That did not work: {}"
 msgstr "Não deu certo: {}"
 
@@ -116,8 +122,8 @@ msgstr "Escolha o app para abrir"
 msgid "Search"
 msgstr "Pesquisa"
 
-msgid "Search the apps"
-msgstr "Procurar nos apps"
+msgid "Search the apps (Enter picks the first)"
+msgstr "Procurar nos apps (Enter escolhe o primeiro)"
 
 msgid "Cancel"
 msgstr "Cancelar"
@@ -163,6 +169,12 @@ msgstr "Remover"
 
 msgid "Go back"
 msgstr "Voltar"
+
+msgid "Less"
+msgstr "Menos"
+
+msgid "More"
+msgstr "Mais"
 
 msgid "Light/dark mode and accent"
 msgstr "Modo claro/escuro e destaque"
@@ -601,6 +613,54 @@ msgstr "Meu visual"
 
 msgid "{} (copy)"
 msgstr "{} (cópia)"
+
+msgid "Not a color: write #RRGGBB, like #1E1E2E."
+msgstr "Não é uma cor: escreva #RRGGBB, como #1E1E2E."
+
+msgid "That palette color is not in this rice's palette."
+msgstr "Essa cor não está na paleta deste rice."
+
+msgid "Not a time: write it like 07:00."
+msgstr "Não é um horário: escreva como 07:00."
+
+msgid "Light and dark need different times."
+msgstr "Claro e escuro precisam de horários diferentes."
+
+msgid "Write the program's file name, like firefox.exe."
+msgstr "Escreva o nome do arquivo do programa, como firefox.exe."
+
+msgid "Write the file type, like txt."
+msgstr "Escreva o tipo de arquivo, como txt."
+
+msgid "That value does not fit this setting."
+msgstr "Esse valor não serve para esta configuração."
+
+msgid "That folder has no rice.toml."
+msgstr "Essa pasta não tem rice.toml."
+
+msgid "No install.inf and no file named like a cursor role (normal.cur, link.cur…)."
+msgstr "Sem install.inf e sem arquivo com nome de um papel de cursor (normal.cur, link.cur…)."
+
+msgid "What it asks for cannot be read, so it cannot be approved."
+msgstr "Não dá para ler o que ele pede, então ele não pode ser aprovado."
+
+msgid "A rice needs a name."
+msgstr "Um rice precisa de um nome."
+
+msgid "That name is too long."
+msgstr "Esse nome é longo demais."
+
+msgid "A name cannot have / \\ : * ? \" < > |."
+msgstr "Um nome não pode ter / \\ : * ? \" < > |."
+
+msgid "A name cannot end with a dot."
+msgstr "Um nome não pode terminar com ponto."
+
+msgid "Windows keeps that name for itself (CON, NUL, COM1…)."
+msgstr "O Windows reserva esse nome para si (CON, NUL, COM1…)."
+
+msgid "{} is already a hotkey"
+msgstr "{} já é um atalho"
 
 msgid "Every monitor"
 msgstr "Todos os monitores"
@@ -1148,6 +1208,15 @@ msgstr "Novo rice"
 msgid "Editing “{}”"
 msgstr "Editando “{}”"
 
+msgid "Rename {}"
+msgstr "Renomear {}"
+
+msgid "New name of the rice"
+msgstr "Novo nome do rice"
+
+msgid "Rename"
+msgstr "Renomear"
+
 msgid "This is the applied rice: the bar changes as you edit; apply to see the rest."
 msgstr "Este é o rice aplicado: a barra muda enquanto você edita; aplique para ver o resto."
 
@@ -1352,6 +1421,12 @@ msgstr "Salvas no rice: cada rice pode configurar seus plugins de um jeito. Aper
 msgid "Close"
 msgstr "Fechar"
 
+msgid "Forget this folder"
+msgstr "Esquecer esta pasta"
+
+msgid "Take {} off the list (its folder stays)"
+msgstr "Tirar {} da lista (a pasta continua)"
+
 msgid "applied"
 msgstr "aplicado"
 
@@ -1373,9 +1448,6 @@ msgstr "Compartilhar {} como arquivo .rice"
 msgid "Open the folder of {}"
 msgstr "Abrir a pasta de {}"
 
-msgid "A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share."
-msgstr "Um rice é um visual inteiro: wallpaper, cores, cursores, barras e plugins, numa pasta que você pode compartilhar."
-
 msgid "Import a .rice…"
 msgstr "Importar um .rice…"
 
@@ -1384,6 +1456,9 @@ msgstr "Salvar meu visual atual como um rice"
 
 msgid "Add a rice folder…"
 msgstr "Adicionar uma pasta de rice…"
+
+msgid "A rice is a whole look: wallpaper, colors, cursors, bars and plugins, in one folder you can share."
+msgstr "Um rice é um visual inteiro: wallpaper, cores, cursores, barras e plugins, numa pasta que você pode compartilhar."
 
 msgid "No rices yet. Save your current look, import a .rice, or add a folder with a rice.toml."
 msgstr "Nenhum rice ainda. Salve seu visual atual, importe um .rice ou adicione uma pasta com um rice.toml."
@@ -1621,6 +1696,12 @@ msgstr "Windows 11. Sem cor, usa o destaque do rice."
 
 msgid "Color of the border"
 msgstr "Cor da borda"
+
+msgid "Animations"
+msgstr "Animações"
+
+msgid "Windows slide to their places: a workspace that comes in, a window that opens, two that trade places. Off when Windows' animation effects are off."
+msgstr "As janelas deslizam até o lugar delas: uma área que entra, uma janela que abre, duas que trocam de lugar. Desligadas quando os efeitos de animação do Windows estão desligados."
 
 msgid "Advanced mode"
 msgstr "Modo avançado"

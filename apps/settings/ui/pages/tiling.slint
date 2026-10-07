@@ -1,6 +1,6 @@
-import { Button, ComboBox, LineEdit, ScrollView, SpinBox, Switch, Palette } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, ScrollView, Switch, Palette } from "std-widgets.slint";
 import { Api, TilingKeyRow, TilingRuleRow } from "../api.slint";
-import { Card, Hint, PageHeader, Problem, SettingRow } from "../common.slint";
+import { Card, Hint, PageHeader, Problem, SettingRow, NumberBox } from "../common.slint";
 import { Words } from "../words.slint";
 
 // Tiling (M13): windows side by side, workspaces, and the keys for both. Everything here is
@@ -58,15 +58,13 @@ export component TilingPage inherits ScrollView {
             if Api.tiling-mode == 0: SettingRow {
                 label: @tr("How many workspaces");
                 description: @tr("Ctrl+Win+1 to 9 go to them; the bar's \"Workspaces (tiling)\" widget shows the ones in use.");
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 120px;
-                    max-width: 120px;
+                NumberBox {
                     minimum: 1;
                     maximum: 9;
-                    value <=> Api.tiling-workspaces;
-                    accessible-label: @tr("How many workspaces");
-                    edited => {
+                    value: Api.tiling-workspaces;
+                    label: @tr("How many workspaces");
+                    edited(value) => {
+                        Api.tiling-workspaces = value;
                         Api.tiling-edited();
                     }
                 }
@@ -90,16 +88,14 @@ export component TilingPage inherits ScrollView {
 
             if Api.tiling-layout == 1: SettingRow {
                 label: @tr("Size of the main window (%)");
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 120px;
-                    max-width: 120px;
+                NumberBox {
                     minimum: 10;
                     maximum: 90;
                     step-size: 5;
-                    value <=> Api.tiling-master;
-                    accessible-label: @tr("Size of the main window (%)");
-                    edited => {
+                    value: Api.tiling-master;
+                    label: @tr("Size of the main window (%)");
+                    edited(value) => {
+                        Api.tiling-master = value;
                         Api.tiling-edited();
                     }
                 }
@@ -108,15 +104,13 @@ export component TilingPage inherits ScrollView {
             SettingRow {
                 label: @tr("Space between the windows");
                 description: @tr("In pixels at 100% scale.");
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 120px;
-                    max-width: 120px;
+                NumberBox {
                     minimum: 0;
                     maximum: 64;
-                    value <=> Api.tiling-gap;
-                    accessible-label: @tr("Space between the windows");
-                    edited => {
+                    value: Api.tiling-gap;
+                    label: @tr("Space between the windows");
+                    edited(value) => {
+                        Api.tiling-gap = value;
                         Api.tiling-edited();
                     }
                 }
@@ -124,15 +118,13 @@ export component TilingPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Space at the edges of the screen");
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 120px;
-                    max-width: 120px;
+                NumberBox {
                     minimum: 0;
                     maximum: 64;
-                    value <=> Api.tiling-outer-gap;
-                    accessible-label: @tr("Space at the edges of the screen");
-                    edited => {
+                    value: Api.tiling-outer-gap;
+                    label: @tr("Space at the edges of the screen");
+                    edited(value) => {
+                        Api.tiling-outer-gap = value;
                         Api.tiling-edited();
                     }
                 }
@@ -276,12 +268,11 @@ export component TilingPage inherits ScrollView {
                     }
                 }
 
-                if rule.action == 2: SpinBox {
-                    width: 100px;
+                if rule.action == 2: NumberBox {
                     minimum: 1;
                     maximum: 9;
                     value: rule.workspace;
-                    accessible-label: @tr("Workspace");
+                    label: @tr("Workspace");
                     edited(value) => {
                         Api.tiling-rule-edited(index, { app: rule.app, window-class: rule.window-class, title: rule.title, action: rule.action, workspace: value });
                     }

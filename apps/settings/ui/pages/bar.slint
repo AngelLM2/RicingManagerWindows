@@ -1,6 +1,6 @@
-import { Button, ComboBox, LineEdit, ScrollView, Slider, SpinBox, Switch, Palette } from "std-widgets.slint";
+import { Button, ComboBox, ScrollView, Palette } from "std-widgets.slint";
 import { Api, WidgetChip } from "../api.slint";
-import { Card, Chip, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
+import { Card, Chip, Hint, PageHeader, SettingRow, Metrics, NumberBox, ValueComboBox, ValueLineEdit, ValueSlider, ValueSwitch } from "../common.slint";
 import { EditingBanner } from "editing.slint";
 
 // One widget in a zone: click selects it (the buttons below move it), drag takes it to another zone.
@@ -360,12 +360,12 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Start menu");
-                ComboBox {
+                ValueComboBox {
                     min-width: 140px;
                     preferred-width: 260px;
                     max-width: 260px;
                     model: [@tr("Windows'"), @tr("Ricing Manager's")];
-                    current-index: Api.start-ours ? 1 : 0;
+                    shown: Api.start-ours ? 1 : 0;
                     accessible-label: @tr("Start menu");
                     selected => {
                         Api.start-ours = self.current-index == 1;
@@ -507,21 +507,22 @@ export component BarPage inherits ScrollView {
             title: @tr("Bars of this rice");
             subtitle: @tr("If something goes wrong, Ctrl+Alt+Win+T turns the bar off and brings Windows' taskbar back.");
 
+            if Api.bar-names.length > 0: ValueComboBox {
+                min-width: 180px;
+                preferred-width: 320px;
+                max-width: 320px;
+                model: Api.bar-names;
+                shown: Api.selected-bar;
+                accessible-label: @tr("Bar");
+                selected => {
+                    Api.bar-selected(self.current-index);
+                }
+            }
+
+            // Three buttons: a row of their own (with the picker they ran past a narrow window).
             HorizontalLayout {
                 spacing: 8px;
                 alignment: start;
-
-                if Api.bar-names.length > 0: ComboBox {
-                    min-width: 180px;
-                    preferred-width: 320px;
-                    max-width: 320px;
-                    model: Api.bar-names;
-                    current-index: Api.selected-bar;
-                    accessible-label: @tr("Bar");
-                    selected => {
-                        Api.bar-selected(self.current-index);
-                    }
-                }
 
                 Button {
                     text: @tr("Add a bar");
@@ -598,13 +599,13 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Style");
                 description: @tr("A ready-made bar. What you change below stays yours; the style fills the rest.");
-                ComboBox {
+                ValueComboBox {
                     min-width: 140px;
                     preferred-width: 260px;
                     max-width: 260px;
                     model: [@tr("My own"), @tr("Windows (apps in the middle)"), @tr("Dock (floating, icons that grow)"),
                         @tr("Island (a pill at the top)"), @tr("Status line (thin, at the top)"), @tr("Side (on the left)")];
-                    current-index: Api.bar.style;
+                    shown: Api.bar.style;
                     accessible-label: @tr("Style of the bar");
                     selected => {
                         Api.bar-style(self.current-index);
@@ -614,12 +615,12 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Monitor");
-                ComboBox {
+                ValueComboBox {
                     min-width: 140px;
                     preferred-width: 260px;
                     max-width: 260px;
                     model: Api.match-labels;
-                    current-index: Api.bar.monitor-index;
+                    shown: Api.bar.monitor-index;
                     accessible-label: @tr("Monitor of the bar");
                     selected => {
                         Api.bar.monitor = Api.match-choices[self.current-index];
@@ -631,12 +632,12 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Edge");
-                ComboBox {
+                ValueComboBox {
                     min-width: 110px;
                     preferred-width: 200px;
                     max-width: 200px;
                     model: [@tr("Top"), @tr("Bottom"), @tr("Left"), @tr("Right")];
-                    current-index: Api.bar.position;
+                    shown: Api.bar.position;
                     accessible-label: @tr("Edge");
                     selected => {
                         Api.bar.position = self.current-index;
@@ -648,12 +649,12 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Space");
                 description: @tr("Reserve: maximized windows stop at the bar. Float: over the desktop.");
-                ComboBox {
+                ValueComboBox {
                     min-width: 110px;
                     preferred-width: 200px;
                     max-width: 200px;
                     model: [@tr("Reserve"), @tr("Float")];
-                    current-index: Api.bar.mode;
+                    shown: Api.bar.mode;
                     accessible-label: @tr("Space");
                     selected => {
                         Api.bar.mode = self.current-index;
@@ -665,14 +666,11 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Thickness");
                 description: @tr("16 to 512 pixels, at 100% scale.");
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 140px;
-                    max-width: 140px;
+                NumberBox {
                     minimum: 16;
                     maximum: 512;
                     value: Api.bar.thickness;
-                    accessible-label: @tr("Thickness");
+                    label: @tr("Thickness");
                     edited(value) => {
                         Api.bar.thickness = value;
                         Api.bar-edited();
@@ -683,9 +681,9 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Length");
                 description: Api.bar.length-auto ? @tr("As long as what it shows, in the middle of its edge.") : "";
-                Switch {
+                ValueSwitch {
                     text: @tr("auto");
-                    checked: Api.bar.length-auto;
+                    shown: Api.bar.length-auto;
                     accessible-label: @tr("As long as what it shows");
                     toggled => {
                         Api.bar.length-auto = self.checked;
@@ -693,9 +691,9 @@ export component BarPage inherits ScrollView {
                     }
                 }
 
-                if !Api.bar.length-auto: Switch {
+                if !Api.bar.length-auto: ValueSwitch {
                     text: @tr("in %");
-                    checked: Api.bar.length-percent;
+                    shown: Api.bar.length-percent;
                     accessible-label: @tr("Length in percent");
                     toggled => {
                         Api.bar.length-percent = self.checked;
@@ -704,14 +702,11 @@ export component BarPage inherits ScrollView {
                     }
                 }
 
-                if !Api.bar.length-auto: SpinBox {
-                    min-width: 90px;
-                    preferred-width: 140px;
-                    max-width: 140px;
+                if !Api.bar.length-auto: NumberBox {
                     minimum: Api.bar.length-percent ? 1 : 16;
                     maximum: Api.bar.length-percent ? 100 : 16384;
                     value: Api.bar.length;
-                    accessible-label: @tr("Length");
+                    label: @tr("Length");
                     edited(value) => {
                         Api.bar.length = value;
                         Api.bar-edited();
@@ -722,48 +717,44 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Margins");
                 description: @tr("Top, right, bottom, left.");
-                SpinBox {
-                    width: 90px;
+                NumberBox {
                     minimum: 0;
                     maximum: 1024;
                     value: Api.bar.margin-top;
-                    accessible-label: @tr("Top margin");
+                    label: @tr("Top margin");
                     edited(value) => {
                         Api.bar.margin-top = value;
                         Api.bar-edited();
                     }
                 }
 
-                SpinBox {
-                    width: 90px;
+                NumberBox {
                     minimum: 0;
                     maximum: 1024;
                     value: Api.bar.margin-right;
-                    accessible-label: @tr("Right margin");
+                    label: @tr("Right margin");
                     edited(value) => {
                         Api.bar.margin-right = value;
                         Api.bar-edited();
                     }
                 }
 
-                SpinBox {
-                    width: 90px;
+                NumberBox {
                     minimum: 0;
                     maximum: 1024;
                     value: Api.bar.margin-bottom;
-                    accessible-label: @tr("Bottom margin");
+                    label: @tr("Bottom margin");
                     edited(value) => {
                         Api.bar.margin-bottom = value;
                         Api.bar-edited();
                     }
                 }
 
-                SpinBox {
-                    width: 90px;
+                NumberBox {
                     minimum: 0;
                     maximum: 1024;
                     value: Api.bar.margin-left;
-                    accessible-label: @tr("Left margin");
+                    label: @tr("Left margin");
                     edited(value) => {
                         Api.bar.margin-left = value;
                         Api.bar-edited();
@@ -773,14 +764,11 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Rounded corners");
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 140px;
-                    max-width: 140px;
+                NumberBox {
                     minimum: 0;
                     maximum: 256;
                     value: Api.bar.radius;
-                    accessible-label: @tr("Corner radius");
+                    label: @tr("Corner radius");
                     edited(value) => {
                         Api.bar.radius = value;
                         Api.bar-edited();
@@ -790,8 +778,8 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Hide automatically");
-                Switch {
-                    checked: Api.bar.autohide;
+                ValueSwitch {
+                    shown: Api.bar.autohide;
                     accessible-label: @tr("Hide the bar automatically");
                     toggled => {
                         Api.bar.autohide = self.checked;
@@ -802,8 +790,8 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Hide Windows' taskbar");
-                Switch {
-                    checked: Api.bar.hide-native;
+                ValueSwitch {
+                    shown: Api.bar.hide-native;
                     accessible-label: @tr("Hide Windows' taskbar");
                     toggled => {
                         Api.bar.hide-native = self.checked;
@@ -819,12 +807,12 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Background");
                 description: @tr("Acrylic and mica blur what is behind the bar.");
-                ComboBox {
+                ValueComboBox {
                     min-width: 110px;
                     preferred-width: 200px;
                     max-width: 200px;
                     model: [@tr("Solid"), @tr("Transparent"), @tr("Acrylic"), @tr("Mica")];
-                    current-index: Api.bar.background;
+                    shown: Api.bar.background;
                     accessible-label: @tr("Background");
                     selected => {
                         Api.bar.background = self.current-index;
@@ -836,11 +824,11 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Color");
                 description: @tr("#RRGGBB or palette.<name> from the rice, then Enter.");
-                LineEdit {
+                ValueLineEdit {
                     min-width: 90px;
                     preferred-width: 160px;
                     max-width: 160px;
-                    text: Api.bar.tint;
+                    shown: Api.bar.tint;
                     placeholder-text: "#1E1E2E";
                     accessible-label: @tr("Background color");
                     accepted(text) => {
@@ -852,13 +840,13 @@ export component BarPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Opacity");
-                Slider {
+                ValueSlider {
                     min-width: 110px;
                     preferred-width: 200px;
                     max-width: 200px;
                     minimum: 0;
                     maximum: 100;
-                    value: Api.bar.opacity;
+                    shown: Api.bar.opacity;
                     accessible-label: @tr("Opacity");
                     changed(value) => {
                         Api.bar.opacity = value;
@@ -877,11 +865,11 @@ export component BarPage inherits ScrollView {
             SettingRow {
                 label: @tr("Text and icons");
                 description: @tr("#RRGGBB or palette.<name>; empty follows Windows' mode.");
-                LineEdit {
+                ValueLineEdit {
                     min-width: 90px;
                     preferred-width: 160px;
                     max-width: 160px;
-                    text: Api.bar.foreground;
+                    shown: Api.bar.foreground;
                     accessible-label: @tr("Text and icon color");
                     accepted(text) => {
                         Api.bar.foreground = text;

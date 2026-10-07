@@ -115,4 +115,28 @@ Result<void> checkHttpHeader(std::string_view name, std::string_view value)
     return {};
 }
 
+bool isLocalAddress(std::span<const std::uint8_t> address) noexcept
+{
+    const auto zero = [](std::uint8_t x) { return x == 0; };
+    if (address.size() == 4)
+    {
+        const auto& b = address;
+        return b[0] == 0 || b[0] == 10 || b[0] == 127 || (b[0] == 169 && b[1] == 254) ||
+               (b[0] == 172 && (b[1] & 0xF0) == 16) || (b[0] == 192 && b[1] == 168) ||
+               (b[0] == 100 && (b[1] & 0xC0) == 64) || (b[0] == 198 && (b[1] & 0xFE) == 18) || b[0] >= 224;
+    }
+    if (address.size() == 16)
+    {
+        const auto& b = address;
+        if (std::ranges::all_of(b.first(10), zero) && b[10] == 0xFF && b[11] == 0xFF)
+        {
+            return isLocalAddress(b.subspan(12)); // ::ffff:a.b.c.d
+        }
+        const bool unspecifiedOrLoopback = std::ranges::all_of(b.first(15), zero) && (b[15] == 0 || b[15] == 1);
+        return unspecifiedOrLoopback || (b[0] & 0xFE) == 0xFC /* unique local */ ||
+               (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) /* link-local */ || b[0] == 0xFF /* multicast */;
+    }
+    return true;
+}
+
 } // namespace rmw::plugins

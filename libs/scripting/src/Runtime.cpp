@@ -1075,6 +1075,14 @@ Result<void> Runtime::load(PluginSpec spec, Clock::time_point now)
     }
     // Never more than the manifest asks, whatever was approved.
     plugin->spec.granted = plugin->spec.granted.intersect(plugin->spec.manifest.permissions);
+    // What the replaced VM stored is newer than the host's file: it comes along, still to be saved
+    // (kept for takeDirtyStorage until this load succeeds).
+    const auto unsaved = std::ranges::find(m_unsavedStorage, id, &std::pair<std::string, domain::Value::Table>::first);
+    if (unsaved != m_unsavedStorage.end() && plugin->spec.granted.storage)
+    {
+        plugin->storage = unsaved->second;
+        plugin->storageDirty = true;
+    }
 
     plugin->vm = std::make_unique<Vm>();
     Vm& vm = *plugin->vm;
@@ -1127,6 +1135,10 @@ Result<void> Runtime::load(PluginSpec spec, Clock::time_point now)
         return fail(ErrorCode::InvalidData, std::format("{}: {}", id, message));
     }
 
+    if (plugin->storageDirty)
+    {
+        std::erase_if(m_unsavedStorage, [&](const auto& entry) { return entry.first == id; });
+    }
     Plugin& loaded = *plugin;
     m_plugins.push_back(std::move(plugin));
     if (loaded.widgetFactory != LUA_NOREF)
@@ -1154,6 +1166,11 @@ void Runtime::unload(std::string_view id)
     if (found == m_plugins.end())
     {
         return;
+    }
+    if ((*found)->storageDirty)
+    {
+        std::erase_if(m_unsavedStorage, [id](const auto& entry) { return entry.first == id; });
+        m_unsavedStorage.emplace_back(std::string(id), std::move((*found)->storage));
     }
     m_plugins.erase(found); // closes the VM with every reference in it
     updateWatches();
@@ -1597,6 +1614,11 @@ std::optional<Clock::time_point> Runtime::nextWake() const
 std::vector<std::pair<std::string, domain::Value>> Runtime::takeDirtyStorage()
 {
     std::vector<std::pair<std::string, domain::Value>> dirty;
+    // Unloaded ones first: one loaded again took its own over (and gives it below).
+    for (auto& [id, storage] : std::exchange(m_unsavedStorage, {}))
+    {
+        dirty.emplace_back(std::move(id), domain::Value{std::move(storage)});
+    }
     for (const auto& plugin : m_plugins)
     {
         if (plugin->storageDirty)

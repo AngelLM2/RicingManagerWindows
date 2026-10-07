@@ -381,7 +381,7 @@ Pause when a window covers the desktop	Pausar quando uma janela cobre a área de
 Frames per second, at most	Quadros por segundo, no máximo
 Fewer frames, less GPU. 30 is smooth for most videos.	Menos quadros, menos GPU. 30 é suave para a maioria dos vídeos.
 Choose the app to open	Escolha o app para abrir
-Search the apps	Procurar nos apps
+Search the apps (Enter picks the first)	Procurar nos apps (Enter escolhe o primeiro)
 Open an app	Abrir um app
 open apps installed on this PC	abrir apps instalados neste PC
 Choose the app…	Escolher o app…
@@ -652,3 +652,28 @@ For every user of this PC. It needs "Folder and drive icons for the whole PC" on
 Folder and drive icons for the whole PC	Ícones de pastas e unidades para o PC inteiro
 Advanced: a rice may change every folder's and drive's icon, for every user of this PC. Windows asks for administrator each time.	Avançado: um rice pode mudar o ícone de todas as pastas e unidades, para todos os usuários deste PC. O Windows pede administrador a cada vez.
 Everything else came back. Not back: {}	O resto voltou. Não voltou: {}
+Copying into the rice: {}…	Copiando para o rice: {}…
+Not saved, so the rice stays readable: {}	Não foi salvo, para o rice continuar legível: {}
+Less	Menos
+More	Mais
+Not a color: write #RRGGBB, like #1E1E2E.	Não é uma cor: escreva #RRGGBB, como #1E1E2E.
+That palette color is not in this rice's palette.	Essa cor não está na paleta deste rice.
+Not a time: write it like 07:00.	Não é um horário: escreva como 07:00.
+Light and dark need different times.	Claro e escuro precisam de horários diferentes.
+Write the program's file name, like firefox.exe.	Escreva o nome do arquivo do programa, como firefox.exe.
+Write the file type, like txt.	Escreva o tipo de arquivo, como txt.
+That value does not fit this setting.	Esse valor não serve para esta configuração.
+That folder has no rice.toml.	Essa pasta não tem rice.toml.
+No install.inf and no file named like a cursor role (normal.cur, link.cur…).	Sem install.inf e sem arquivo com nome de um papel de cursor (normal.cur, link.cur…).
+What it asks for cannot be read, so it cannot be approved.	Não dá para ler o que ele pede, então ele não pode ser aprovado.
+A rice needs a name.	Um rice precisa de um nome.
+That name is too long.	Esse nome é longo demais.
+A name cannot have / \ : * ? " < > |.	Um nome não pode ter / \ : * ? " < > |.
+A name cannot end with a dot.	Um nome não pode terminar com ponto.
+Windows keeps that name for itself (CON, NUL, COM1…).	O Windows reserva esse nome para si (CON, NUL, COM1…).
+{} is already a hotkey	{} já é um atalho
+Rename {}	Renomear {}
+New name of the rice	Novo nome do rice
+Rename	Renomear
+Forget this folder	Esquecer esta pasta
+Take {} off the list (its folder stays)	Tirar {} da lista (a pasta continua)
