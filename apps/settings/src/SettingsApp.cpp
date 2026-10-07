@@ -1198,6 +1198,7 @@ void SettingsApp::refreshSettings()
     auto loaded = settings::loadSettings(m_dataDirectory, views);
     if (!loaded)
     {
+        log::warn("settings: settings.toml: {}", loaded.error().toString());
         m_settings.reset();
         api.set_settings_problem(shared(loaded.error().message()));
     }

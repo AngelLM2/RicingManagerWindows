@@ -317,7 +317,28 @@ Check 'settings:win-key-switch' ((Find-Named $window "The Win key opens Ricing M
 # every window, this one included, goes back).
 [void](Press $window 'Tiling')
 Start-Sleep -Milliseconds 500
-Check 'settings:tiling-page' ($null -ne (Find-Named $window 'Organize the windows') -and (Find-Named $window 'Focus the window on the left') -ne $null) ''
+# The rows of keys are further down: Slint shows Narrator only what is in sight, so the page is scrolled
+# to them first (the wheel over the page, not over a box), then back up for what follows.
+$organize = Find-Named $window 'Organize the windows'
+$pageBox = if ($organize) { $organize.Current.BoundingRectangle } else { $null }
+if ($pageBox) {
+    [void][Rmw.Win]::SetCursorPos([int]($pageBox.X + 40), [int]($pageBox.Y + $pageBox.Height + 60))
+    Start-Sleep -Milliseconds 150
+    foreach ($notch in 1..6) { [Rmw.Win]::mouse_event(0x0800, 0, 0, [uint32]4294967176, [UIntPtr]::Zero); Start-Sleep -Milliseconds 60 }
+}
+$tilingPage = Wait-Until { $null -ne (Find-Named $window 'Focus the window on the left') } 5
+if ($pageBox) {
+    foreach ($notch in 1..10) { [Rmw.Win]::mouse_event(0x0800, 0, 0, 120, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40 }
+    Start-Sleep -Milliseconds 300
+}
+$tilingPage = $tilingPage -and $null -ne (Find-Named $window 'Organize the windows')
+$tilingDetail = ''
+if (-not $tilingPage) {
+    $all = $window.FindAll($Scope::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    $tilingDetail = (@($all | ForEach-Object { $_.Current.Name } | Where-Object { $_ -match 'window|janela|key|tecla|Focus|Focar|problem|Not saved' }) | Select-Object -First 30) -join ' | '
+    Shot $app 'tiling-page-missing'
+}
+Check 'settings:tiling-page' $tilingPage $tilingDetail
 $settingsToml = Join-Path $data 'config\settings.toml'
 [void](Flip $window 'Organize the windows')
 $tilingOn = Wait-Until { (Test-Path $settingsToml) -and ((Get-Content $settingsToml -Raw) -match '(?m)^enabled = true') -and $null -ne (Get-Process rmw-tiler -ErrorAction SilentlyContinue) } 15

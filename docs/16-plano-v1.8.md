@@ -86,7 +86,41 @@ Quatro revisões adversariais (barra, *tiler*, core e motor, configurações e p
 | Q17 | *Tiler* | Janela volta para fora de todas as telas quando o monitor dela sumiu | volta para a área de trabalho do monitor mais próximo | revisão do código |
 | Q18 | Ambos | Tooltips e listas suspensas voltavam como fantasmas; arquivo do plano perdido durante leitura; salvar a cada troca esperava o disco | ver o commit do *tiler* | — |
 
-Os achados do core e do motor (restauração que trava por um diário de desfazer com falha, banco compartilhado entre *threads*, `state.db` corrompido que impede o início, saída limpa que deixa janelas escondidas…) e os das configurações (nomes de arquivo longos que estragam o rice, cursores importados que perdem os arquivos, cópias grandes no *thread* da janela, edições perdidas…) estão sendo corrigidos à parte e entram aqui ao fim.
+**Core e motor** (17 achados; 16 corrigidos, 1 em parte, 1 deixado):
+
+| # | O que quebrava | Correção |
+|---|---|---|
+| Q19 | Sair pela bandeja ou desinstalar matava o *tiler* sem devolver as janelas escondidas nas outras áreas | o core pede ao *tiler* que saia e espera até 3 s; se não sair, `rmw-tiler --restore` devolve pela lista |
+| Q20 | Um desfazer que sempre falha travava **toda** operação, inclusive restaurar | `recover()` faz o que dá e fecha o diário; restaurar segue; `rmw recover [--discard]` |
+| Q21 | Restaurar falhava inteiro se um módulo não conseguisse ler o estado atual | o módulo entra em "não voltou" e o resto continua |
+| Q22 | O banco era escrito por várias *threads* fora da transação (escritas perdidas no `ROLLBACK`, histórico ligado ao *snapshot* errado) | uma trava por chamada e por transação |
+| Q23 | `state.db` corrompido impedia o core de iniciar para sempre; um `state.db` vazio perdia o "Windows original" | o corrompido vai para o lado (`state.db.damaged-…`); o original também fica em `original.json` |
+| Q24 | Uma exceção num cliente encerrava o core; o laço de conexões podia girar a 100% | cada pedido e cada tarefa têm seu `catch`; a instância do *pipe* é refeita e espera |
+| Q25 | Pasta observada apagada (ou unidade de rede perdida): o *thread* da janela girava a 100% | a observação é refeita ou largada; as mensagens são lidas a cada volta |
+| Q26 | Restaurar interrompido era desfeito (o rice voltava); o plano da apresentação sobrevivia a um apply desfeito; um monitor desconectado ficava com o papel do rice | restaurar interrompido termina; plano pendente até o fim do apply; campo de monitor ausente continua gerenciado |
+| Q27 | Voltar a um ponto do histórico desmontava barras, vídeo e agenda; voltar de "Windows original" não fazia nada | o *snapshot* guarda o que a operação mudou e o estado do core |
+| Q28 | Mudança de fuso ou horário de verão perdia a troca claro/escuro | a agenda compara o período local antes e depois do salto |
+| Q29 | Valores do registro de tipos inesperados (QWORD, MULTI_SZ) voltavam como binário ou eram apagados | o tipo é guardado (o módulo de ícones ainda converte as strings como antes) |
+| Q30 | O ajudante elevado (ícones de pasta e unidade para o PC todo) podia ser enganado por uma *junction* trocada no meio; um usuário apagava os ícones de outro | pasta aberta sem seguir *links* e protegida pelo mesmo *handle*; diário e ícones por usuário |
+| — | Deixado: o tema "legado" pode aplicar o papel de parede e os sons do `.theme` | só se confere aplicando um tema num Windows de verdade |
+
+**Configurações e plugins** (24 achados; 20 corrigidos, 4 em parte):
+
+| # | O que quebrava | Correção |
+|---|---|---|
+| Q31 | **Arquivo com nome longo (mais de ~56 letras) deixava o rice ilegível** (o corte comia a extensão) | o corte fica no nome, a extensão fica; um rice que não relê não é salvo |
+| Q32 | Cursores importados perdiam os arquivos (`install.inf` apontava para nomes trocados) | os nomes originais ficam quando o Windows aceita |
+| Q33 | Escolher um vídeo de 2 GB ou uma pasta de 500 imagens travava a janela ("Não está respondendo") | cópias no *thread* de trabalho, com aviso de "copiando" |
+| Q34 | Fechar a janela durante uma tarefa longa deixava um processo invisível que impedia abrir de novo por até 11 min | o processo sai 3 s depois da janela |
+| Q35 | Arrastar um controle e clicar em Aplicar aplicava o valor antigo (salvamento a 400 ms nunca era forçado) | o que espera é salvo antes de aplicar, compartilhar, trocar de rice e fechar |
+| Q36 | Controles mostravam valores velhos depois de serem mexidos (ligações de mão única do Slint) | controles que retomam o valor a cada mudança |
+| Q37 | **Rolar a página com a roda do mouse mudava espessura, margens, raio e FPS da barra** | caixa de número nova: a roda só age com o foco |
+| Q38 | Um atalho podia travar a página de *tiling*; atalhos repetidos aceitos | conferidos antes de salvar |
+| Q39 | Aprovar um plugin podia conceder permissões nunca mostradas | a aprovação leva as permissões vistas; o core recusa se o plugin pede mais |
+| Q40 | Desinstalar um plugin passava as edições para outro (seleção por posição) | seleção por id |
+| Q41 | Renomear rices não funcionava | ligado, com os nomes que o Windows recusa conferidos |
+| Q42 | Cartões e linhas que vazavam em português; janela mais alta que uma tela 1080p a 200% | linhas que quebram; altura mínima 420 |
+| — | Em parte: cópias longas não podem ser canceladas no meio; a lista do seletor de apps não recebe foco pelo teclado; mensagens que vêm do core seguem em inglês; **plugins não usam mais proxy** (o endereço de destino é conferido antes de enviar; numa rede que só sai por proxy, o recurso de rede dos plugins para, com uma mensagem que diz o motivo) | |
 
 ## Ordem
 
