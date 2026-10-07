@@ -233,14 +233,17 @@ void MenuWindow::freeTarget() noexcept
     m_rect = {};
 }
 
-void MenuWindow::hide()
+void MenuWindow::hide(bool lostFocus)
 {
     if (!m_shown)
     {
         return;
     }
     m_shown = false;
-    m_hiddenAt = std::chrono::steady_clock::now();
+    if (lostFocus)
+    {
+        m_hiddenAt = std::chrono::steady_clock::now(); // maybe by the click on the Start button: no reopening
+    }
     ShowWindow(static_cast<HWND>(m_window), SW_HIDE);
     window().dispatch_window_active_changed_event(false);
     if (m_onHidden)
@@ -377,7 +380,7 @@ std::intptr_t MenuWindow::handle(unsigned message, std::uintptr_t wParam, std::i
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE)
         {
-            hide(); // a click elsewhere, Alt+Tab, another window: like Windows' own Start
+            hide(true); // a click elsewhere, Alt+Tab, another window: like Windows' own Start
         }
         return 0;
     case WM_KEYDOWN:

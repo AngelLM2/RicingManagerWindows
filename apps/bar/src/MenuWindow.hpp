@@ -34,7 +34,9 @@ public:
 
     // Shows it at `rect` (physical pixels) on a monitor of that `scale`, in front, with the focus.
     void showAt(const bar::Rect& rect, double scale);
-    void hide();
+    // `lostFocus`: it went because another window took the focus (the click that did it may be on the Start
+    // button, which must not open it again); Esc or an app opened from it may be followed by a click at once.
+    void hide(bool lostFocus = false);
     // Draws a frame of that size unseen (the first open is then as quick as the others).
     void warmUp(const bar::Rect& rect, double scale);
     [[nodiscard]] bool shown() const noexcept { return m_shown; }
