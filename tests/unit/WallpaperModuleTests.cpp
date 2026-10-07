@@ -13,6 +13,10 @@
 namespace
 {
 
+// The first bytes of a JPEG and of a PNG: the store takes a picture only when it is one.
+constexpr const char* kJpeg = "\xFF\xD8\xFF";
+constexpr const char* kPng = "\x89PNG";
+
 using namespace rmw::modules;
 using rmw::engine::Json;
 using rmw::ports::WallpaperPosition;
@@ -42,10 +46,10 @@ protected:
     void SetUp() override
     {
         std::filesystem::create_directories(package() / "assets" / "slides");
-        std::ofstream(package() / "assets" / "a.jpg", std::ios::binary) << "AAAA";
-        std::ofstream(package() / "assets" / "b.jpg", std::ios::binary) << "BBBB";
-        std::ofstream(package() / "assets" / "slides" / "1.jpg", std::ios::binary) << "S1";
-        std::ofstream(package() / "assets" / "slides" / "2.png", std::ios::binary) << "S2";
+        std::ofstream(package() / "assets" / "a.jpg", std::ios::binary) << kJpeg << "AAAA";
+        std::ofstream(package() / "assets" / "b.jpg", std::ios::binary) << kJpeg << "BBBB";
+        std::ofstream(package() / "assets" / "slides" / "1.jpg", std::ios::binary) << kJpeg << "S1";
+        std::ofstream(package() / "assets" / "slides" / "2.png", std::ios::binary) << kPng << "S2";
         std::ofstream(package() / "assets" / "slides" / "notes.txt", std::ios::binary) << "x";
         m_rice.meta.name = "Walls";
         m_rice.wallpaper = rmw::domain::WallpaperConfig{};

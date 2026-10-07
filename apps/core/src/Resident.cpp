@@ -196,7 +196,7 @@ Resident::Resident(CoreServer& core, platform::MessageWindow& window, WorkQueue&
 void Resident::start()
 {
     m_started = Clock::now();
-    m_lastWallClock = std::chrono::system_clock::now();
+    markClock();
 
     const auto file = settingsFile(m_core->dataDirectory());
     std::error_code ec;
@@ -670,6 +670,7 @@ void Resident::onClockJump()
             queueScheduleSync();
         }
     }
+    markClock();
     armSchedule();
 }
 
@@ -724,14 +725,21 @@ void Resident::onScheduleTimer()
             queueAction(rule.action, Origin::Automatic);
         }
     }
+    markClock();
     armSchedule();
+}
+
+void Resident::markClock()
+{
+    m_lastWallClock = std::chrono::system_clock::now();
+    m_lastLocalSeconds = localSecondsOfDay();
 }
 
 void Resident::armSchedule()
 {
+    // Only the timer: the clock noted last stays (markClock). A refresh between a time zone change and the
+    // next look at the clock noted the new time and the change was never seen (the break suite, v1.8).
     m_window->killTimer(kScheduleTimer);
-    m_lastWallClock = std::chrono::system_clock::now();
-    m_lastLocalSeconds = localSecondsOfDay();
     if (safe())
     {
         return;

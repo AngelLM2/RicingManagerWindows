@@ -527,8 +527,8 @@ TEST_F(RiceEngineTest, LossySnapshotsAreReported)
 
 TEST_F(RiceEngineTest, PackageAssetsGoToTheStoreAndOrphansAreCollected)
 {
-    std::ofstream(package() / "assets" / "a.jpg", std::ios::binary) << "AAA";
-    std::ofstream(package() / "assets" / "b.jpg", std::ios::binary) << "BBB";
+    std::ofstream(package() / "assets" / "a.jpg", std::ios::binary) << "\xFF\xD8\xFF" << "AAA"; // a JPEG's start
+    std::ofstream(package() / "assets" / "b.jpg", std::ios::binary) << "\xFF\xD8\xFF" << "BBB";
     std::string assetName = "assets/b.jpg";
     m_wallpaper.desired = [&](const rmw::domain::Rice&, IAssetSink& assets) -> rmw::Result<Json> {
         auto stored = assets.fromPackage(assetName);

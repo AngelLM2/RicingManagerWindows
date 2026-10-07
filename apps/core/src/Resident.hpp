@@ -78,6 +78,8 @@ private:
     [[nodiscard]] bool periodChanged(const domain::AppearanceSchedule& schedule, std::int32_t now) const;
     [[nodiscard]] bool due(const std::string& key, domain::TimeOfDay at, std::int32_t now);
     void armSchedule();
+    // Notes the wall clock and the local time now: what the next look at the clock compares with.
+    void markClock();
     void syncPages();
     void syncBar();
     void syncVideo();
