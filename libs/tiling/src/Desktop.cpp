@@ -3,6 +3,7 @@
 #include "rmw/domain/Settings.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace rmw::tiling
 {
@@ -77,7 +78,7 @@ Change Desktop::setMonitors(std::vector<Monitor> monitors)
         for (std::size_t w = 0; w < gone.workspaces.size(); ++w)
         {
             const Workspace& workspace = gone.workspaces[w];
-            const std::size_t to = static_cast<int>(w) == gone.active ? static_cast<std::size_t>(refuge.active)
+            const std::size_t to = std::cmp_equal(w, gone.active) ? static_cast<std::size_t>(refuge.active)
                                                                      : std::min(w, refuge.workspaces.size() - 1);
             for (const WindowId window : workspace.windows())
             {

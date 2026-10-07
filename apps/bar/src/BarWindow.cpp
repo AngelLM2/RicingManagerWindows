@@ -11,6 +11,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <utility>
 #include <cstring>
 
 namespace rmw::barapp
@@ -704,7 +705,7 @@ void BarWindow::present()
     const std::size_t width = m_surface.width();
     const std::size_t height = m_surface.height();
     const auto stride = static_cast<std::size_t>(m_targetWidth);
-    if (width == 0 || width > stride || height > static_cast<std::size_t>(m_targetHeight) ||
+    if (width == 0 || width > stride || std::cmp_greater(height, m_targetHeight) ||
         pixels.size() < width * height)
     {
         return;

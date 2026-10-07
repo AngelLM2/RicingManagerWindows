@@ -40,7 +40,7 @@ public:
     Animator& operator=(Animator&&) = delete;
 
     // A window already moving starts again from where it is now.
-    void start(std::vector<Move> moves, std::chrono::milliseconds duration);
+    void start(const std::vector<Move>& moves, std::chrono::milliseconds duration);
     void cancel(tiling::WindowId window); // a drag, a window that goes away
     void cancelAll();
     [[nodiscard]] bool moving(tiling::WindowId window) const;
