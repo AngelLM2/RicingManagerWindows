@@ -250,10 +250,9 @@ Result<void> RiceEngine::closeUndone(const JournalEntry& entry, const Json& befo
     else if (entry.snapshotId != 0)
     {
         // How things were right before it: going back one step stays possible.
-        if (auto added = m_state.addHistory(entry.snapshotId,
-                                            std::format("{} ({})", label, discarded ? "not undone" : "not fully undone"),
-                                            kHistoryLimit);
-            !added)
+        const std::string history =
+            std::format("{} ({})", label, discarded ? "not undone" : "not fully undone");
+        if (auto added = m_state.addHistory(entry.snapshotId, history, kHistoryLimit); !added)
         {
             return propagate(added);
         }

@@ -1001,7 +1001,8 @@ Result<void> CoreServer::startVideo()
     platform::WorkerSpec spec;
     spec.name = std::string(kVideoWorker);
     spec.executable = self->parent_path() / L"rmw-wallpaper.exe";
-    spec.arguments = L"--plan " + platform::quoteArgument((m_options.dataDirectory / L"wallpaper" / L"video.json").native());
+    spec.arguments =
+        L"--plan " + platform::quoteArgument((m_options.dataDirectory / L"wallpaper" / L"video.json").native());
     spec.memoryLimitBytes = kVideoMemoryLimit;
     // docs/04 M6: a hung window thread is found in < 2 s (1.5 s of silence, plus the checks). The
     // thread beats every 250 ms and between the monitors while it builds the decoders.
