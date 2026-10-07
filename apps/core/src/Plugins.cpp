@@ -339,7 +339,7 @@ std::optional<PluginEntry> PluginManager::find(std::string_view id)
     return std::nullopt;
 }
 
-Result<PluginEntry> PluginManager::approve(std::string_view id)
+Result<PluginEntry> PluginManager::approve(std::string_view id, const std::optional<domain::PluginPermissions>& shown)
 {
     const std::scoped_lock lock(m_mutex);
     auto entry = find(id);
@@ -350,6 +350,11 @@ Result<PluginEntry> PluginManager::approve(std::string_view id)
     if (!entry->manifest)
     {
         return fail(ErrorCode::InvalidData, std::format("{}: {}", id, entry->problem));
+    }
+    if (shown && !entry->manifest->permissions.isWithin(*shown))
+    {
+        return fail(ErrorCode::InvalidArgument,
+                    std::format("{} asks for more than was shown (its plugin.toml changed): look again", id));
     }
     Json approved = metaJson(kApprovedMeta, Json::object());
     approved[std::string(id)] = plugins::permissionsToJson(entry->manifest->permissions);

@@ -15,13 +15,29 @@ component MiniRice inherits Rectangle {
     border-radius: 10px;
     clip: true;
     background: Palette.alternate-background;
-    border-width: root.active ? 2px : 1px;
-    border-color: root.active ? Palette.accent-background : touch.has-hover ? Palette.foreground.transparentize(70%) : Palette.border;
+    border-width: root.active || focus.has-focus ? 2px : 1px;
+    border-color: root.active || focus.has-focus ? Palette.accent-background
+        : touch.has-hover ? Palette.foreground.transparentize(70%) : Palette.border;
     animate border-color { duration: 150ms; }
     accessible-role: AccessibleRole.button;
     accessible-label: @tr("Apply {}", root.name);
+    accessible-enabled: !Api.busy && !root.active;
     accessible-action-default => {
-        Api.apply-rice(root.folder);
+        if (!Api.busy && !root.active) {
+            Api.apply-rice(root.folder);
+        }
+    }
+    forward-focus: focus;
+
+    // Tab reaches it; Space or Enter applies it, like a click.
+    focus := FocusScope {
+        key-pressed(event) => {
+            if ((event.text == " " || event.text == "\n") && !Api.busy && !root.active) {
+                Api.apply-rice(root.folder);
+                return accept;
+            }
+            reject
+        }
     }
 
     touch := TouchArea {
@@ -98,17 +114,18 @@ export component HomePage inherits ScrollView {
                 padding: 16px;
                 spacing: 18px;
 
-                Rectangle {
-                    width: 320px;
-                    height: 180px;
+                // Smaller in a narrow window: at 320 px it left the name and the buttons no room.
+                picture := Rectangle {
+                    width: root.width < 760px ? 176px : 320px;
+                    height: self.width * 9 / 16;
                     border-radius: 8px;
                     clip: true;
                     background: Palette.foreground.transparentize(90%);
 
                     for rice in Api.rices: Rectangle {
                         if rice.active && rice.has-preview: Image {
-                            width: 320px;
-                            height: 180px;
+                            width: picture.width;
+                            height: picture.height;
                             source: rice.preview;
                             image-fit: cover;
                         }
@@ -141,12 +158,9 @@ export component HomePage inherits ScrollView {
                         overflow: elide;
                     }
 
-                    if Api.managed.length > 0: HorizontalLayout {
-                        spacing: 6px;
-                        alignment: start;
-                        for name in Api.managed: Chip {
-                            text: Words.module(name);
-                        }
+                    // One line that wraps: a row of chips ran past the card.
+                    if Api.managed-names != "": Hint {
+                        text: Api.managed-names;
                     }
 
                     HorizontalLayout {

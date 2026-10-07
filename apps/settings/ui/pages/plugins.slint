@@ -131,7 +131,7 @@ component PluginCard inherits Rectangle {
                 text: @tr("Settings");
                 accessible-label: @tr("Settings of {}", root.plugin.name);
                 clicked => {
-                    Api.plugin-selected(root.index);
+                    Api.plugin-selected(root.plugin.id);
                 }
             }
 
@@ -251,7 +251,7 @@ export component PluginsPage inherits ScrollView {
                 Button {
                     text: @tr("Close");
                     clicked => {
-                        Api.selected-plugin = -1;
+                        Api.plugin-selected("");
                     }
                 }
             }

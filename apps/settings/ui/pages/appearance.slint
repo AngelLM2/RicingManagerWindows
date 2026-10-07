@@ -1,10 +1,11 @@
 import { ComboBox, LineEdit, ScrollView, Palette } from "std-widgets.slint";
 import { Api, SwatchColor } from "../api.slint";
-import { Card, Hint, PageHeader, SettingRow, Swatch } from "../common.slint";
+import { Card, Hint, PageHeader, Problem, SettingRow, Swatch, WrapRow } from "../common.slint";
 import { EditingBanner } from "editing.slint";
 
 // The accent colors offered as swatches (Windows' own and a few more); any #RRGGBB can be typed.
-component AccentSwatches inherits HorizontalLayout {
+// As many rows as they need: a palette of 26 colors ran past the card in one.
+component AccentSwatches inherits WrapRow {
     in property <[SwatchColor]> colors: [
         { color: #0078D4, hex: "#0078D4" }, { color: #0063B1, hex: "#0063B1" }, { color: #8E8CD8, hex: "#8E8CD8" },
         { color: #6B69D6, hex: "#6B69D6" }, { color: #C239B3, hex: "#C239B3" }, { color: #E3008C, hex: "#E3008C" },
@@ -13,10 +14,13 @@ component AccentSwatches inherits HorizontalLayout {
         { color: #2D7D9A, hex: "#2D7D9A" }, { color: #7A7574, hex: "#7A7574" }, { color: #7AA2F7, hex: "#7AA2F7" },
         { color: #BB9AF7, hex: "#BB9AF7" },
     ];
-    spacing: 6px;
-    alignment: start;
+    item-width: 32px;
+    item-height: 32px;
+    count: root.colors.length;
 
-    for swatch in root.colors: Swatch {
+    for swatch[i] in root.colors: Swatch {
+        x: mod(i, root.columns) * (root.item-width + root.gap);
+        y: floor(i / root.columns) * (root.item-height + root.gap);
         swatch-color: swatch.color;
         name: swatch.hex;
         selected: Api.accent == swatch.hex;
@@ -93,6 +97,10 @@ export component AppearancePage inherits ScrollView {
                     }
                 }
             }
+
+            if Api.theme-mode == 4 && Api.schedule-problem != "": Problem {
+                text: Api.schedule-problem;
+            }
         }
 
         if Api.editing: Card {
@@ -131,6 +139,10 @@ export component AppearancePage inherits ScrollView {
                         }
                     }
                 }
+            }
+
+            if Api.accent-problem != "": Problem {
+                text: Api.accent-problem;
             }
         }
 
@@ -236,6 +248,10 @@ export component AppearancePage inherits ScrollView {
                 }
             }
 
+            if Api.windows-border-problem != "": Problem {
+                text: Api.windows-border-problem;
+            }
+
             SettingRow {
                 label: @tr("Title bar color");
                 LineEdit {
@@ -252,6 +268,10 @@ export component AppearancePage inherits ScrollView {
                         Api.windows-edited();
                     }
                 }
+            }
+
+            if Api.windows-caption-problem != "": Problem {
+                text: Api.windows-caption-problem;
             }
 
             SettingRow {
@@ -272,6 +292,10 @@ export component AppearancePage inherits ScrollView {
                 }
             }
 
+            if Api.windows-title-problem != "": Problem {
+                text: Api.windows-title-problem;
+            }
+
             SettingRow {
                 label: @tr("Programs left as they are");
                 description: @tr("Their file names, separated by commas.");
@@ -289,6 +313,10 @@ export component AppearancePage inherits ScrollView {
                         Api.windows-edited();
                     }
                 }
+            }
+
+            if Api.windows-exclude-problem != "": Problem {
+                text: Api.windows-exclude-problem;
             }
 
             Hint {
