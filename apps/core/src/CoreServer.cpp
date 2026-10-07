@@ -767,13 +767,23 @@ void CoreServer::writeBarPlan(const std::optional<std::string>& given, bool newB
 
 void CoreServer::setBarOff(bool off)
 {
+    bool same = false;
     {
         const std::scoped_lock lock(m_scheduleMutex);
-        if (m_barOff == off)
-        {
-            return;
-        }
+        same = m_barOff == off;
         m_barOff = off;
+    }
+    if (same)
+    {
+        // On already, but the worker gave up after failing too often: "on" starts it again (it said
+        // "nothing to change" and the bar stayed away until a rice was applied again). (Asked outside the
+        // lock: barStatus() takes it.)
+        if (!off && barPlan() && !json::boolOr(barStatus(), "running", false))
+        {
+            m_barRetry = true;
+            notifyResident();
+        }
+        return;
     }
     if (auto saved = m_state->setMeta(kBarOffMeta, off ? std::optional<std::string_view>("1") : std::nullopt);
         !saved)
