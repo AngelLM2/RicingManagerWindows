@@ -69,6 +69,14 @@ bool repeats(domain::TilingCommand command) noexcept
     }
 }
 
+// A command that may send Windows' Ctrl+Win+arrows (Mac style).
+bool maySlide(domain::TilingCommand command) noexcept
+{
+    using domain::TilingCommand;
+    return command == TilingCommand::Workspace || command == TilingCommand::WorkspacePrevious ||
+           command == TilingCommand::WorkspaceNext;
+}
+
 bool down(int vk) noexcept
 {
     return (static_cast<unsigned short>(GetAsyncKeyState(vk)) & 0x8000U) != 0;
@@ -114,6 +122,48 @@ std::uint32_t ModifierKeys::modifiers() const noexcept
 
 struct KeyHook::Access
 {
+    // As the person holds them: a key whose release is held back is let go.
+    static std::uint32_t modifiersNow() noexcept
+    {
+        ModifierKeys keys = heldNow();
+        for (const HeldKey& key : g_hook->m_heldUps)
+        {
+            switch (key.vk)
+            {
+            case VK_LCONTROL:
+                keys.leftCtrl = false;
+                break;
+            case VK_RCONTROL:
+                keys.rightCtrl = false;
+                break;
+            case VK_LMENU:
+                keys.leftAlt = false;
+                break;
+            case VK_RMENU:
+                keys.rightAlt = false;
+                break;
+            case VK_CONTROL:
+                keys.leftCtrl = keys.rightCtrl = false;
+                break;
+            case VK_MENU:
+                keys.leftAlt = keys.rightAlt = false;
+                break;
+            case VK_SHIFT:
+            case VK_LSHIFT:
+            case VK_RSHIFT:
+                keys.shift = false;
+                break;
+            case VK_LWIN:
+            case VK_RWIN:
+                keys.win = false;
+                break;
+            default:
+                break;
+            }
+        }
+        return keys.modifiers();
+    }
+
     static LRESULT CALLBACK proc(int code, WPARAM wParam, LPARAM lParam)
     {
         if (code == HC_ACTION && g_hook != nullptr)
@@ -153,7 +203,7 @@ struct KeyHook::Access
                 }
                 if (pressed)
                 {
-                    const std::uint32_t modifiers = heldNow().modifiers();
+                    const std::uint32_t modifiers = modifiersNow();
                     const auto keys = g_hook->m_keys.load();
                     const auto match = modifiers != 0 && keys
                                            ? tiling::matchKey(*keys, modifiers, event->vkCode)
@@ -164,9 +214,14 @@ struct KeyHook::Access
                         // means; turning tiling off and on 30 times a second is not.
                         const bool repeat = g_hook->m_swallowed[event->vkCode];
                         g_hook->m_swallowed[event->vkCode] = true;
+                        // Only what may send keys is waited for: the others' modifiers go at once.
+                        const bool answered = g_hook->m_slides.load() && maySlide(match->command);
                         if ((!repeat || repeats(match->command)) &&
                             PostMessageW(static_cast<HWND>(g_hook->m_target), kCommandMessage,
-                                         static_cast<WPARAM>(match->command), match->number) != FALSE)
+                                         static_cast<WPARAM>(match->command) |
+                                             (answered ? kAnswerWanted : 0U),
+                                         match->number) != FALSE &&
+                            answered)
                         {
                             g_hook->wait();
                         }
@@ -220,9 +275,10 @@ KeyHook::~KeyHook()
     }
 }
 
-void KeyHook::setKeys(Keys keys)
+void KeyHook::setKeys(Keys keys, bool slides)
 {
     m_keys.store(std::make_shared<const Keys>(std::move(keys)));
+    m_slides = slides;
 }
 
 void KeyHook::answer(int slides) noexcept

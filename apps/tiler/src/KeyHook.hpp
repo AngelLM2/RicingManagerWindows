@@ -33,16 +33,18 @@ struct ModifierKeys
 // shortcut with Win, an unassigned key goes out, so Windows (and our Start's Win key) see a Win
 // shortcut and keep the Start menu closed.
 //
-// Until the target answers a command, the modifiers the person lets go wait (and go out after what the
-// answer sends): a quick tap of Ctrl+Win+1 is over before the command arrives, and Ctrl+Win+arrow sent
-// then would reach Windows as a bare arrow, the unassigned key after a lone Win (Start open).
+// The modifiers the person lets go wait until what goes out for the shortcut has (and go out after it):
+// a quick tap of Ctrl+Win+1 is over before the command arrives, and Ctrl+Win+arrow sent then would
+// reach Windows as a bare arrow, the unassigned key after a lone Win (Start open). Only the commands
+// that may send keys (the workspaces, Mac style) are waited for, and never more than 250 ms.
 class KeyHook
 {
 public:
     using Keys = std::vector<domain::TilingKey>;
-    // To the target window: wParam = the domain::TilingCommand, lParam = its number (1..9) or 0.
-    // The target answers each one with answer().
+    // To the target window: wParam = the domain::TilingCommand (with kAnswerWanted: answer it with
+    // answer()), lParam = its number (1..9) or 0.
     static constexpr std::uint32_t kCommandMessage = 0x8000 + 0x52; // WM_APP + 0x52
+    static constexpr std::uint32_t kAnswerWanted = 0x100;
 
     explicit KeyHook(void* target);
     ~KeyHook(); // unhooks
@@ -51,9 +53,10 @@ public:
     KeyHook(KeyHook&&) = delete;
     KeyHook& operator=(KeyHook&&) = delete;
 
-    // From any thread: the shortcuts from now on.
-    void setKeys(Keys keys);
-    // From the target's thread, once per kCommandMessage: Windows' Ctrl+Win+arrow `slides` times
+    // From any thread: the shortcuts from now on; `slides`: the workspace commands may send Windows'
+    // Ctrl+Win+arrows (the Mac style), so they are answered.
+    void setKeys(Keys keys, bool slides);
+    // From the target's thread, for a command with kAnswerWanted: Ctrl+Win+arrow `slides` times
     // (negative: to the left) to send while the shortcut's modifiers are still down, or 0.
     void answer(int slides) noexcept;
     [[nodiscard]] bool active() const noexcept { return m_active.load(); }
@@ -75,9 +78,10 @@ private:
 
     void* m_target; // HWND
     std::atomic<std::shared_ptr<const Keys>> m_keys;
+    std::atomic<bool> m_slides{false};
     std::array<bool, 256> m_swallowed{}; // keys whose release goes too (hook thread only)
     int m_waiting = 0;                   // commands posted, not answered yet
-    bool m_maskOwed = false;        // a Win or Alt shortcut: the unassigned key goes before Win or Alt goes up
+    bool m_maskOwed = false; // a Win or Alt shortcut: the unassigned key goes before Win or Alt goes up
     std::vector<HeldKey> m_heldUps; // modifiers let go meanwhile, in order
     std::uint32_t m_inFlight = 0;   // the last key we sent, until it comes through the hook
     std::uintptr_t m_timer = 0;     // what never answers or never comes back does not keep them
