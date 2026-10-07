@@ -580,6 +580,7 @@ void SettingsApp::work(const std::stop_token& stop)
 {
     // The connection to the core goes with this thread: closed when it ends.
     client::CoreClient client(m_dataDirectory);
+    client.onReplace([this](bool replacing) { m_replacingCore = replacing; });
     const auto done = ScopeExit([this]() noexcept {
         const std::scoped_lock lock(m_mutex);
         m_workerDone = true;

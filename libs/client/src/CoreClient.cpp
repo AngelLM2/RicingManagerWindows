@@ -1,5 +1,6 @@
 #include "rmw/client/CoreClient.hpp"
 
+#include "rmw/base/ScopeExit.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
 #include "rmw/platform/Pipe.hpp"
@@ -42,6 +43,13 @@ Result<void> CoreClient::connect(bool startIfNeeded)
     m_coreExe = self->parent_path() / L"rmw-core.exe";
     m_pipe = *name;
 
+    bool replacing = false;
+    const auto replaced = ScopeExit([&]() noexcept {
+        if (replacing && m_onReplace)
+        {
+            m_onReplace(false);
+        }
+    });
     for (int attempt = 0; attempt < 2; ++attempt)
     {
         auto connected = connectOrStart();
@@ -68,7 +76,13 @@ Result<void> CoreClient::connect(bool startIfNeeded)
         {
             return std::unexpected(std::move(hello.error()));
         }
-        // An older core is still running (e.g. after an update): replace it.
+        // An older core is still running (e.g. after an update): replace it. Until the new one answers,
+        // the settings window it closes as it stops is this caller's (see onReplace).
+        if (!replacing && m_onReplace)
+        {
+            replacing = true;
+            m_onReplace(true);
+        }
         [[maybe_unused]] const auto stopped = call("shutdown", Json::object(), 5s);
         m_connection.reset();
         std::this_thread::sleep_for(1s);

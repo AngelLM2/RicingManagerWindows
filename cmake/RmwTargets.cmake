@@ -6,6 +6,9 @@ include(Warnings)
 include(Hardening)
 include(Sanitizers)
 
+# The version resource every program carries (FileVersion, ProductVersion).
+configure_file("${CMAKE_CURRENT_LIST_DIR}/version.rc.in" "${PROJECT_BINARY_DIR}/generated/version.rc" @ONLY)
+
 # Applies warnings, hardening and sanitizers to a first-party target.
 function(rmw_configure_target target)
     rmw_set_warnings(${target})
@@ -13,6 +16,9 @@ function(rmw_configure_target target)
     rmw_sanitize(${target})
 
     get_target_property(type ${target} TYPE)
+    if(type STREQUAL "EXECUTABLE")
+        target_sources(${target} PRIVATE "${PROJECT_BINARY_DIR}/generated/version.rc")
+    endif()
     if(type STREQUAL "EXECUTABLE" AND CMAKE_BUILD_TYPE STREQUAL "Release")
         # Keep PDBs for crash dumps, drop unreferenced code and fold identical functions.
         target_link_options(${target} PRIVATE /DEBUG /OPT:REF /OPT:ICF)

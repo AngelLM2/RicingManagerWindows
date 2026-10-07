@@ -48,6 +48,9 @@ public:
     // again; then, on the UI thread, the window closes.
     void closeForExit() noexcept { m_closing = true; }
     void hideForExit();
+    // This window is replacing a core of another build (after an update): that core closes the settings
+    // window as it stops, and this one stays.
+    [[nodiscard]] bool replacingCore() const noexcept { return m_replacingCore.load(); }
     // The whole window is drawn again (it came back from off the screen, from minimized, from
     // another monitor): the renderer redraws only what it knows changed.
     void repaintAll();
@@ -179,6 +182,7 @@ private:
     slint::Timer m_barSave; // the bar's settings are saved a moment after the last change
 
     std::atomic<bool> m_closing{false}; // Ricing Manager exits: the core is not started again
+    std::atomic<bool> m_replacingCore{false};
 
     // The worker thread and what it is asked.
     std::mutex m_mutex;

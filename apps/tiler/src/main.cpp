@@ -8,6 +8,7 @@
 // start an elevated copy, which does the work and ends with it; the supervised one keeps beating:
 //   rmw-tiler --plan <data>\tiler\plan.json --elevated-by <pid of the supervised one>
 
+#include "AdminChoice.hpp"
 #include "TilerApp.hpp"
 #include "WindowOps.hpp"
 
@@ -285,6 +286,13 @@ int run(std::span<const std::wstring_view> args)
         log::warn("tiler: started to run as administrator, but it is not; the windows of apps running as "
                   "administrator stay out");
     }
+    else if (!parent && !elevated && tilerapp::adminDeclinedThisSession(planFile))
+    {
+        // A tiler started again (after a crash, by a core started again) does not ask a second time.
+        log::info("tiler: administrator was declined earlier in this sign-in; not asked again until the "
+                  "advanced mode is turned off and on");
+        declined = true;
+    }
     // Windows' virtual desktops (the Mac style) are a COM interface.
     const bool com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
     int code = 0;
@@ -295,13 +303,19 @@ int run(std::span<const std::wstring_view> args)
         {
             break; // no plan: nothing to do
         }
+        if (!*admin && !parent && !elevated)
+        {
+            // Advanced mode (or tiling) off: turning it on asks once more.
+            tilerapp::forgetAdminDeclined(planFile);
+        }
         if (*admin && !elevated && !declined)
         {
             const auto asked = std::chrono::steady_clock::now();
             const Elevated outcome = runElevated(planFile, *heartbeat, ender);
             if (outcome == Elevated::Declined)
             {
-                declined = true; // not asked again until this tiler starts again
+                declined = true; // not asked again in this sign-in (see AdminChoice)
+                tilerapp::rememberAdminDeclined(planFile);
                 continue;
             }
             if (outcome == Elevated::Plain)
@@ -311,10 +325,20 @@ int run(std::span<const std::wstring_view> args)
                 {
                     log::warn("tiler: the elevated copy left at once; not asking for administrator again");
                     declined = true;
+                    tilerapp::rememberAdminDeclined(planFile);
                 }
                 continue;
             }
-            code = outcome == Elevated::Done ? 0 : 1;
+            if (outcome == Elevated::Failed)
+            {
+                // Ending this tiler with an error would have the supervisor start it again, and it would
+                // ask again: the plain one works instead.
+                log::warn("tiler: the elevated copy failed; working without administrator in this sign-in");
+                declined = true;
+                tilerapp::rememberAdminDeclined(planFile);
+                continue;
+            }
+            code = 0;
             break;
         }
         const TilerApp::Ending ending = [&] {
@@ -323,6 +347,7 @@ int run(std::span<const std::wstring_view> args)
         }();
         if (ending == TilerApp::Ending::BeAdmin)
         {
+            declined = false; // the advanced mode was turned off and on: asked once more
             continue;
         }
         code = ending == TilerApp::Ending::BePlain ? kPlainExit : ending == TilerApp::Ending::Failed ? 1 : 0;

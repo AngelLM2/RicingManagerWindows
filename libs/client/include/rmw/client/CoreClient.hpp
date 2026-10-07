@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -43,6 +44,10 @@ public:
     // What the core said in its hello: its data folder, version.
     [[nodiscard]] const ipc::Json& hello() const noexcept { return m_hello; }
 
+    // Told (true, then false) around replacing a core of another build: that core closes the settings
+    // window as it stops (it cannot tell who asked), and the window that asked must stay.
+    void onReplace(std::function<void(bool replacing)> hook) { m_onReplace = std::move(hook); }
+
 private:
     [[nodiscard]] Result<void> checkDataDirectory(const ipc::Json& hello) const;
     [[nodiscard]] Result<void> connectOrStart();
@@ -54,6 +59,7 @@ private:
     std::unique_ptr<platform::PipeConnection> m_connection;
     ipc::Json m_hello;
     std::int64_t m_nextId = 1;
+    std::function<void(bool)> m_onReplace;
 };
 
 } // namespace rmw::client

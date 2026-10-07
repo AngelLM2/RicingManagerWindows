@@ -8,6 +8,11 @@ set(RMW_HAVE_SLINT FALSE)
 if(EXISTS "${RMW_SLINT_DIR}/lib/cmake/Slint/SlintConfig.cmake")
     find_package(Slint CONFIG REQUIRED PATHS "${RMW_SLINT_DIR}/lib/cmake/Slint" NO_DEFAULT_PATH)
     set(RMW_HAVE_SLINT TRUE)
+elseif(RMW_REQUIRE_SLINT)
+    # Without it the bar and the settings window are left out, and an older copy of them still in bin\
+    # went into the v1.8.0 installer: the settings window of v1.7 with the core of v1.8.
+    message(FATAL_ERROR "Slint SDK not found in ${RMW_SLINT_DIR}; run: .\\scripts\\fetch-deps.ps1 -Name slint "
+                        "(or configure with -DRMW_REQUIRE_SLINT=OFF to build without the bar and the settings window)")
 else()
     message(STATUS "Slint SDK not found; run: .\\scripts\\fetch-deps.ps1 -Name slint")
 endif()

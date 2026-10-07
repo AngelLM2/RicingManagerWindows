@@ -32,6 +32,7 @@ option(RMW_SPECTRE "Compile with /Qspectre and link the Spectre-mitigated CRT" O
 option(RMW_REQUIRE_SPECTRE "Fail the configure step if the Spectre-mitigated CRT is missing" OFF)
 option(RMW_ASAN "Build with AddressSanitizer" OFF)
 option(RMW_BUILD_TESTS "Build the test suite" ON)
+option(RMW_REQUIRE_SLINT "Fail the configure step without the Slint SDK (the bar and the settings window)" ON)
 option(RMW_BUILD_SPIKES "Build the throwaway Fase 0 spikes (spikes/)" OFF)
 option(RMW_FUZZ "Build only the libFuzzer targets (fuzz/), with coverage; needs RMW_ASAN" OFF)
 
