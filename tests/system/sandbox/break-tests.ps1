@@ -64,7 +64,8 @@ function Wait-Until([scriptblock] $Condition, [double] $Seconds) {
     }
     return [bool](& $Condition)
 }
-function Core { Get-Process rmw-core -ErrorAction SilentlyContinue | Select-Object -First 1 }
+# The core itself, not its apply helper (the same rmw-core.exe, started with --apply-helper).
+function Core { Get-CimInstance Win32_Process -Filter "Name = 'rmw-core.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -notmatch '--apply-helper' } | Select-Object -First 1 @{ n = 'Id'; e = { $_.ProcessId } } }
 function Native-Visible { [Rmw.Win]::IsWindowVisible([Rmw.Win]::FindWindowW('Shell_TrayWnd', [NullString]::Value)) }
 function Work-Area {
     $rect = New-Object Rmw.Win+RECT

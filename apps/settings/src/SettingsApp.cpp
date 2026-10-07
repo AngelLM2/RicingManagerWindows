@@ -171,6 +171,7 @@ std::string localTime(std::int64_t unixSeconds)
 {
     const auto seconds = static_cast<std::time_t>(unixSeconds);
     std::tm local{};
+    _tzset(); // the time zone as it is now (the C runtime reads it once)
     if (localtime_s(&local, &seconds) != 0)
     {
         return {};
