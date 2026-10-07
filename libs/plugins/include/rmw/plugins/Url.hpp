@@ -2,6 +2,8 @@
 
 #include "rmw/base/Error.hpp"
 
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -23,5 +25,10 @@ struct HttpsUrl
 // A request header a plugin may set: a token name that is not about the connection, the host,
 // cookies or the body's framing, with a short printable value.
 [[nodiscard]] Result<void> checkHttpHeader(std::string_view name, std::string_view value);
+
+// Not the Internet: loopback, private, link-local, carrier-grade NAT, multicast and the like (an
+// IPv4-mapped IPv6 address as its IPv4). `address`: 4 bytes (IPv4) or 16 (IPv6), network order;
+// any other size counts as local.
+[[nodiscard]] bool isLocalAddress(std::span<const std::uint8_t> address) noexcept;
 
 } // namespace rmw::plugins
