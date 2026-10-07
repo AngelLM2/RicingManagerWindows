@@ -3,11 +3,12 @@
 //   rmw-elevated set-shell-icons [--folder <sha256> <file>] [--drive <sha256> <file>]
 //   rmw-elevated restore-machine-defaults
 // A closed list of commands: nothing the caller gives becomes a registry key or a destination path.
-// The icons go to %ProgramData%\RicingManagerWindows\machine\icons (only administrators write there;
-// every user reads), read once from a handle that refuses links and reparse points, checked against
-// the hash given and as an .ico, and written from those same bytes. Before the first change, what
-// HKLM\...\Explorer\Shell Icons had is kept in a journal there, which restore-machine-defaults puts
-// back. Exit codes: 0 done, 2 a bad command, 3 a bad file, 4 Windows refused, 5 not administrator.
+// The icons go to %ProgramData%\RicingManagerWindows\machine\icons\<user SID> (only administrators
+// write there; every user reads), read once from a handle that refuses links and reparse points,
+// checked against the hash given and as an .ico, and written from those same bytes. Before a user's
+// first change, what HKLM\...\Explorer\Shell Icons had is kept in that user's journal there, which
+// restore-machine-defaults puts back where that user's icons still are. Exit codes: 0 done, 2 a bad
+// command, 3 a bad file, 4 Windows refused, 5 not administrator.
 
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
@@ -95,13 +96,33 @@ bool isReparsePoint(const fs::path& path) noexcept
     return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
 }
 
-// A folder of ours: made with our DACL, or made ours (owner and DACL) if someone made it before.
+// Administrators hold them, switched off: taking over a folder a user made needs them on.
+void enableTakeOver() noexcept
+{
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token) == FALSE)
+    {
+        return;
+    }
+    for (const wchar_t* name : {SE_TAKE_OWNERSHIP_NAME, SE_RESTORE_NAME})
+    {
+        TOKEN_PRIVILEGES privileges{};
+        privileges.PrivilegeCount = 1;
+        privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        if (LookupPrivilegeValueW(nullptr, name, &privileges.Privileges[0].Luid) != FALSE)
+        {
+            AdjustTokenPrivileges(token, FALSE, &privileges, 0, nullptr, nullptr);
+        }
+    }
+    CloseHandle(token);
+}
+
+// A folder of ours: made with our DACL, or made ours (owner and DACL) if someone made it before. It
+// is opened without following a link, checked and secured through that one handle (no delete sharing:
+// it cannot be swapped for a junction meanwhile) — by its path, the owner and DACL went wherever a
+// junction put there in between pointed.
 Result<void> ourFolder(const fs::path& folder)
 {
-    if (isReparsePoint(folder))
-    {
-        return fail(ErrorCode::AccessDenied, std::format("{} is a link", utf16To8Lossy(folder.native())));
-    }
     PSECURITY_DESCRIPTOR descriptor = nullptr;
     if (ConvertStringSecurityDescriptorToSecurityDescriptorW(kFolderSddl, SDDL_REVISION_1, &descriptor, nullptr) ==
         FALSE)
@@ -110,33 +131,96 @@ Result<void> ourFolder(const fs::path& folder)
     }
     SECURITY_ATTRIBUTES attributes{sizeof(attributes), descriptor, FALSE};
     Result<void> result;
-    if (CreateDirectoryW(folder.c_str(), &attributes) == FALSE)
+    if (CreateDirectoryW(folder.c_str(), &attributes) == FALSE && GetLastError() != ERROR_ALREADY_EXISTS)
     {
-        if (GetLastError() != ERROR_ALREADY_EXISTS)
+        result = fail(ErrorCode::Io, "cannot make our folder", GetLastError());
+    }
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    if (result)
+    {
+        handle = CreateFileW(folder.c_str(), READ_CONTROL | WRITE_DAC | WRITE_OWNER | FILE_READ_ATTRIBUTES,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
         {
-            result = fail(ErrorCode::Io, "cannot make our folder", GetLastError());
+            result = fail(ErrorCode::AccessDenied, "cannot open our folder", GetLastError());
         }
-        else
+    }
+    if (result)
+    {
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (GetFileInformationByHandle(handle, &info) == FALSE ||
+            (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+            (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
         {
-            BOOL present = FALSE;
-            BOOL defaulted = FALSE;
-            PACL dacl = nullptr;
-            PSID owner = nullptr;
-            GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted);
-            GetSecurityDescriptorOwner(descriptor, &owner, &defaulted);
-            std::wstring name = folder.native();
-            const DWORD set = SetNamedSecurityInfoW(name.data(), SE_FILE_OBJECT,
-                                                    OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
-                                                        PROTECTED_DACL_SECURITY_INFORMATION,
-                                                    owner, nullptr, dacl, nullptr);
-            if (set != ERROR_SUCCESS)
-            {
-                result = fail(ErrorCode::AccessDenied, "cannot make the folder ours", set);
-            }
+            result = fail(ErrorCode::AccessDenied,
+                          std::format("{} is a link or not a folder", utf16To8Lossy(folder.native())));
         }
+    }
+    if (result)
+    {
+        BOOL present = FALSE;
+        BOOL defaulted = FALSE;
+        PACL dacl = nullptr;
+        PSID owner = nullptr;
+        GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted);
+        GetSecurityDescriptorOwner(descriptor, &owner, &defaulted);
+        const DWORD set = SetSecurityInfo(handle, SE_FILE_OBJECT,
+                                          OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+                                              PROTECTED_DACL_SECURITY_INFORMATION,
+                                          owner, nullptr, dacl, nullptr);
+        if (set != ERROR_SUCCESS)
+        {
+            result = fail(ErrorCode::AccessDenied, "cannot make the folder ours", set);
+        }
+    }
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(handle);
     }
     LocalFree(descriptor);
     return result;
+}
+
+// The account this runs as: icons and journals are kept per user, so one user's restore never takes
+// another's icons.
+std::optional<std::wstring> userSid()
+{
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE)
+    {
+        return std::nullopt;
+    }
+    std::array<std::byte, 256> buffer{};
+    DWORD size = 0;
+    std::optional<std::wstring> sid;
+    if (GetTokenInformation(token, TokenUser, buffer.data(), static_cast<DWORD>(buffer.size()), &size) != FALSE)
+    {
+        LPWSTR text = nullptr;
+        if (ConvertSidToStringSidW(reinterpret_cast<const TOKEN_USER*>(buffer.data())->User.Sid, &text) != FALSE)
+        {
+            sid = text;
+            LocalFree(text);
+        }
+    }
+    CloseHandle(token);
+    return sid;
+}
+
+// `data` ("<path>,0") names a file under `folder`.
+bool within(std::wstring_view data, const fs::path& folder) noexcept
+{
+    const std::wstring prefix = folder.native() + L"\\";
+    return data.size() > prefix.size() &&
+           CompareStringOrdinal(data.data(), static_cast<int>(prefix.size()), prefix.data(),
+                                static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
+}
+
+// The file of a Shell Icons value ("<path>,<index>").
+fs::path iconFileOf(std::wstring_view data)
+{
+    const auto comma = data.rfind(L',');
+    return fs::path(std::wstring(comma == std::wstring_view::npos ? data : data.substr(0, comma)));
 }
 
 // The source, read once from a handle: a regular file with one name, no link, the size limit; its
@@ -284,13 +368,110 @@ Result<std::string> readText(const fs::path& path)
     return std::string(reinterpret_cast<const char*>(bytes->data()), bytes->size());
 }
 
-int setShellIcons(const machine::Command& command, const fs::path& home)
+// A file this program wrote: a regular file owned by Administrators (or SYSTEM). One a user put in our
+// folder before it was ours is not trusted (and is deleted): its words would go into HKLM.
+bool ours(const fs::path& file)
 {
-    const fs::path icons = home / L"icons";
-    if (auto made = ourFolder(icons); !made)
+    HANDLE handle = CreateFileW(file.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr,
+                                OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
     {
-        log::error("rmw-elevated: {}", made.error().toString());
-        return kRefused;
+        return false;
+    }
+    bool trusted = false;
+    BY_HANDLE_FILE_INFORMATION info{};
+    PSID owner = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (GetFileInformationByHandle(handle, &info) != FALSE &&
+        (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0 &&
+        GetSecurityInfo(handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, &owner, nullptr, nullptr, nullptr,
+                        &descriptor) == ERROR_SUCCESS)
+    {
+        trusted = IsWellKnownSid(owner, WinBuiltinAdministratorsSid) != FALSE ||
+                  IsWellKnownSid(owner, WinLocalSystemSid) != FALSE;
+    }
+    if (descriptor != nullptr)
+    {
+        LocalFree(descriptor);
+    }
+    CloseHandle(handle);
+    if (!trusted)
+    {
+        log::warn("rmw-elevated: {} is not ours; deleted", utf16To8Lossy(file.filename().native()));
+        DeleteFileW(file.c_str());
+    }
+    return trusted;
+}
+
+// Owner Administrators and our DACL, set on the file just written (through a handle, no link
+// followed): ours() knows it again.
+Result<void> secure(const fs::path& file)
+{
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(kFolderSddl, SDDL_REVISION_1, &descriptor, nullptr) ==
+        FALSE)
+    {
+        return fail(ErrorCode::System, "security descriptor", GetLastError());
+    }
+    Result<void> result;
+    HANDLE handle = CreateFileW(file.c_str(), READ_CONTROL | WRITE_DAC | WRITE_OWNER, FILE_SHARE_READ, nullptr,
+                                OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        result = fail(ErrorCode::AccessDenied, "cannot open the journal", GetLastError());
+    }
+    else
+    {
+        BOOL present = FALSE;
+        BOOL defaulted = FALSE;
+        PACL dacl = nullptr;
+        PSID owner = nullptr;
+        GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted);
+        GetSecurityDescriptorOwner(descriptor, &owner, &defaulted);
+        if (const DWORD set = SetSecurityInfo(handle, SE_FILE_OBJECT,
+                                              OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+                                                  PROTECTED_DACL_SECURITY_INFORMATION,
+                                              owner, nullptr, dacl, nullptr);
+            set != ERROR_SUCCESS)
+        {
+            result = fail(ErrorCode::AccessDenied, "cannot secure the journal", set);
+        }
+        CloseHandle(handle);
+    }
+    LocalFree(descriptor);
+    return result;
+}
+
+std::optional<std::wstring> currentValue(HKEY key, const std::wstring& name)
+{
+    std::array<wchar_t, 1024> data{};
+    DWORD size = sizeof(data) - sizeof(wchar_t);
+    DWORD type = 0;
+    if (RegQueryValueExW(key, name.c_str(), nullptr, &type, reinterpret_cast<BYTE*>(data.data()), &size) !=
+            ERROR_SUCCESS ||
+        (type != REG_SZ && type != REG_EXPAND_SZ))
+    {
+        return std::nullopt;
+    }
+    return std::wstring(data.data());
+}
+
+fs::path journalOf(const fs::path& home, const std::wstring& sid)
+{
+    return home / std::format(L"journal-{}.json", sid);
+}
+
+int setShellIcons(const machine::Command& command, const fs::path& home, const std::wstring& sid)
+{
+    // icons\<user SID>: each user's own, so a restore takes only that user's icons away.
+    const fs::path icons = home / L"icons" / sid;
+    for (const auto& folder : {home / L"icons", icons})
+    {
+        if (auto made = ourFolder(folder); !made)
+        {
+            log::error("rmw-elevated: {}", made.error().toString());
+            return kRefused;
+        }
     }
     // Read and check every icon before anything changes.
     std::vector<std::pair<const machine::IconRequest*, fs::path>> stored;
@@ -310,14 +491,25 @@ int setShellIcons(const machine::Command& command, const fs::path& home)
         }
         stored.emplace_back(&request, std::move(*target));
     }
-    // What was there before the first change: kept once, so the restore goes back to Windows' own.
-    const fs::path journalFile = home / L"journal.json";
-    if (!fs::exists(journalFile))
+    // What was there before this user's first change: kept once, so their restore goes back to it.
+    const fs::path journalFile = journalOf(home, sid);
+    const fs::path shared = home / L"journal.json";
+    std::error_code ec;
+    const bool kept = fs::exists(journalFile, ec) && ours(journalFile);
+    // Before v1.8 one journal served every user: it still holds Windows' own, and is this user's now.
+    const bool takenOver = !kept && fs::exists(shared, ec) && ours(shared) &&
+                           MoveFileExW(shared.c_str(), journalFile.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
+    if (!kept && !takenOver)
     {
         const std::string text = machine::toJson(currentValues());
         if (auto written = platform::writeFileAtomic(journalFile, std::as_bytes(std::span(text))); !written)
         {
             log::error("rmw-elevated: the journal: {}", written.error().toString());
+            return kRefused;
+        }
+        if (auto secured = secure(journalFile); !secured)
+        {
+            log::error("rmw-elevated: the journal: {}", secured.error().toString());
             return kRefused;
         }
     }
@@ -347,14 +539,30 @@ int setShellIcons(const machine::Command& command, const fs::path& home)
     return 0;
 }
 
-int restoreDefaults(const fs::path& home)
+int restoreDefaults(const fs::path& home, const std::wstring& sid)
 {
-    const fs::path journalFile = home / L"journal.json";
-    if (!fs::exists(journalFile))
+    const fs::path allIcons = home / L"icons";
+    const fs::path icons = allIcons / sid;
+    fs::path journalFile = journalOf(home, sid);
+    std::error_code ec;
+    if (!fs::exists(journalFile, ec) || !ours(journalFile))
     {
-        log::info("rmw-elevated: nothing to put back");
-        return 0;
+        // Before v1.8 one journal served every user.
+        journalFile = home / L"journal.json";
+        if (!fs::exists(journalFile, ec) || !ours(journalFile))
+        {
+            log::info("rmw-elevated: nothing to put back");
+            return 0;
+        }
     }
+    // This user's icons, and the ones right in icons\ (before v1.8 they had no folder per user).
+    const auto mine = [&](std::wstring_view data) {
+        const std::wstring folder = iconFileOf(data).parent_path().native();
+        const std::wstring& old = allIcons.native();
+        return within(data, icons) ||
+               CompareStringOrdinal(folder.data(), static_cast<int>(folder.size()), old.data(),
+                                    static_cast<int>(old.size()), TRUE) == CSTR_EQUAL;
+    };
     auto text = readText(journalFile);
     auto journal = text ? machine::parseJournal(*text) : Result<machine::Journal>(std::unexpected(text.error()));
     if (!journal)
@@ -370,8 +578,16 @@ int restoreDefaults(const fs::path& home)
             for (const std::wstring_view name : machine::allShellIconValues())
             {
                 const std::wstring valueName(name);
+                // Only what this user's icons still hold: another user's change since stays theirs.
+                const auto current = currentValue(key.handle, valueName);
+                if (!current || !mine(*current))
+                {
+                    continue;
+                }
                 const auto saved = std::ranges::find(journal->values, valueName, &machine::SavedValue::name);
-                if (saved == journal->values.end())
+                // An icon of another user that was there before, gone since (their restore): Windows' own.
+                if (saved == journal->values.end() ||
+                    (within(saved->data, allIcons) && !fs::exists(iconFileOf(saved->data), ec)))
                 {
                     RegDeleteValueW(key.handle, valueName.c_str());
                 }
@@ -394,17 +610,26 @@ int restoreDefaults(const fs::path& home)
             }
         }
     }
-    // Our icons and the journal go: nothing of ours stays on the machine.
-    std::error_code ec;
-    const fs::path icons = home / L"icons";
-    if (!isReparsePoint(icons))
+    // This user's icons and journal go: nothing of theirs stays on the machine (other users' stay).
+    for (const auto& folder : {icons, allIcons})
     {
-        for (fs::directory_iterator it(icons, ec), end; !ec && it != end; it.increment(ec))
+        if (isReparsePoint(folder))
         {
-            DeleteFileW(it->path().c_str());
+            continue;
         }
-        RemoveDirectoryW(icons.c_str());
+        for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+        {
+            std::error_code kind;
+            if (!it->is_directory(kind)) // in icons\, the other users' folders stay
+            {
+                DeleteFileW(it->path().c_str());
+            }
+        }
+        ec.clear();
     }
+    // Only once empty: icons\ goes with the last user's folder.
+    RemoveDirectoryW(icons.c_str());
+    RemoveDirectoryW(allIcons.c_str());
     DeleteFileW(journalFile.c_str());
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSHNOWAIT, nullptr, nullptr);
     log::info("rmw-elevated: Windows' own folder and drive icons are back");
@@ -433,10 +658,12 @@ int wmain(int argc, wchar_t** argv)
         return kNotAdmin;
     }
     const auto data = programData();
-    if (!data)
+    const auto sid = userSid();
+    if (!data || !sid)
     {
         return kRefused;
     }
+    enableTakeOver();
     // %ProgramData%\RicingManagerWindows\machine: ours, whoever made the folders above it.
     const fs::path root = *data / L"RicingManagerWindows";
     const fs::path home = root / L"machine";
@@ -455,8 +682,8 @@ int wmain(int argc, wchar_t** argv)
     }
     try
     {
-        return command->kind == machine::Command::Kind::SetShellIcons ? setShellIcons(*command, home)
-                                                                     : restoreDefaults(home);
+        return command->kind == machine::Command::Kind::SetShellIcons ? setShellIcons(*command, home, *sid)
+                                                                     : restoreDefaults(home, *sid);
     }
     catch (const std::exception& e)
     {
