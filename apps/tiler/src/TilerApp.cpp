@@ -385,10 +385,12 @@ std::intptr_t TilerApp::handle(std::uint32_t message, std::uintptr_t wParam, std
         SetTimer(self, kSettleTimer, kAfterAnimationMs, nullptr);
         return 0;
     case KeyHook::kCommandMessage: {
-        // Always answered: until then, the hook keeps the shortcut's modifiers down (see KeyHook).
-        const int slides =
-            wParam < domain::kTilingCommandCount ? command(static_cast<TilingCommand>(wParam), static_cast<int>(lParam)) : 0;
-        if (m_keys)
+        const auto which = static_cast<std::uint32_t>(wParam) & ~KeyHook::kAnswerWanted;
+        const int slides = which < domain::kTilingCommandCount
+                               ? command(static_cast<TilingCommand>(which), static_cast<int>(lParam))
+                               : 0;
+        // Until the answer, the hook keeps the shortcut's modifiers down (see KeyHook).
+        if ((static_cast<std::uint32_t>(wParam) & KeyHook::kAnswerWanted) != 0 && m_keys)
         {
             m_keys->answer(slides);
         }
@@ -509,7 +511,7 @@ void TilerApp::applyPlan(tiling::Plan plan)
     }
     if (m_keys)
     {
-        m_keys->setKeys(hookKeys());
+        m_keys->setKeys(hookKeys(), mac());
     }
     if (!now.enabled)
     {
@@ -1222,7 +1224,7 @@ int TilerApp::command(TilingCommand command, int number)
         }
         if (m_keys)
         {
-            m_keys->setKeys(hookKeys());
+            m_keys->setKeys(hookKeys(), mac());
         }
         publish();
         return 0;
