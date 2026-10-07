@@ -46,6 +46,9 @@ bool isOurTheme(const Json& value)
 
 domain::TimeOfDay localNow()
 {
+    // The time zone as Windows has it now: the C runtime reads it once, and a schedule stayed in the old
+    // zone's period after the time zone changed (the break suite, v1.8).
+    _tzset();
     const std::time_t now = std::time(nullptr);
     std::tm local{};
     if (localtime_s(&local, &now) != 0)

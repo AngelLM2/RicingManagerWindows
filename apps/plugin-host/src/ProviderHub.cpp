@@ -58,6 +58,7 @@ Value table(Value::Table members)
 
 std::int64_t utcOffsetMinutes()
 {
+    _tzset(); // the time zone as it is now (the C runtime reads it once)
     const std::time_t now = std::time(nullptr);
     std::tm local{};
     std::tm utc{};
