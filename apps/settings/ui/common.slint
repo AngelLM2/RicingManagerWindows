@@ -373,8 +373,11 @@ export component NumberBox inherits Rectangle {
     in property <string> label;     // for Narrator
     callback edited(int);
     property <int> refreshed: Api.refreshed;
+    // The same width everywhere (a row's free space made them 190 or 340 px wide, each its own).
     min-width: 116px;
     preferred-width: 150px;
+    max-width: 160px;
+    horizontal-stretch: 0;
     min-height: row.min-height;
     accessible-role: AccessibleRole.spinbox;
     accessible-label: root.label;

@@ -304,7 +304,7 @@ TEST(TilingDesktop, MonitorsAndWorkspacesThatGoAway)
     renamed.add(7, 1, 2);
     renamed.goTo(1, 2);
     auto newNames = twoMonitors();
-    newNames[1].key = "\\\\.\\DISPLAY9";
+    newNames[1].key = R"(\\.\DISPLAY9)";
     EXPECT_TRUE(renamed.setMonitors(newNames).show.empty());
     EXPECT_EQ(renamed.find(7), (Place{1, 2}));
     EXPECT_EQ(renamed.active(1), 2);
