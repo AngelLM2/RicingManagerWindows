@@ -311,7 +311,57 @@ Step 'time-zone' {
     Check 'break:schedule-restore' ($r.code -eq 0) $r.output
 }
 
-# ---- 10. state.db damaged while the core is off: it starts, says so, and the next apply works -------------------
+# ---- 10. the core killed in the middle of an apply: the next core finishes or undoes it, never half -------------
+Step 'core-killed-mid-apply' {
+    function Look {
+        $p = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction SilentlyContinue
+        $d = Get-ItemProperty 'HKCU:\Control Panel\Desktop' -ErrorAction SilentlyContinue
+        "apps=$($p.AppsUseLightTheme) system=$($p.SystemUsesLightTheme) wallpaper=$($d.WallPaper)"
+    }
+    $r = Rmw @('restore', '--original', '--wait') 180
+    $before = Look
+    $core = Core
+    $apply = Start-Process $rmw -ArgumentList @('apply', "`"$tokyo`"", '--data-dir', "`"$data`"") -NoNewWindow -PassThru
+    $null = $apply.Handle
+    # The moment the apply helper is at work (the same rmw-core.exe, with --apply-helper).
+    $midway = Wait-Until { $null -ne (Get-CimInstance Win32_Process -Filter "Name = 'rmw-core.exe'" | Where-Object { $_.CommandLine -match '--apply-helper' }) } 20
+    if ($core) { Stop-Process -Id $core.Id -Force -ErrorAction SilentlyContinue }
+    Note 'killed-mid-apply' "helper seen: $midway; core $($core.Id) killed"
+    [void]$apply.WaitForExit(60000)
+    Check 'break:killed-mid-apply-cli' ($apply.HasExited -and $apply.ExitCode -ge 0 -and $apply.ExitCode -le 4) "apply exit $($apply.ExitCode)"
+    $status = Rmw @('status') 90
+    Check 'break:killed-mid-apply-recovers' ($status.code -eq 0) $status.output
+    # Whichever way it went, the person has a taskbar: ours (the rice went through) or Windows' (it was undone).
+    $taskbar = Wait-Until { (Native-Visible) -or $null -ne (Get-Process rmw-bar -ErrorAction SilentlyContinue) } 15
+    Check 'break:killed-mid-apply-taskbar' $taskbar "native=$(Native-Visible) bar=$(@(Get-Process rmw-bar -ErrorAction SilentlyContinue).Count)"
+    $r = Rmw @('restore', '--original', '--wait') 180
+    $after = Look
+    Check 'break:killed-mid-apply-restore' ($r.code -eq 0 -and $after -eq $before -and (Wait-Until { Native-Visible } 10)) "before: $before; after: $after; $($r.output)"
+}
+
+# ---- 11. the data folder deleted with everything running: no spinning, the next operations still work -------------
+Step 'data-gone' {
+    $r = Rmw @('apply', $sakura, '--wait') 180
+    Check 'break:data-gone-rice' ($r.code -eq 0) $r.output
+    Start-Sleep -Seconds 2
+    # What is open (state.db, the logs) stays; everything else goes: the store, the plans, settings.toml.
+    Get-ChildItem $data -Force | Where-Object { $_.Name -ne 'logs' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Note 'data-gone-left' "$(@(Get-ChildItem $data -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object Name) -join ', ')"
+    Start-Sleep -Seconds 3
+    # A folder watch that lost its folder must not spin: under half a second of CPU in 4 s for each of ours.
+    $first = @{}
+    Get-Process rmw-* -ErrorAction SilentlyContinue | ForEach-Object { $first[$_.Id] = $_.TotalProcessorTime.TotalMilliseconds }
+    Start-Sleep -Seconds 4
+    $busy = @(Get-Process rmw-* -ErrorAction SilentlyContinue | Where-Object { $first.ContainsKey($_.Id) -and $_.TotalProcessorTime.TotalMilliseconds - $first[$_.Id] -gt 500 } | ForEach-Object { "$($_.Name) $([int]($_.TotalProcessorTime.TotalMilliseconds - $first[$_.Id])) ms" })
+    Check 'break:data-gone-no-spin' ($busy.Count -eq 0) ($busy -join ', ')
+    Check 'break:data-gone-core-alive' ((Rmw @('status')).code -eq 0) ''
+    $r = Rmw @('apply', $mocha, '--wait') 180
+    Check 'break:data-gone-apply' (-not (Crashed $r) -and $r.code -eq 0) "$($r.code): $($r.output)"
+    $r = Rmw @('restore', '--original', '--wait') 180
+    Check 'break:data-gone-restore' ($r.code -eq 0 -and (Wait-Until { Native-Visible } 10)) "$($r.code): $($r.output)"
+}
+
+# ---- 12. state.db damaged while the core is off: it starts, says so, and the next apply works -------------------
 Step 'state-damaged' {
     [void](Rmw @('shutdown', '--wait'))
     $db = Join-Path $data 'state.db'
