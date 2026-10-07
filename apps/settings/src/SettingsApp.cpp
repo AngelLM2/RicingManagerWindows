@@ -2,6 +2,7 @@
 
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
+#include "rmw/base/ScopeExit.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/base/Version.hpp"
 #include "rmw/domain/Color.hpp"
@@ -420,6 +421,14 @@ SettingsApp::~SettingsApp()
     m_wake.notify_all();
 }
 
+bool SettingsApp::stop(std::chrono::milliseconds patience)
+{
+    m_worker.request_stop();
+    m_wake.notify_all();
+    std::unique_lock lock(m_mutex);
+    return m_stopped.wait_for(lock, patience, [this] { return m_workerDone; });
+}
+
 void* SettingsApp::window() const
 {
     return m_ui->window().win32_hwnd();
@@ -428,8 +437,9 @@ void* SettingsApp::window() const
 void SettingsApp::run()
 {
     applyLanguage();
-    m_ui->window().on_close_requested([] {
+    m_ui->window().on_close_requested([this] {
         log::info("settings: closing");
+        flushEdits();
         return slint::CloseRequestResponse::HideWindow;
     });
     m_ui->show();
@@ -452,7 +462,7 @@ void SettingsApp::run()
     refreshSettings();
     m_refresh.start(slint::TimerMode::Repeated, kRefreshEvery, [this] {
         const Page page = m_ui->global<Api>().get_page();
-        if (page == Page::Home)
+        if (page == Page::Home && !m_statusPending)
         {
             refreshStatus();
         }
@@ -463,6 +473,7 @@ void SettingsApp::run()
     });
     slint::run_event_loop();
     m_refresh.stop();
+    flushEdits();
 }
 
 void SettingsApp::fitToMonitor()
@@ -489,6 +500,7 @@ void SettingsApp::fitToMonitor()
 void SettingsApp::hideForExit()
 {
     log::info("settings: Ricing Manager is exiting; closing");
+    flushEdits();
     m_ui->hide();
 }
 
@@ -517,6 +529,11 @@ void SettingsApp::failed(const Error& error)
     notice(NoticeKind::Failed, error.message());
 }
 
+void SettingsApp::refused(std::string_view why)
+{
+    notice(NoticeKind::Failed, text(m_ui->global<Words>().invoke_problem(shared(why))));
+}
+
 void SettingsApp::applyLanguage()
 {
     const int choice = m_ui->global<Api>().get_language();
@@ -534,16 +551,42 @@ void SettingsApp::applyLanguage()
     {
         refreshPlugins();
     }
+    const auto& api = m_ui->global<Api>();
+    if (api.get_page() == Page::Diagnostics)
+    {
+        refreshDiagnostics(); // the processes' roles
+    }
+    if (api.get_engine_open())
+    {
+        const auto& words = m_ui->global<Words>();
+        api.set_engine_status(m_engineScanning ? words.invoke_engine_looking()
+                                               : words.invoke_engine_found(static_cast<int>(m_engine.size())));
+        const auto items = std::static_pointer_cast<slint::VectorModel<EngineItem>>(api.get_engine_items());
+        for (std::size_t i = 0; items && i < items->row_count() && i < m_engine.size(); ++i)
+        {
+            auto item = *items->row_data(i);
+            const auto kind = shared(std::string(settings::toString(m_engine[i].kind)));
+            item.kind = words.invoke_engine_kind(kind);
+            item.note = words.invoke_engine_note(kind, m_engine[i].usable(), !m_engine[i].video.empty());
+            items->set_row_data(i, item);
+        }
+    }
 }
 
 // ---- the core -----------------------------------------------------------------------------------
 
 void SettingsApp::work(const std::stop_token& stop)
 {
+    // The connection to the core goes with this thread: closed when it ends.
     client::CoreClient client(m_dataDirectory);
+    const auto done = ScopeExit([this]() noexcept {
+        const std::scoped_lock lock(m_mutex);
+        m_workerDone = true;
+        m_stopped.notify_all();
+    });
     while (!stop.stop_requested())
     {
-        std::function<void(client::CoreClient&)> task;
+        Task task;
         {
             std::unique_lock lock(m_mutex);
             if (!m_wake.wait(lock, stop, [this] { return !m_tasks.empty(); }))
@@ -553,8 +596,15 @@ void SettingsApp::work(const std::stop_token& stop)
             task = std::move(m_tasks.front());
             m_tasks.pop_front();
         }
-        task(client);
+        task(client, stop);
     }
+}
+
+bool SettingsApp::pause(const std::stop_token& stop, std::chrono::milliseconds time)
+{
+    std::unique_lock lock(m_mutex);
+    m_wake.wait_for(lock, stop, time, [] { return false; });
+    return stop.stop_requested();
 }
 
 void SettingsApp::call(std::string method, Json params, Done done, bool operation)
@@ -566,8 +616,8 @@ void SettingsApp::call(std::string method, Json params, Done done, bool operatio
     }
     {
         const std::scoped_lock lock(m_mutex);
-        m_tasks.emplace_back([this, method = std::move(method), params = std::move(params),
-                              done = std::move(done), operation](client::CoreClient& client) mutable {
+        m_tasks.emplace_back([this, method = std::move(method), params = std::move(params), done = std::move(done),
+                              operation](client::CoreClient& client, const std::stop_token& stop) mutable {
             Reply reply = [&]() -> Reply {
                 if (!client.connected())
                 {
@@ -594,7 +644,12 @@ void SettingsApp::call(std::string method, Json params, Done done, bool operatio
                     {
                         return result;
                     }
-                    std::this_thread::sleep_for(1s);
+                    // The core is busy with another change: asked again in a moment, unless the
+                    // window closed (v1.7 kept an invisible process waiting up to 5 minutes).
+                    if (pause(stop, 1s))
+                    {
+                        return fail(ErrorCode::Cancelled, "the window closed");
+                    }
                 }
             }();
             slint::invoke_from_event_loop(
@@ -611,18 +666,24 @@ void SettingsApp::call(std::string method, Json params, Done done, bool operatio
     m_wake.notify_one();
 }
 
-void SettingsApp::background(std::function<Reply()> job, Done done)
+void SettingsApp::background(std::function<Reply()> job, Done done, bool busy)
 {
-    ++m_operations;
-    m_ui->global<Api>().set_busy(true);
+    if (busy)
+    {
+        ++m_operations;
+        m_ui->global<Api>().set_busy(true);
+    }
     {
         const std::scoped_lock lock(m_mutex);
-        m_tasks.emplace_back([this, job = std::move(job),
-                              done = std::move(done)](client::CoreClient&) mutable {
+        m_tasks.emplace_back([this, job = std::move(job), done = std::move(done),
+                              busy](client::CoreClient&, const std::stop_token&) mutable {
             Reply reply = job();
-            slint::invoke_from_event_loop([this, reply = std::move(reply), done = std::move(done)]() mutable {
-                --m_operations;
-                m_ui->global<Api>().set_busy(m_operations > 0);
+            slint::invoke_from_event_loop([this, reply = std::move(reply), done = std::move(done), busy]() mutable {
+                if (busy)
+                {
+                    --m_operations;
+                    m_ui->global<Api>().set_busy(m_operations > 0);
+                }
                 done(std::move(reply));
             });
         });
@@ -634,7 +695,18 @@ void SettingsApp::background(std::function<Reply()> job, Done done)
 
 void SettingsApp::refreshStatus()
 {
+    if (m_statusPending)
+    {
+        m_statusAgain = true;
+        return;
+    }
+    m_statusPending = true;
     call("status.get", Json::object(), [this](Reply reply) {
+        m_statusPending = false;
+        if (std::exchange(m_statusAgain, false))
+        {
+            refreshStatus(); // asked for while this one was on its way: something changed since
+        }
         const auto& api = m_ui->global<Api>();
         if (!reply)
         {
@@ -658,10 +730,21 @@ void SettingsApp::refreshStatus()
 
         const Json rice = json::memberOr(m_status, "rice", Json::object());
         const std::string current = json::stringOr(rice, "current", "");
-        api.set_active_folder(shared(current));
-        api.set_active_name(current.empty()
-                                ? slint::SharedString()
-                                : shared(settings::readEntry(fs::path(utf8To16Lossy(current))).name));
+        // Its name comes from the library (read on the worker thread): not a file read every 3 s.
+        if (current != text(api.get_active_folder()))
+        {
+            api.set_active_folder(shared(current));
+            const fs::path folder(utf8To16Lossy(current));
+            const auto entry = std::ranges::find_if(
+                m_riceEntries, [&](const settings::RiceEntry& e) { return sameFolder(e.folder, folder); });
+            api.set_active_name(current.empty()            ? slint::SharedString()
+                                : entry != m_riceEntries.end() ? shared(entry->name)
+                                                               : shared(utf8(folder.filename())));
+            if (!first)
+            {
+                refreshRices(); // which one is applied, and its name as its rice.toml says
+            }
+        }
         api.set_can_undo(!json::stringOr(rice, "previous", "").empty());
         api.set_safe_mode(json::memberOr(m_status, "safeMode", Json()).is_string());
         if (const Page page = api.get_page(); page == Page::Appearance || page == Page::Wallpapers ||
@@ -673,14 +756,18 @@ void SettingsApp::refreshStatus()
         api.set_original_captured(json::memberOr(m_status, "originalCapturedAt", Json()).is_number());
 
         std::vector<slint::SharedString> managed;
+        std::string managedNames;
         for (const auto& module : json::memberOr(m_status, "managedModules", Json::array()))
         {
             if (module.is_string())
             {
                 managed.push_back(shared(module.get<std::string>()));
+                managedNames += (managedNames.empty() ? "" : " · ") +
+                                text(m_ui->global<Words>().invoke_module(managed.back()));
             }
         }
         api.set_managed(modelOf(std::move(managed)));
+        api.set_managed_names(shared(managedNames));
 
         std::vector<HistoryRow> history;
         for (const auto& entry : json::memberOr(m_status, "history", Json::array()))
@@ -744,6 +831,9 @@ void SettingsApp::refreshStatus()
         {
             api.set_edit_active(sameFolder(m_edit->folder, fs::path(utf8To16Lossy(current))));
         }
+        // What the core says of the hotkeys now (taken by another program...): shown with this
+        // status, not with the next save.
+        showHotkeys();
         if (first)
         {
             refreshRices();
@@ -775,30 +865,70 @@ void SettingsApp::refreshStatus()
 
 void SettingsApp::refreshRices()
 {
-    auto extra = rememberedFolders();
-    const std::string current =
-        json::stringOr(json::memberOr(m_status, "rice", Json::object()), "current", "");
-    if (!current.empty())
+    if (m_ricesPending)
     {
-        extra.emplace_back(utf8To16Lossy(current));
+        m_ricesAgain = true;
+        return;
     }
-    const auto entries = settings::scanLibrary(m_dataDirectory, extra);
+    m_ricesPending = true;
+    const std::string asked = json::stringOr(json::memberOr(m_status, "rice", Json::object()), "current", "");
+    auto found = std::make_shared<std::vector<settings::RiceEntry>>();
+    auto remembered = std::make_shared<std::vector<fs::path>>();
+    background(
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+        [this, asked, found, remembered]() -> Reply {
+            *remembered = rememberedFolders();
+            auto extra = *remembered;
+            if (!asked.empty())
+            {
+                extra.emplace_back(utf8To16Lossy(asked));
+            }
+            *found = settings::scanLibrary(m_dataDirectory, extra);
+            return Json::object();
+        },
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+        [this, found, remembered](const Reply&) {
+            m_ricesPending = false;
+            if (std::exchange(m_ricesAgain, false))
+            {
+                refreshRices();
+            }
+            m_riceEntries = std::move(*found);
+            showRices(*remembered);
+        },
+        false);
+}
+
+void SettingsApp::showRices(const std::vector<fs::path>& remembered)
+{
+    const auto& entries = m_riceEntries;
+    const auto& api = m_ui->global<Api>();
+    const fs::path current(
+        utf8To16Lossy(json::stringOr(json::memberOr(m_status, "rice", Json::object()), "current", "")));
+    const fs::path library = settings::ricesFolder(m_dataDirectory);
     std::vector<RiceRow> rows;
     rows.reserve(entries.size());
     for (const auto& entry : entries)
     {
-        rows.push_back({shared(entry.name),
-                        shared(utf8(entry.folder)),
-                        shared(entry.author),
-                        shared(entry.description),
-                        shared(entry.problem),
-                        sameFolder(entry.folder, fs::path(utf8To16Lossy(current))),
-                        {},
-                        false,
-                        entry.shareable});
+        RiceRow row{};
+        row.name = shared(entry.name);
+        row.folder = shared(utf8(entry.folder));
+        row.author = shared(entry.author);
+        row.description = shared(entry.description);
+        row.problem = shared(entry.problem);
+        row.active = sameFolder(entry.folder, current);
+        row.shareable = entry.shareable;
+        // A folder the user added (not the library's): it can be forgotten.
+        row.remembered = !sameFolder(entry.folder.parent_path(), library) &&
+                         std::ranges::any_of(remembered, [&](const fs::path& f) { return sameFolder(f, entry.folder); });
+        if (row.active)
+        {
+            api.set_active_name(row.name);
+        }
+        rows.push_back(std::move(row));
     }
     auto model = modelOf(std::move(rows));
-    m_ui->global<Api>().set_rices(model);
+    api.set_rices(model);
     for (std::size_t i = 0; i < entries.size(); ++i)
     {
         const std::weak_ptr<slint::VectorModel<RiceRow>> weak = model;
@@ -876,8 +1006,16 @@ void SettingsApp::refreshPlugins()
                 }
             }
             std::vector<Permission> permissions;
-            if (auto asked =
-                    plugins::permissionsFromJson(json::memberOr(entry, "permissions", Json::object())))
+            auto asked = plugins::permissionsFromJson(json::memberOr(entry, "permissions", Json::object()));
+            if (!asked)
+            {
+                // Nothing to show is nothing to approve: an approval would grant what nobody saw.
+                state = "broken";
+                row.state = shared(state);
+                row.detail = m_ui->global<Words>().invoke_problem(shared("permissions-unreadable"));
+                log::warn("settings: the permissions of {} do not read: {}", id, asked.error().toString());
+            }
+            else
             {
                 for (const auto& provider : asked->providers)
                 {
@@ -918,6 +1056,14 @@ void SettingsApp::refreshPlugins()
                                                                  [&](const auto& r) { return r.id == id; });
             rows.push_back(std::move(row));
         }
+        // The selected plugin is the same one wherever it sits now (one before it may be gone).
+        const auto selected = std::ranges::find_if(
+            rows, [this](const PluginRow& row) { return std::string_view(row.id) == m_selectedPlugin; });
+        if (selected == rows.end())
+        {
+            m_selectedPlugin.clear();
+        }
+        api.set_selected_plugin(selected == rows.end() ? -1 : static_cast<int>(selected - rows.begin()));
         api.set_plugins(modelOf(std::move(rows)));
         widgetChoices();
         refreshSettings(); // plugins' actions
@@ -1086,25 +1232,6 @@ void SettingsApp::refreshSettings()
     {
         return;
     }
-    // What the core says of each hotkey (taken by another program...).
-    std::map<std::string, std::string> problems;
-    for (const auto& hotkey :
-         json::memberOr(json::memberOr(m_status, "resident", Json::object()), "hotkeys", Json::array()))
-    {
-        if (!json::boolOr(hotkey, "registered", true))
-        {
-            problems[json::stringOr(hotkey, "keys", "")] = json::stringOr(hotkey, "error", "not active");
-        }
-    }
-    std::vector<HotkeyRow> hotkeys;
-    for (const auto& hotkey : m_settings->hotkeys)
-    {
-        const std::string keys = hotkey.keys.toString();
-        hotkeys.push_back({shared(keys), shared(hotkey.action.name), shared(hotkey.action.ricePath),
-                           shared(hotkey.action.app), shared(appName(hotkey.action.app)),
-                           shared(problems.contains(keys) ? problems[keys] : std::string())});
-    }
-    api.set_hotkeys(modelOf(std::move(hotkeys)));
     std::vector<RuleRow> rules;
     for (const auto& rule : m_settings->rules)
     {
@@ -1150,38 +1277,96 @@ void SettingsApp::refreshSettings()
     api.set_language(m_settings->language == domain::kLanguageEnglish      ? 1
                      : m_settings->language == domain::kLanguagePortuguese ? 2
                                                                            : 0);
+    showHotkeys(true);
     if (api.get_language() != m_appliedLanguage)
     {
         applyLanguage(); // settings.toml chose another
     }
 }
 
+void SettingsApp::showHotkeys(bool force)
+{
+    if (!m_settings)
+    {
+        return;
+    }
+    // What the core says of each hotkey (taken by another program...).
+    std::map<std::string, std::string> problems;
+    for (const auto& hotkey :
+         json::memberOr(json::memberOr(m_status, "resident", Json::object()), "hotkeys", Json::array()))
+    {
+        if (!json::boolOr(hotkey, "registered", true))
+        {
+            problems[json::stringOr(hotkey, "keys", "")] = json::stringOr(hotkey, "error", "not active");
+        }
+    }
+    // The same as shown: the rows stay (one could be being typed in).
+    if (!force && problems == m_hotkeyProblems)
+    {
+        return;
+    }
+    m_hotkeyProblems = problems;
+    std::vector<HotkeyRow> hotkeys;
+    for (const auto& hotkey : m_settings->hotkeys)
+    {
+        const std::string keys = hotkey.keys.toString();
+        hotkeys.push_back({shared(keys), shared(hotkey.action.name), shared(hotkey.action.ricePath),
+                           shared(hotkey.action.app), shared(appName(hotkey.action.app)),
+                           shared(problems.contains(keys) ? problems[keys] : std::string())});
+    }
+    m_ui->global<Api>().set_hotkeys(modelOf(std::move(hotkeys)));
+}
+
 void SettingsApp::refreshDiagnostics()
 {
-    const auto samples = m_processes.sample();
-    std::vector<ProcessRow> rows;
-    for (const auto& sample : samples)
+    if (m_diagnosticsPending)
     {
-        const std::string role = sample.name == "rmw-core.exe"          ? "core"
-                                 : sample.name == "rmw-bar.exe"         ? "bar"
-                                 : sample.name == "rmw-wallpaper.exe"   ? "video"
-                                 : sample.name == "rmw-plugin-host.exe" ? "plugins"
-                                 : sample.name == "rmw-settings.exe"    ? "settings"
-                                 : sample.name == "rmw-tiler.exe"       ? "tiler"
-                                                                        : "";
-        rows.push_back(
-            {shared(sample.name), static_cast<int>(sample.pid), shared(megabytes(sample.privateBytes)),
-             shared(std::format("{:.1f}%", sample.cpuPercent)),
-             role.empty() ? slint::SharedString() : m_ui->global<Words>().invoke_worker(shared(role))});
+        return;
     }
-    const auto& api = m_ui->global<Api>();
-    api.set_processes(modelOf(std::move(rows)));
-    std::vector<slint::SharedString> problems;
-    for (auto& line : recentProblems(m_dataDirectory, kProblemsShown))
+    m_diagnosticsPending = true;
+    // Every log is read: on the worker thread (m_processes is only sampled there).
+    struct Read
     {
-        problems.push_back(shared(line));
-    }
-    api.set_recent_problems(modelOf(std::move(problems)));
+        std::vector<ProcessSample> samples;
+        std::vector<std::string> problems;
+    };
+    auto read = std::make_shared<Read>();
+    background(
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+        [this, read]() -> Reply {
+            read->samples = m_processes.sample();
+            read->problems = recentProblems(m_dataDirectory, kProblemsShown);
+            return Json::object();
+        },
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+        [this, read](const Reply&) {
+            m_diagnosticsPending = false;
+            const auto& words = m_ui->global<Words>();
+            std::vector<ProcessRow> rows;
+            for (const auto& sample : read->samples)
+            {
+                const std::string role = sample.name == "rmw-core.exe"          ? "core"
+                                         : sample.name == "rmw-bar.exe"         ? "bar"
+                                         : sample.name == "rmw-wallpaper.exe"   ? "video"
+                                         : sample.name == "rmw-plugin-host.exe" ? "plugins"
+                                         : sample.name == "rmw-settings.exe"    ? "settings"
+                                         : sample.name == "rmw-tiler.exe"       ? "tiler"
+                                                                                : "";
+                rows.push_back({shared(sample.name), static_cast<int>(sample.pid),
+                                shared(megabytes(sample.privateBytes)), shared(std::format("{:.1f}%", sample.cpuPercent)),
+                                role.empty() ? slint::SharedString() : words.invoke_worker(shared(role))});
+            }
+            const auto& api = m_ui->global<Api>();
+            api.set_processes(modelOf(std::move(rows)));
+            std::vector<slint::SharedString> problems;
+            problems.reserve(read->problems.size());
+            for (const auto& line : read->problems)
+            {
+                problems.push_back(shared(line));
+            }
+            api.set_recent_problems(modelOf(std::move(problems)));
+        },
+        false);
 }
 
 // ---- the rice being edited -----------------------------------------------------------------------
@@ -1203,8 +1388,17 @@ void SettingsApp::ensureEditing(Page page)
         return;
     }
     // ...or, with none applied, the look Windows has now, saved as "My look": these pages never
-    // open on nothing to change.
-    auto folder = settings::newRiceFolder(m_dataDirectory, text(m_ui->global<Words>().invoke_my_look_name()));
+    // open on nothing to change. A "My look" made before is the one edited again (v1.7 made one
+    // more each time the window opened with no rice applied).
+    const std::string myLook = text(m_ui->global<Words>().invoke_my_look_name());
+    const fs::path earlier =
+        settings::ricesFolder(m_dataDirectory) / fs::path(utf8To16Lossy(domain::safeFileName(myLook, "Rice")));
+    if (fs::exists(earlier / L"rice.toml", ec) && settings::loadRice(earlier))
+    {
+        startEditing(earlier, page);
+        return;
+    }
+    auto folder = settings::newRiceFolder(m_dataDirectory, myLook);
     if (!folder)
     {
         failed(folder.error());
@@ -1216,7 +1410,7 @@ void SettingsApp::ensureEditing(Page page)
     call(
         "rice.export", Json{{"path", utf8(*folder)}, {"name", riceName}},
         // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
-        [this, folder = *folder, page](Reply reply) {
+        [this, folder = *folder](Reply reply) {
             m_preparingEdit = false;
             m_ui->global<Api>().set_preparing_edit(false);
             if (!reply)
@@ -1229,17 +1423,19 @@ void SettingsApp::ensureEditing(Page page)
             {
                 return; // the user picked a rice to edit meanwhile: theirs wins
             }
+            // Ready to edit; the window stays where the user went meanwhile (v1.7 took them back).
             const Page now = m_ui->global<Api>().get_page();
             const bool editorPage = now == Page::Appearance || now == Page::Wallpapers ||
                                     now == Page::Cursors || now == Page::Sounds || now == Page::Icons ||
                                     now == Page::Bar;
-            startEditing(folder, editorPage ? now : page);
+            startEditing(folder, editorPage ? std::optional(now) : std::nullopt);
         },
         true);
 }
 
-void SettingsApp::startEditing(const fs::path& folder, Page page)
+void SettingsApp::startEditing(const fs::path& folder, std::optional<Page> page)
 {
+    flushEdits(); // what the rice edited until now still waited to be saved
     auto loaded = settings::loadRice(folder);
     if (!loaded)
     {
@@ -1250,11 +1446,72 @@ void SettingsApp::startEditing(const fs::path& folder, Page page)
     const auto& api = m_ui->global<Api>();
     api.set_selected_rule(-1);
     api.set_selected_bar(m_edit->loaded.rice.bars.empty() ? -1 : 0);
+    api.set_renaming(false);
+    m_selectedPlugin.clear();
     api.set_selected_plugin(-1);
     matchChoices();
     showEdited();
     refreshPlugins();
-    api.set_page(page);
+    if (page)
+    {
+        api.set_page(*page);
+    }
+}
+
+bool SettingsApp::stillEditing(const fs::path& folder) const
+{
+    return m_edit && sameFolder(m_edit->folder, folder);
+}
+
+void SettingsApp::flushEdits()
+{
+    if (m_barSave.running())
+    {
+        m_barSave.stop();
+        saveEdited();
+    }
+}
+
+void SettingsApp::importInto(fs::path source, settings::AssetKind kind, std::function<void(const std::string&)> use)
+{
+    if (!m_edit)
+    {
+        return;
+    }
+    const fs::path folder = m_edit->folder;
+    notice(NoticeKind::Copying, utf8(source.filename()));
+    auto stored = std::make_shared<std::string>();
+    background(
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+        [folder, source = std::move(source), kind, stored]() -> Reply {
+            auto imported = settings::importAsset(folder, source, kind);
+            if (!imported)
+            {
+                return std::unexpected(std::move(imported.error()));
+            }
+            *stored = std::move(*imported);
+            return Json::object();
+        },
+        // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+        [this, folder, stored, use = std::move(use)](Reply reply) {
+            if (!reply)
+            {
+                failed(reply.error());
+                if (stillEditing(folder))
+                {
+                    showWallpapers(); // a kind picked for the file shows the rule's own again
+                }
+                return;
+            }
+            // Another rice is edited now: the copy stays in the first one's folder, unused.
+            if (!stillEditing(folder))
+            {
+                notice(NoticeKind::None);
+                return;
+            }
+            notice(NoticeKind::Imported, *stored);
+            use(*stored);
+        });
 }
 
 void SettingsApp::showEdited()
@@ -1282,6 +1539,14 @@ void SettingsApp::showEdited()
         }
     }
     api.set_edit_warnings(modelOf(std::move(warnings)));
+    // What the fields said of the last thing typed in them: the rice's own values are shown now.
+    api.set_schedule_problem({});
+    api.set_accent_problem({});
+    api.set_windows_border_problem({});
+    api.set_windows_caption_problem({});
+    api.set_windows_title_problem({});
+    api.set_windows_exclude_problem({});
+    api.set_rename_problem({});
 
     // Appearance.
     const auto& appearance = rice.appearance;
@@ -1543,11 +1808,15 @@ void SettingsApp::showWallpapers()
             rules.push_back(std::move(row));
             previewFiles.push_back(previewOf(m_edit->folder, rule));
         }
-        api.set_pause_fullscreen(rice.wallpaper->policy.pauseOnFullscreen.value_or(true));
-        api.set_pause_battery(rice.wallpaper->policy.pauseOnBattery.value_or(true));
-        api.set_pause_covered(rice.wallpaper->policy.pauseWhenCovered.value_or(true));
-        api.set_fps_limit(static_cast<int>(rice.wallpaper->policy.fpsLimit.value_or(30)));
     }
+    // No [wallpaper]: nothing to pause, the card is hidden; it shows the defaults, never the
+    // previous rice's values.
+    const domain::WallpaperPolicy policy = rice.wallpaper ? rice.wallpaper->policy : domain::WallpaperPolicy{};
+    api.set_has_wallpaper(rice.wallpaper.has_value());
+    api.set_pause_fullscreen(policy.pauseOnFullscreen.value_or(true));
+    api.set_pause_battery(policy.pauseOnBattery.value_or(true));
+    api.set_pause_covered(policy.pauseWhenCovered.value_or(true));
+    api.set_fps_limit(static_cast<int>(policy.fpsLimit.value_or(30)));
     if (api.get_selected_rule() >= static_cast<int>(rules.size()))
     {
         api.set_selected_rule(rules.empty() ? -1 : 0);
@@ -1610,6 +1879,7 @@ void SettingsApp::showWallpapers()
     }
     auto boxModel = modelOf(std::move(boxes));
     api.set_monitors(boxModel);
+    api.set_refreshed(api.get_refreshed() + 1); // the controls show the model again
 
     // Their pictures, as they come.
     for (std::size_t r = 0; r < previewFiles.size(); ++r)
@@ -1741,16 +2011,27 @@ void SettingsApp::showBars()
         }
     }
     api.set_dock_pinned(modelOf(std::move(pinned)));
+    api.set_refreshed(api.get_refreshed() + 1); // the controls show the model again
+}
+
+const Json* SettingsApp::selectedPlugin() const
+{
+    if (m_selectedPlugin.empty())
+    {
+        return nullptr;
+    }
+    const auto found = std::ranges::find_if(
+        m_plugins, [this](const Json& entry) { return json::stringOr(entry, "id", "") == m_selectedPlugin; });
+    return found == m_plugins.end() ? nullptr : &*found;
 }
 
 void SettingsApp::pluginConfig()
 {
     const auto& api = m_ui->global<Api>();
-    const int index = api.get_selected_plugin();
     std::vector<ConfigField> fields;
-    if (m_edit && index >= 0 && static_cast<std::size_t>(index) < m_plugins.size())
+    if (const Json* selected = selectedPlugin(); m_edit && selected != nullptr)
     {
-        const Json& entry = m_plugins[static_cast<std::size_t>(index)];
+        const Json& entry = *selected;
         const std::string id = json::stringOr(entry, "id", "");
         const domain::Value* current = nullptr;
         for (const auto& settings : m_edit->loaded.rice.pluginSettings)
@@ -1811,6 +2092,8 @@ void SettingsApp::engineScan()
     auto& api = m_ui->global<Api>();
     api.set_engine_status(slint::SharedString(m_ui->global<Words>().invoke_engine_looking()));
     api.set_engine_items(modelOf(std::vector<EngineItem>{}));
+    m_engine.clear();
+    m_engineScanning = true;
     auto found = std::make_shared<std::vector<settings::EngineWallpaper>>();
     background(
         // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
@@ -1820,6 +2103,7 @@ void SettingsApp::engineScan()
         },
         // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
         [this, found](Reply reply) {
+            m_engineScanning = false;
             if (!reply)
             {
                 failed(reply.error());
@@ -1870,9 +2154,18 @@ void SettingsApp::saveEdited(bool show)
     {
         return;
     }
-    if (auto saved = settings::saveRice(m_edit->folder, m_edit->loaded.rice); !saved)
+    Edit& edit = *m_edit;
+    if (auto saved = settings::saveRice(edit.folder, edit.loaded.rice); !saved)
     {
-        failed(saved.error());
+        // Not written (it would not read back, or the disk said no): the pages go back to what the
+        // file says, and the user hears why.
+        log::warn("settings: {} not saved: {}", utf8(edit.folder), saved.error().toString());
+        notice(NoticeKind::NotSaved, saved.error().message());
+        if (auto reread = settings::loadRice(edit.folder))
+        {
+            edit.loaded = std::move(*reread);
+        }
+        showEdited();
         return;
     }
     m_edit->loaded.handWritten = false;
@@ -1970,6 +2263,18 @@ void SettingsApp::rememberFolder(const fs::path& folder)
     {
         folders.push_back(folder);
     }
+    writeRemembered(folders);
+}
+
+void SettingsApp::forgetFolder(const fs::path& folder)
+{
+    auto folders = rememberedFolders();
+    std::erase_if(folders, [&](const fs::path& f) { return sameFolder(f, folder); });
+    writeRemembered(folders);
+}
+
+void SettingsApp::writeRemembered(const std::vector<fs::path>& folders)
+{
     Json list = Json::array();
     for (const auto& f : folders)
     {
@@ -2139,12 +2444,50 @@ void SettingsApp::bind()
     });
 
     // ---- rices -------------------------------------------------------------------------------------
-    api.on_apply_rice([this](const slint::SharedString& folder) { applyFolder(pathOf(folder)); });
+    api.on_apply_rice([this](const slint::SharedString& folder) {
+        flushEdits(); // it may be the rice being edited: applied as it was last changed
+        applyFolder(pathOf(folder));
+    });
     api.on_apply_edited([this] {
+        flushEdits();
         if (m_edit)
         {
             applyFolder(m_edit->folder);
         }
+    });
+    api.on_rename_edited([this](const slint::SharedString& name) {
+        domain::Rice* rice = edited();
+        if (rice == nullptr)
+        {
+            return;
+        }
+        auto checked = settings::checkRiceName(text(name));
+        if (!checked)
+        {
+            using P = settings::RiceNameProblem;
+            const P why = checked.error();
+            const char* key = why == P::Empty         ? "name-empty"
+                              : why == P::TooLong     ? "name-long"
+                              : why == P::Character   ? "name-character"
+                              : why == P::TrailingDot ? "name-dot"
+                                                      : "name-device";
+            m_ui->global<Api>().set_rename_problem(m_ui->global<Words>().invoke_problem(shared(key)));
+            return;
+        }
+        flushEdits();
+        m_ui->global<Api>().set_rename_problem({});
+        m_ui->global<Api>().set_renaming(false);
+        if (*checked == rice->meta.name)
+        {
+            return;
+        }
+        rice->meta.name = *checked;
+        saveEdited();
+        refreshRices();
+    });
+    api.on_forget_rice_folder([this](const slint::SharedString& folder) {
+        forgetFolder(pathOf(folder));
+        refreshRices();
     });
     api.on_edit_rice(
         [this](const slint::SharedString& folder) { startEditing(pathOf(folder), Page::Appearance); });
@@ -2160,16 +2503,36 @@ void SettingsApp::bind()
                      page == Page::Home || page == Page::Rices ? Page::Appearance : page);
     });
     api.on_duplicate_rice([this](const slint::SharedString& folder) {
-        const auto entry = settings::readEntry(pathOf(folder));
-        auto copy = settings::duplicateRice(m_dataDirectory, pathOf(folder),
-                                            text(m_ui->global<Words>().invoke_copy_name(shared(entry.name))));
-        if (!copy)
-        {
-            failed(copy.error());
-            return;
-        }
-        notice(NoticeKind::Created, settings::readEntry(*copy).name);
-        refreshRices();
+        flushEdits();
+        const fs::path from = pathOf(folder);
+        const auto entry = std::ranges::find_if(
+            m_riceEntries, [&](const settings::RiceEntry& e) { return sameFolder(e.folder, from); });
+        const std::string name = text(m_ui->global<Words>().invoke_copy_name(
+            shared(entry != m_riceEntries.end() ? entry->name : utf8(from.filename()))));
+        // Every file of the rice is copied (videos too): on the worker thread.
+        notice(NoticeKind::Copying, name);
+        auto copy = std::make_shared<fs::path>();
+        background(
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+            [this, from, name, copy]() -> Reply {
+                auto made = settings::duplicateRice(m_dataDirectory, from, name);
+                if (!made)
+                {
+                    return std::unexpected(std::move(made.error()));
+                }
+                *copy = std::move(*made);
+                return Json::object();
+            },
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+            [this, name](Reply reply) {
+                if (!reply)
+                {
+                    failed(reply.error());
+                    return;
+                }
+                notice(NoticeKind::Created, name);
+                refreshRices();
+            });
     });
     api.on_open_folder([](const slint::SharedString& folder) { openFolder(pathOf(folder)); });
     api.on_add_rice_folder([this] {
@@ -2181,7 +2544,7 @@ void SettingsApp::bind()
         std::error_code ec;
         if (!fs::exists(*folder / L"rice.toml", ec))
         {
-            failed(Error(ErrorCode::NotFound, "that folder has no rice.toml"));
+            refused("no-rice-toml");
             return;
         }
         rememberFolder(*folder);
@@ -2208,6 +2571,7 @@ void SettingsApp::bind()
             true);
     });
     api.on_share_rice([this](const slint::SharedString& folder) {
+        flushEdits(); // shared as it was last changed
         const fs::path source = pathOf(folder);
         const std::string name = domain::safeFileName(settings::readEntry(source).name, "rice");
         const auto target = pickSaveFile(window(), {L"Rices", L"*.rice"}, utf8To16Lossy(name) + L".rice");
@@ -2286,30 +2650,46 @@ void SettingsApp::bind()
             return;
         }
         const auto& api = m_ui->global<Api>();
+        const auto& words = m_ui->global<Words>();
+        // A field that does not read yet keeps what the rice had, and says why under it; the others
+        // are saved (v1.7 saved none of them).
+        const domain::AppearanceConfig before = rice->appearance.value_or(domain::AppearanceConfig{});
         domain::AppearanceConfig config;
         using M = domain::ThemeMode;
         constexpr std::array<std::optional<M>, 5> modes = {std::nullopt, M::Light, M::Dark, M::System,
                                                            M::Schedule};
         config.mode = modes[static_cast<std::size_t>(std::clamp(api.get_theme_mode(), 0, 4))];
+        slint::SharedString scheduleProblem;
         if (config.mode == M::Schedule)
         {
             auto light = domain::TimeOfDay::parse(text(api.get_light_at()));
             auto dark = domain::TimeOfDay::parse(text(api.get_dark_at()));
             if (!light || !dark || *light == *dark)
             {
-                return; // not a time yet: saved when it is
+                scheduleProblem = words.invoke_problem(shared(!light || !dark ? "time" : "same-times"));
+                config.mode = before.mode;
+                config.schedule = before.schedule;
             }
-            config.schedule = domain::AppearanceSchedule{*light, *dark};
+            else
+            {
+                config.schedule = domain::AppearanceSchedule{*light, *dark};
+            }
         }
+        api.set_schedule_problem(scheduleProblem);
+        slint::SharedString accentProblem;
         if (const std::string accent = text(api.get_accent()); !accent.empty())
         {
-            auto color = domain::Color::parse(accent);
-            if (!color)
+            if (auto color = domain::Color::parse(accent))
             {
-                return;
+                config.accent = *color;
             }
-            config.accent = *color;
+            else
+            {
+                accentProblem = words.invoke_problem(shared("color"));
+                config.accent = before.accent;
+            }
         }
+        api.set_accent_problem(accentProblem);
         config.transparency = fromTriState(api.get_transparency());
         config.accentOnTaskbar = fromTriState(api.get_accent_on_taskbar());
         const bool any = config.mode || config.accent || config.transparency || config.accentOnTaskbar;
@@ -2318,7 +2698,13 @@ void SettingsApp::bind()
     });
 
     // ---- wallpapers ------------------------------------------------------------------------------------
-    const auto pickFor = [this](domain::WallpaperKind kind, bool fallback) -> std::optional<std::string> {
+    // The file (or folder) a wallpaper of `kind` shows, as the user picks it; none when cancelled.
+    struct Picked
+    {
+        fs::path path;
+        settings::AssetKind kind = settings::AssetKind::Image;
+    };
+    const auto pickFor = [this](domain::WallpaperKind kind, bool fallback) -> std::optional<Picked> {
         using K = domain::WallpaperKind;
         std::optional<fs::path> picked;
         settings::AssetKind asset = settings::AssetKind::Image;
@@ -2340,17 +2726,21 @@ void SettingsApp::bind()
         {
             return std::nullopt;
         }
-        auto stored = settings::importAsset(m_edit->folder, *picked, asset);
-        if (!stored)
-        {
-            failed(stored.error());
-            return std::nullopt;
-        }
-        notice(NoticeKind::Imported, *stored);
-        return *stored;
+        return Picked{std::move(*picked), asset};
     };
-    api.on_rule_field([this, pickFor](int index, const slint::SharedString& field,
-                                      const slint::SharedString& value) {
+    // A rule by its monitor (the copy takes a while: the user may add or remove rules meanwhile).
+    const auto ruleFor = [this](const domain::MonitorSelector& match) -> domain::MonitorWallpaper* {
+        domain::Rice* rice = edited();
+        if (rice == nullptr || !rice->wallpaper)
+        {
+            return nullptr;
+        }
+        auto& rules = rice->wallpaper->monitors;
+        const auto found = std::ranges::find(rules, match, &domain::MonitorWallpaper::match);
+        return found == rules.end() ? nullptr : &*found;
+    };
+    api.on_rule_field([this, pickFor, ruleFor](int index, const slint::SharedString& field,
+                                               const slint::SharedString& value) {
         domain::Rice* rice = edited();
         if (rice == nullptr || !rice->wallpaper || index < 0 ||
             static_cast<std::size_t>(index) >= rice->wallpaper->monitors.size())
@@ -2388,37 +2778,43 @@ void SettingsApp::bind()
             }
             else
             {
-                // A kind with a file needs the file before it is saved (the rice must stay readable).
-                auto source = pickFor(kind, false);
-                if (!source)
+                // A kind with a file needs the file before it is saved (the rice must stay readable):
+                // the rule changes once it is copied in.
+                auto picked = pickFor(kind, false);
+                if (!picked)
                 {
                     showWallpapers();
                     return;
                 }
-                rule.kind = kind;
-                rule.source = *source;
-                if (kind == domain::WallpaperKind::Video && rule.fit == domain::WallpaperFit::Tile)
-                {
-                    rule.fit = domain::WallpaperFit::Fill;
-                }
-                if (kind != domain::WallpaperKind::Video)
-                {
-                    rule.fallbackImage.clear();
-                }
-                if (kind == domain::WallpaperKind::Slideshow && !rule.intervalSeconds)
-                {
-                    rule.intervalSeconds = 900;
-                }
-                if (kind == domain::WallpaperKind::Slideshow)
-                {
-                    // A slideshow is Windows' own: no effects, no particles.
-                    rule.effects = {};
-                    rule.particles.clear();
-                }
-                if (kind != domain::WallpaperKind::Video)
-                {
-                    rule.effects.speed.reset();
-                }
+                importInto(std::move(picked->path), picked->kind,
+                           [this, ruleFor, match = rule.match, kind](const std::string& source) {
+                               auto* rule = ruleFor(match);
+                               if (rule == nullptr)
+                               {
+                                   showWallpapers();
+                                   return;
+                               }
+                               rule->kind = kind;
+                               rule->source = source;
+                               if (kind == domain::WallpaperKind::Video && rule->fit == domain::WallpaperFit::Tile)
+                               {
+                                   rule->fit = domain::WallpaperFit::Fill;
+                               }
+                               if (kind != domain::WallpaperKind::Video)
+                               {
+                                   rule->fallbackImage.clear();
+                                   rule->effects.speed.reset();
+                               }
+                               if (kind == domain::WallpaperKind::Slideshow)
+                               {
+                                   rule->intervalSeconds = rule->intervalSeconds.value_or(900);
+                                   // A slideshow is Windows' own: no effects, no particles.
+                                   rule->effects = {};
+                                   rule->particles.clear();
+                               }
+                               saveEdited();
+                           });
+                return;
             }
         }
         else if (name == "fit")
@@ -2430,7 +2826,8 @@ void SettingsApp::bind()
             auto color = domain::Color::parse(v);
             if (!color)
             {
-                failed(color.error());
+                refused("color");
+                showWallpapers(); // the color it has comes back in the box
                 return;
             }
             rule.color = *color;
@@ -2445,21 +2842,29 @@ void SettingsApp::bind()
         }
         saveEdited();
     });
-    api.on_rule_pick([this, pickFor](int index, int which) {
+    api.on_rule_pick([this, pickFor, ruleFor](int index, int which) {
         domain::Rice* rice = edited();
         if (rice == nullptr || !rice->wallpaper || index < 0 ||
             static_cast<std::size_t>(index) >= rice->wallpaper->monitors.size())
         {
             return;
         }
-        auto& rule = rice->wallpaper->monitors[static_cast<std::size_t>(index)];
+        const auto& rule = rice->wallpaper->monitors[static_cast<std::size_t>(index)];
         auto picked = pickFor(rule.kind, which == 1);
         if (!picked)
         {
             return;
         }
-        (which == 1 ? rule.fallbackImage : rule.source) = *picked;
-        saveEdited();
+        importInto(std::move(picked->path), picked->kind,
+                   [this, ruleFor, match = rule.match, kind = rule.kind, which](const std::string& stored) {
+                       auto* rule = ruleFor(match);
+                       if (rule == nullptr || rule->kind != kind)
+                       {
+                           return; // the rule went, or became another kind, while the file came in
+                       }
+                       (which == 1 ? rule->fallbackImage : rule->source) = stored;
+                       saveEdited();
+                   });
     });
     api.on_rule_add([this, pickFor](const slint::SharedString& match) {
         domain::Rice* rice = edited();
@@ -2468,31 +2873,36 @@ void SettingsApp::bind()
         {
             return;
         }
-        const bool existed =
-            rice->wallpaper && std::ranges::any_of(rice->wallpaper->monitors,
-                                                   [&](const auto& r) { return r.match == *selector; });
-        auto& rule = settings::wallpaperRule(*rice, *selector);
-        if (!existed)
+        const auto select = [this](const domain::MonitorSelector& which) {
+            const auto& rules = edited()->wallpaper->monitors;
+            const auto found = std::ranges::find(rules, which, &domain::MonitorWallpaper::match);
+            m_ui->global<Api>().set_selected_rule(static_cast<int>(found - rules.begin()));
+        };
+        if (rice->wallpaper && std::ranges::any_of(rice->wallpaper->monitors,
+                                                   [&](const auto& r) { return r.match == *selector; }))
         {
-            // A new rule shows an image: picked now, or no rule.
-            auto source = pickFor(domain::WallpaperKind::Image, false);
-            if (!source)
-            {
-                settings::removeWallpaperRule(*rice, *selector);
-                if (rice->wallpaper && rice->wallpaper->monitors.empty())
-                {
-                    rice->wallpaper.reset();
-                }
-                showWallpapers();
-                return;
-            }
-            rule.source = *source;
+            select(*selector);
+            return;
         }
-        const auto& rules = rice->wallpaper->monitors;
-        const auto found = std::ranges::find(rules, *selector, &domain::MonitorWallpaper::match);
-        m_ui->global<Api>().set_selected_rule(static_cast<int>(found - rules.begin()));
-        matchChoices();
-        saveEdited();
+        // A new rule shows an image: picked now, or no rule. It is made once the image is in.
+        auto picked = pickFor(domain::WallpaperKind::Image, false);
+        if (!picked)
+        {
+            return;
+        }
+        importInto(std::move(picked->path), picked->kind,
+                   [this, select, selector = *selector](const std::string& source) {
+                       domain::Rice* rice = edited();
+                       if (rice == nullptr)
+                       {
+                           return;
+                       }
+                       auto& rule = settings::wallpaperRule(*rice, selector);
+                       rule.source = source;
+                       select(selector);
+                       matchChoices();
+                       saveEdited();
+                   });
     });
     api.on_rule_remove([this](int index) {
         domain::Rice* rice = edited();
@@ -2634,7 +3044,7 @@ void SettingsApp::bind()
                 const domain::Rice* rice = edited();
                 if (entry != "accent" && (rice == nullptr || rice->findPalette(entry) == nullptr))
                 {
-                    failed(Error(ErrorCode::InvalidArgument, std::format("'{}' is not in the rice's palette", trimmed)));
+                    refused("palette");
                     return;
                 }
                 layer.color = domain::ColorRef{entry};
@@ -2714,7 +3124,15 @@ void SettingsApp::bind()
         }
         const settings::EngineWallpaper chosen = m_engine[static_cast<std::size_t>(item)];
         const fs::path folder = m_edit->folder;
-        const int ruleIndex = m_engineRule;
+        // The rule by its monitor: rules may come and go while the video is copied.
+        const domain::Rice& rice = m_edit->loaded.rice;
+        if (!rice.wallpaper || m_engineRule < 0 ||
+            static_cast<std::size_t>(m_engineRule) >= rice.wallpaper->monitors.size())
+        {
+            return;
+        }
+        const domain::MonitorSelector match = rice.wallpaper->monitors[static_cast<std::size_t>(m_engineRule)].match;
+        notice(NoticeKind::Copying, chosen.title);
         // Copied into the rice (a video can be large): on the worker thread.
         auto stored = std::make_shared<std::pair<std::string, std::string>>(); // source, picture
         background(
@@ -2765,19 +3183,28 @@ void SettingsApp::bind()
                 return Json::object();
             },
             // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
-            [this, chosen, ruleIndex, stored](Reply reply) {
+            [this, chosen, folder, match, stored](Reply reply) {
                 if (!reply)
                 {
                     failed(reply.error());
                     return;
                 }
+                // Copied into the rice that was edited then: if the user went to another one meanwhile,
+                // this one is not changed (v1.7 wrote the first rice's files into the second).
                 domain::Rice* rice = edited();
-                if (rice == nullptr || !rice->wallpaper || ruleIndex < 0 ||
-                    static_cast<std::size_t>(ruleIndex) >= rice->wallpaper->monitors.size())
+                if (rice == nullptr || !stillEditing(folder) || !rice->wallpaper)
                 {
+                    notice(NoticeKind::None);
                     return;
                 }
-                auto& rule = rice->wallpaper->monitors[static_cast<std::size_t>(ruleIndex)];
+                auto& rules = rice->wallpaper->monitors;
+                const auto found = std::ranges::find(rules, match, &domain::MonitorWallpaper::match);
+                if (found == rules.end())
+                {
+                    notice(NoticeKind::None);
+                    return;
+                }
+                auto& rule = *found;
                 if (!stored->first.empty())
                 {
                     rule.kind = domain::WallpaperKind::Video;
@@ -2827,37 +3254,30 @@ void SettingsApp::bind()
 
     // ---- cursors -------------------------------------------------------------------------------------
     api.on_cursors_pick([this] {
-        domain::Rice* rice = edited();
-        const auto folder = pickFolder(window());
-        if (rice == nullptr || !folder)
+        auto folder = pickFolder(window());
+        if (edited() == nullptr || !folder)
         {
             return;
         }
-        auto stored = settings::importAsset(m_edit->folder, *folder, settings::AssetKind::Cursors);
-        if (!stored)
-        {
-            failed(stored.error());
-            return;
-        }
-        domain::CursorConfig cursors;
-        cursors.source = *stored;
-        cursors.size = rice->cursors ? rice->cursors->size : std::nullopt;
-        std::error_code ec;
-        const fs::path copied = settings::assetPath(m_edit->folder, *stored);
-        if (!fs::exists(copied / L"install.inf", ec))
-        {
-            cursors.map = guessCursors(copied);
-            if (cursors.map.empty())
+        importInto(std::move(*folder), settings::AssetKind::Cursors, [this](const std::string& stored) {
+            domain::Rice* rice = edited();
+            domain::CursorConfig cursors;
+            cursors.source = stored;
+            cursors.size = rice->cursors ? rice->cursors->size : std::nullopt;
+            std::error_code ec;
+            const fs::path copied = settings::assetPath(m_edit->folder, stored);
+            if (!fs::exists(copied / L"install.inf", ec))
             {
-                failed(
-                    Error(ErrorCode::NotFound,
-                          "no install.inf and no file named like a cursor role (normal.cur, link.cur...)"));
-                return;
+                cursors.map = guessCursors(copied);
+                if (cursors.map.empty())
+                {
+                    refused("no-cursors");
+                    return;
+                }
             }
-        }
-        rice->cursors = std::move(cursors);
-        notice(NoticeKind::Imported, *stored);
-        saveEdited();
+            rice->cursors = std::move(cursors);
+            saveEdited();
+        });
     });
     api.on_cursors_clear([this] {
         if (domain::Rice* rice = edited())
@@ -2918,23 +3338,18 @@ void SettingsApp::bind()
         }
     };
     api.on_sound_pick([this, soundOf](const slint::SharedString& name) {
-        const auto file = pickFile(window(), {{L"Sounds (.wav)", L"*.wav"}});
+        auto file = pickFile(window(), {{L"Sounds (.wav)", L"*.wav"}});
         if (!file || edited() == nullptr)
         {
             return;
         }
-        auto stored = settings::importAsset(m_edit->folder, *file, settings::AssetKind::Sound);
-        if (!stored)
-        {
-            failed(stored.error());
-            return;
-        }
-        if (domain::SoundAssignment* sound = soundOf(name, true))
-        {
-            sound->file = *stored;
-            notice(NoticeKind::Imported, *stored);
-            saveEdited();
-        }
+        importInto(std::move(*file), settings::AssetKind::Sound, [this, soundOf, name](const std::string& stored) {
+            if (domain::SoundAssignment* sound = soundOf(name, true))
+            {
+                sound->file = stored;
+                saveEdited();
+            }
+        });
     });
     api.on_sound_silence([this, soundOf](const slint::SharedString& name) {
         if (domain::SoundAssignment* sound = soundOf(name, true))
@@ -2999,39 +3414,56 @@ void SettingsApp::bind()
             look.backdrop = static_cast<domain::WindowBackdrop>(backdrop - 1);
         }
         look.dark = fromTriState(api.get_windows_dark());
-        // "" none; palette.<name>; #RRGGBB. Anything else is being typed: not saved yet.
-        const auto colorOf = [](std::string value, std::optional<domain::ColorRef>& into) {
+        // A field that does not read (yet: it may be being typed) keeps what the rice had and says
+        // why under it; the others are saved (v1.7 saved none of them).
+        const domain::WindowsLookConfig before = rice->windows.value_or(domain::WindowsLookConfig{});
+        const auto& words = m_ui->global<Words>();
+        // "" none; palette.<name> of this rice; #RRGGBB. Returns the problem, "" when it reads.
+        const auto colorOf = [&](std::string value, std::optional<domain::ColorRef>& into,
+                                 const std::optional<domain::ColorRef>& was) -> slint::SharedString {
             std::erase(value, ' ');
             if (value.empty())
             {
-                return true;
+                return {};
             }
             if (value.starts_with("palette.") && value.size() > 8)
             {
-                into = domain::ColorRef{value.substr(8)};
-                return true;
+                // A name the rice's [palette] does not have would make the rice unreadable.
+                const std::string name = value.substr(8);
+                if (name != "accent" && rice->findPalette(name) == nullptr)
+                {
+                    into = was;
+                    return words.invoke_problem(shared("palette"));
+                }
+                into = domain::ColorRef{name};
+                return {};
             }
             if (auto color = domain::Color::parse(value))
             {
                 into = domain::ColorRef{*color};
-                return true;
+                return {};
             }
-            return false;
+            into = was;
+            return words.invoke_problem(shared("color"));
         };
+        slint::SharedString borderProblem;
         if (std::string border = text(api.get_windows_border()); border == "none")
         {
             look.noBorder = true;
         }
-        else if (!colorOf(std::move(border), look.border))
+        else
         {
-            return;
+            borderProblem = colorOf(std::move(border), look.border, before.border);
+            if (!borderProblem.empty())
+            {
+                look.noBorder = before.noBorder;
+            }
         }
-        if (!colorOf(text(api.get_windows_caption()), look.caption) ||
-            !colorOf(text(api.get_windows_title()), look.title))
-        {
-            return;
-        }
+        api.set_windows_border_problem(borderProblem);
+        api.set_windows_caption_problem(colorOf(text(api.get_windows_caption()), look.caption, before.caption));
+        api.set_windows_title_problem(colorOf(text(api.get_windows_title()), look.title, before.title));
         const std::string list = text(api.get_windows_exclude());
+        slint::SharedString excludeProblem;
         for (std::size_t start = 0; start <= list.size();)
         {
             const std::size_t comma = std::min(list.find(',', start), list.size());
@@ -3043,22 +3475,15 @@ void SettingsApp::bind()
             {
                 if (!domain::isValidProgramName(name))
                 {
-                    return; // still being typed
+                    excludeProblem = words.invoke_problem(shared("program"));
+                    look.exclude = before.exclude;
+                    break;
                 }
                 look.exclude.push_back(std::move(name));
             }
             start = comma + 1;
         }
-        // A palette name the rice does not have would make it unreadable: not saved.
-        for (const auto* ref : {&look.border, &look.caption, &look.title})
-        {
-            const std::string* name = *ref ? std::get_if<std::string>(&(*ref)->value) : nullptr;
-            if (name != nullptr && *name != "accent" && rice->findPalette(*name) == nullptr)
-            {
-                failed(Error(ErrorCode::InvalidArgument, "that palette color is not in this rice's [palette]"));
-                return;
-            }
-        }
+        api.set_windows_exclude_problem(excludeProblem);
         rice->windows = look.empty() ? std::nullopt : std::optional(std::move(look));
         saveEdited(false);
     });
@@ -3074,26 +3499,21 @@ void SettingsApp::bind()
         }
     };
     api.on_lock_pick([this] {
-        const auto file = pickFile(window(), {{L"Pictures (.jpg, .png)", L"*.jpg;*.jpeg;*.png"}});
+        auto file = pickFile(window(), {{L"Pictures (.jpg, .png)", L"*.jpg;*.jpeg;*.png"}});
         if (!file || edited() == nullptr)
         {
             return;
         }
-        auto stored = settings::importAsset(m_edit->folder, *file, settings::AssetKind::LockScreen);
-        if (!stored)
-        {
-            failed(stored.error());
-            return;
-        }
-        domain::Rice* rice = edited();
-        if (!rice->lockscreen)
-        {
-            rice->lockscreen.emplace();
-        }
-        rice->lockscreen->image = *stored;
-        rice->lockscreen->spotlight.reset();
-        notice(NoticeKind::Imported, *stored);
-        saveEdited();
+        importInto(std::move(*file), settings::AssetKind::LockScreen, [this](const std::string& stored) {
+            domain::Rice* rice = edited();
+            if (!rice->lockscreen)
+            {
+                rice->lockscreen.emplace();
+            }
+            rice->lockscreen->image = stored;
+            rice->lockscreen->spotlight.reset();
+            saveEdited();
+        });
     });
     api.on_lock_spotlight_on([this] {
         domain::Rice* rice = edited();
@@ -3243,39 +3663,35 @@ void SettingsApp::bind()
         std::ranges::transform(program, program.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
         if (text(kind) == "app" && !domain::isValidProgramName(program))
         {
-            failed(Error{ErrorCode::InvalidArgument, "write the program's file name, like firefox.exe"});
+            refused("program");
             return;
         }
         if (text(kind) == "type" &&
             !domain::isValidFileExtension(program.starts_with('.') ? program.substr(1) : program))
         {
-            failed(Error{ErrorCode::InvalidArgument, "write the file type, like txt"});
+            refused("file-type");
             return;
         }
-        const auto file = pickFile(window(), {{L"Icons (.ico)", L"*.ico"}});
+        auto file = pickFile(window(), {{L"Icons (.ico)", L"*.ico"}});
         if (!file || edited() == nullptr)
         {
             return;
         }
-        auto stored = settings::importAsset(m_edit->folder, *file, settings::AssetKind::Icon);
-        if (!stored)
-        {
-            failed(stored.error());
-            return;
-        }
-        if (setIcon(text(kind), text(key), *stored))
-        {
-            if (text(kind) == "app")
-            {
-                m_ui->global<Api>().set_icon_new_program({});
-            }
-            if (text(kind) == "type")
-            {
-                m_ui->global<Api>().set_icon_new_type({});
-            }
-            notice(NoticeKind::Imported, *stored);
-            saveEdited();
-        }
+        importInto(std::move(*file), settings::AssetKind::Icon,
+                   [this, setIcon, kind = text(kind), key = text(key)](const std::string& stored) {
+                       if (setIcon(kind, key, stored))
+                       {
+                           if (kind == "app")
+                           {
+                               m_ui->global<Api>().set_icon_new_program({});
+                           }
+                           if (kind == "type")
+                           {
+                               m_ui->global<Api>().set_icon_new_type({});
+                           }
+                           saveEdited();
+                       }
+                   });
     });
     api.on_icon_clear([this, setIcon](const slint::SharedString& kind, const slint::SharedString& key) {
         if (setIcon(text(kind), text(key), {}))
@@ -3420,6 +3836,7 @@ void SettingsApp::bind()
             return;
         }
         domain::BarConfig& bar = rice->bars[static_cast<std::size_t>(index)];
+        const domain::BarConfig before = bar; // what a refused change goes back to
         // Compared with what it shows (its style filled in): only what the user changed is its own.
         const domain::BarConfig shown = domain::withStyle(bar);
         const BarModel model = m_ui->global<Api>().get_bar();
@@ -3470,19 +3887,28 @@ void SettingsApp::bind()
         {
             bar.radius = static_cast<std::uint32_t>(std::clamp(model.radius, 0, 256));
         }
+        // "" none, palette.<name>, #RRGGBB; what does not read keeps the color it had (v1.7 erased it).
+        bool unreadable = false;
+        const auto colorOf = [&unreadable](std::string value, const std::optional<domain::ColorRef>& was) {
+            std::erase(value, ' ');
+            if (value.empty())
+            {
+                return std::optional<domain::ColorRef>();
+            }
+            if (value.starts_with("palette.") && value.size() > 8)
+            {
+                return std::optional(domain::ColorRef{value.substr(8)});
+            }
+            if (auto color = domain::Color::parse(value))
+            {
+                return std::optional(domain::ColorRef{*color});
+            }
+            unreadable = true;
+            return was;
+        };
         domain::BarBackground background;
         background.kind = static_cast<domain::BarBackground::Kind>(std::clamp(model.background, 0, 3));
-        if (const std::string tint = text(model.tint); !tint.empty())
-        {
-            if (tint.starts_with("palette."))
-            {
-                background.tint = domain::ColorRef{tint.substr(8)};
-            }
-            else if (auto color = domain::Color::parse(tint))
-            {
-                background.tint = domain::ColorRef{*color};
-            }
-        }
+        background.tint = colorOf(text(model.tint), shown.background.tint);
         background.opacity = std::clamp(model.opacity, 0, 100) / 100.0;
         if (changed("background", background.kind != shown.background.kind ||
                                       background.tint != shown.background.tint ||
@@ -3491,18 +3917,7 @@ void SettingsApp::bind()
         {
             bar.background = background;
         }
-        std::optional<domain::ColorRef> foreground;
-        if (const std::string text = rmw::settingsapp::text(model.foreground); !text.empty())
-        {
-            if (text.starts_with("palette."))
-            {
-                foreground = domain::ColorRef{text.substr(8)};
-            }
-            else if (auto color = domain::Color::parse(text))
-            {
-                foreground = domain::ColorRef{*color};
-            }
-        }
+        const std::optional<domain::ColorRef> foreground = colorOf(text(model.foreground), shown.foreground);
         if (changed("foreground", foreground != shown.foreground))
         {
             bar.foreground = foreground;
@@ -3522,8 +3937,15 @@ void SettingsApp::bind()
         };
         if (!known(bar.background.tint) || !known(bar.foreground))
         {
-            failed(Error(ErrorCode::InvalidArgument, "that palette color is not in this rice's [palette]"));
+            // Not kept: the bar goes back to what it was (other changes still waiting to be saved stay).
+            refused("palette");
+            bar = before;
+            showBars();
             return;
+        }
+        if (unreadable)
+        {
+            refused("color");
         }
         // Saved a moment after the last change (a slider moves many times).
         m_barSave.start(slint::TimerMode::SingleShot, kBarSaveDelay, [this] { saveEdited(); });
@@ -3572,8 +3994,16 @@ void SettingsApp::bind()
 
     // ---- plugins -------------------------------------------------------------------------------------
     api.on_plugins_refresh([this] { refreshPlugins(); });
-    api.on_plugin_selected([this](int index) {
-        m_ui->global<Api>().set_selected_plugin(index);
+    api.on_plugin_selected([this](const slint::SharedString& id) {
+        m_selectedPlugin = text(id);
+        const auto found = std::ranges::find_if(
+            m_plugins, [this](const Json& entry) { return json::stringOr(entry, "id", "") == m_selectedPlugin; });
+        if (found == m_plugins.end())
+        {
+            m_selectedPlugin.clear();
+        }
+        m_ui->global<Api>().set_selected_plugin(found == m_plugins.end() ? -1
+                                                                          : static_cast<int>(found - m_plugins.begin()));
         pluginConfig();
     });
     api.on_plugin_install([this] {
@@ -3615,11 +4045,23 @@ void SettingsApp::bind()
     });
     api.on_plugin_approve([this](const slint::SharedString& id) {
         const std::string plugin = text(id);
+        // What its card shows is what is approved: the core refuses when plugin.toml asks for more
+        // now (it changed since the list was read).
+        const auto entry = std::ranges::find_if(
+            m_plugins, [&](const Json& e) { return json::stringOr(e, "id", "") == plugin; });
+        if (entry == m_plugins.end() ||
+            !plugins::permissionsFromJson(json::memberOr(*entry, "permissions", Json::object())))
+        {
+            refreshPlugins();
+            return;
+        }
+        const Json shown = json::memberOr(*entry, "permissions", Json::object());
         // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
-        call("plugin.approve", Json{{"id", plugin}}, [this, plugin](Reply reply) {
+        call("plugin.approve", Json{{"id", plugin}, {"permissions", shown}}, [this, plugin](Reply reply) {
             if (!reply)
             {
                 failed(reply.error());
+                refreshPlugins(); // what it asks for now
                 return;
             }
             notice(NoticeKind::Approved, pluginName(plugin));
@@ -3657,12 +4099,12 @@ void SettingsApp::bind()
     });
     api.on_plugin_config_edited([this](const slint::SharedString& key, const slint::SharedString& value) {
         domain::Rice* rice = edited();
-        const int index = m_ui->global<Api>().get_selected_plugin();
-        if (rice == nullptr || index < 0 || static_cast<std::size_t>(index) >= m_plugins.size())
+        const Json* selected = selectedPlugin();
+        if (rice == nullptr || selected == nullptr)
         {
             return;
         }
-        const Json& entry = m_plugins[static_cast<std::size_t>(index)];
+        const Json entry = *selected; // a copy: refreshing the list below replaces m_plugins
         auto manifest =
             plugins::readPluginManifest(fs::path(utf8To16Lossy(json::stringOr(entry, "folder", ""))));
         if (!manifest)
@@ -3678,9 +4120,9 @@ void SettingsApp::bind()
         const std::string v = text(value);
         domain::Value parsed;
         using T = domain::ConfigType;
-        const auto bad = [&] {
-            failed(Error(ErrorCode::InvalidArgument,
-                         std::format("“{}” is not a valid {}", v, domain::toString(field->type))));
+        const auto bad = [this] {
+            refused("value");
+            pluginConfig(); // the box shows the value the rice has again
         };
         switch (field->type)
         {
@@ -3703,8 +4145,9 @@ void SettingsApp::bind()
         case T::Float: {
             double number = 0;
             const auto [end, ec] = std::from_chars(v.data(), v.data() + v.size(), number);
-            if (ec != std::errc{} || end != v.data() + v.size() || (field->min && number < *field->min) ||
-                (field->max && number > *field->max))
+            // "nan" and "inf" read as numbers, and NaN passes every min and max.
+            if (ec != std::errc{} || end != v.data() + v.size() || !std::isfinite(number) ||
+                (field->min && number < *field->min) || (field->max && number > *field->max))
             {
                 bad();
                 return;
@@ -3773,7 +4216,7 @@ void SettingsApp::bind()
                 return static_cast<int>(i);
             }
         }
-        return 0;
+        return -1; // an action nobody offers now (a plugin's, removed): no other action is shown instead
     });
     api.on_match_index([this](const slint::SharedString& selector) -> int {
         const auto found = std::ranges::find(m_matchChoices, text(selector));
@@ -3825,7 +4268,21 @@ void SettingsApp::bind()
         }
         return false;
     };
-    api.on_hotkey_add([this] {
+    // A hotkey another one has, or a tiling key while tiling is on, made settings.toml one the Tiling
+    // page could no longer save (v1.7): not saved; the row says why.
+    const auto hotkeyProblem = [this](const domain::Settings& next, std::size_t index) -> std::optional<std::string> {
+        const domain::KeyChord& keys = next.hotkeys[index].keys;
+        for (std::size_t i = 0; i < next.hotkeys.size(); ++i)
+        {
+            if (i != index && next.hotkeys[i].keys == keys)
+            {
+                return text(m_ui->global<Words>().invoke_taken(shared(keys.toString())));
+            }
+        }
+        auto problem = domain::tilingProblem(next);
+        return problem != domain::tilingProblem(*m_settings) ? problem : std::nullopt;
+    };
+    api.on_hotkey_add([this, hotkeyProblem] {
         if (!m_settings)
         {
             return;
@@ -3833,32 +4290,47 @@ void SettingsApp::bind()
         for (int digit = 1; digit <= 9; ++digit)
         {
             auto keys = domain::KeyChord::parse(std::format("Ctrl+Alt+Win+{}", digit));
-            if (keys &&
-                std::ranges::none_of(m_settings->hotkeys, [&](const auto& h) { return h.keys == *keys; }))
+            if (!keys)
             {
-                m_settings->hotkeys.push_back({*keys, {"appearance.toggle", {}, {}}});
+                continue;
+            }
+            domain::Settings next = *m_settings;
+            next.hotkeys.push_back({*keys, {"appearance.toggle", {}, {}}});
+            if (!hotkeyProblem(next, next.hotkeys.size() - 1))
+            {
+                *m_settings = std::move(next);
                 saveSettings();
                 return;
             }
         }
     });
-    api.on_hotkey_edited([this, actionFor, pickAppFirst](int index, const HotkeyRow& row) {
+    api.on_hotkey_edited([this, actionFor, pickAppFirst, hotkeyProblem](int index, const HotkeyRow& row) {
         if (!m_settings || index < 0 || static_cast<std::size_t>(index) >= m_settings->hotkeys.size())
         {
             return;
         }
-        auto& hotkey = m_settings->hotkeys[static_cast<std::size_t>(index)];
-        auto keys = domain::KeyChord::parse(text(row.keys));
-        if (!keys)
-        {
+        const auto showProblem = [this, index, &row](const std::string& problem) {
             auto rows = m_ui->global<Api>().get_hotkeys();
             auto shown = *rows->row_data(static_cast<std::size_t>(index));
             shown.keys = row.keys;
-            shown.problem = shared(keys.error().message());
+            shown.problem = shared(problem);
             std::static_pointer_cast<slint::VectorModel<HotkeyRow>>(rows)->set_row_data(
                 static_cast<std::size_t>(index), shown);
+        };
+        auto keys = domain::KeyChord::parse(text(row.keys));
+        if (!keys)
+        {
+            showProblem(keys.error().message());
             return;
         }
+        domain::Settings next = *m_settings;
+        next.hotkeys[static_cast<std::size_t>(index)].keys = *keys;
+        if (const auto problem = hotkeyProblem(next, static_cast<std::size_t>(index)))
+        {
+            showProblem(*problem);
+            return;
+        }
+        auto& hotkey = m_settings->hotkeys[static_cast<std::size_t>(index)];
         hotkey.keys = *keys;
         if (hotkey.action.name != "launch.app" && pickAppFirst(0, index, row.action))
         {
@@ -4042,15 +4514,31 @@ void SettingsApp::bind()
     api.on_diagnostics_refresh([this] { refreshDiagnostics(); });
     api.on_open_logs([this] { openFolder(m_dataDirectory / L"logs"); });
     api.on_support_bundle([this] {
-        const Json state{{"status", m_status}, {"plugins", m_plugins}, {"monitors", m_monitors}};
-        auto folder = makeSupportBundle(m_dataDirectory, json::dumpPretty(state));
-        if (!folder)
-        {
-            failed(folder.error());
-            return;
-        }
-        notice(NoticeKind::Bundle, utf8(*folder));
-        openFolder(*folder);
+        // Every log is copied: on the worker thread.
+        auto folder = std::make_shared<fs::path>();
+        background(
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs on the worker thread, like its core calls
+            [this, folder,
+             state = json::dumpPretty(Json{{"status", m_status}, {"plugins", m_plugins}, {"monitors", m_monitors}})]()
+                -> Reply {
+                auto made = makeSupportBundle(m_dataDirectory, state);
+                if (!made)
+                {
+                    return std::unexpected(std::move(made.error()));
+                }
+                *folder = std::move(*made);
+                return Json::object();
+            },
+            // NOLINTNEXTLINE(bugprone-exception-escape): runs from Slint's event loop, like any callback
+            [this, folder](Reply reply) {
+                if (!reply)
+                {
+                    failed(reply.error());
+                    return;
+                }
+                notice(NoticeKind::Bundle, utf8(*folder));
+                openFolder(*folder);
+            });
     });
 
     // ---- settings ----------------------------------------------------------------------------------------

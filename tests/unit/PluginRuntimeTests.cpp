@@ -355,6 +355,29 @@ rmw.log("full " .. tostring(full))
     EXPECT_TRUE(host.logged("count 1"));
 }
 
+TEST_F(PluginRuntime, StorageNotSavedYetSurvivesAReloadAndAnUnload)
+{
+    load("store", R"lua(rmw.storage.set("count", 5))lua");
+    // Loaded again (its files changed) before the host saved it: the host's older copy does not win.
+    auto again = spec("store", R"lua(rmw.log("count " .. tostring(rmw.storage.get("count"))))lua");
+    again.storage = domain::Value{domain::Value::Table{}};
+    ASSERT_TRUE(runtime.load(std::move(again), now).has_value());
+    EXPECT_TRUE(host.logged("count 5")) << host.allLogs();
+    auto dirty = runtime.takeDirtyStorage();
+    ASSERT_EQ(dirty.size(), 1u);
+    EXPECT_EQ(*member(dirty[0].second, "count"), domain::Value{std::int64_t{5}});
+
+    // Stopped before it was saved: still given to the host to save.
+    load("store", R"lua(rmw.storage.set("count", 6))lua");
+    runtime.unload("io.github.test.store");
+    EXPECT_TRUE(runtime.status().empty());
+    dirty = runtime.takeDirtyStorage();
+    ASSERT_EQ(dirty.size(), 1u);
+    EXPECT_EQ(dirty[0].first, "io.github.test.store");
+    EXPECT_EQ(*member(dirty[0].second, "count"), domain::Value{std::int64_t{6}});
+    EXPECT_TRUE(runtime.takeDirtyStorage().empty());
+}
+
 TEST_F(PluginRuntime, HttpGoesThroughTheHostToDeclaredDomainsOnly)
 {
     load("net", R"lua(
@@ -445,6 +468,41 @@ TEST(PluginUrl, OnlyPlainHttpsAddresses)
     EXPECT_FALSE(plugins::checkHttpHeader("Host", "x").has_value());
     EXPECT_FALSE(plugins::checkHttpHeader("Proxy-Foo", "x").has_value());
     EXPECT_FALSE(plugins::checkHttpHeader("X-A", "a\r\nInjected: 1").has_value());
+}
+
+TEST(PluginUrl, LocalAddressesAreNotTheInternet)
+{
+    using Bytes = std::vector<std::uint8_t>;
+    for (const Bytes& local :
+         {Bytes{127, 0, 0, 1}, Bytes{10, 1, 2, 3}, Bytes{192, 168, 0, 1}, Bytes{172, 16, 0, 1}, Bytes{172, 31, 9, 9},
+          Bytes{169, 254, 1, 1}, Bytes{100, 64, 0, 1}, Bytes{0, 0, 0, 0}, Bytes{224, 0, 0, 1}, Bytes{1, 2, 3}})
+    {
+        EXPECT_TRUE(plugins::isLocalAddress(local)) << +local[0];
+    }
+    for (const Bytes& internet : {Bytes{8, 8, 8, 8}, Bytes{172, 32, 0, 1}, Bytes{100, 128, 0, 1}, Bytes{93, 184, 216, 34}})
+    {
+        EXPECT_FALSE(plugins::isLocalAddress(internet)) << +internet[0];
+    }
+    Bytes loopback6(16, 0);
+    loopback6[15] = 1;
+    EXPECT_TRUE(plugins::isLocalAddress(loopback6));
+    Bytes mapped(16, 0); // ::ffff:192.168.1.1
+    mapped[10] = 0xFF;
+    mapped[11] = 0xFF;
+    mapped[12] = 192;
+    mapped[13] = 168;
+    mapped[14] = 1;
+    mapped[15] = 1;
+    EXPECT_TRUE(plugins::isLocalAddress(mapped));
+    Bytes uniqueLocal(16, 0);
+    uniqueLocal[0] = 0xFD;
+    EXPECT_TRUE(plugins::isLocalAddress(uniqueLocal));
+    Bytes global(16, 0); // 2606:4700::1111
+    global[0] = 0x26;
+    global[1] = 0x06;
+    global[2] = 0x47;
+    global[15] = 0x11;
+    EXPECT_FALSE(plugins::isLocalAddress(global));
 }
 
 } // namespace

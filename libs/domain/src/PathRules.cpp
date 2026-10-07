@@ -3,6 +3,7 @@
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Utf.hpp"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <vector>
@@ -13,6 +14,7 @@ namespace
 {
 
 constexpr std::size_t kSafeNameMaxBytes = 60;
+constexpr std::size_t kKeptExtensionMaxBytes = 10; // ".jpeg", ".webm": what a long name keeps
 
 char asciiLower(char c) noexcept
 {
@@ -34,6 +36,8 @@ bool equalsIgnoreCase(std::string_view a, std::string_view b) noexcept
     }
     return true;
 }
+
+} // namespace
 
 bool isReservedDeviceName(std::string_view component) noexcept
 {
@@ -66,6 +70,9 @@ bool isReservedDeviceName(std::string_view component) noexcept
     }
     return false;
 }
+
+namespace
+{
 
 bool looksLikeShortName(std::string_view component) noexcept
 {
@@ -114,6 +121,48 @@ std::string checkComponent(std::string_view component)
         return "8.3 short-name alias ('~' followed by a digit)";
     }
     return {};
+}
+
+// At most `maxBytes`, never half a character.
+void cutAtCharacter(std::string& text, std::size_t maxBytes)
+{
+    if (text.size() <= maxBytes)
+    {
+        return;
+    }
+    std::size_t cut = maxBytes;
+    while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80)
+    {
+        --cut;
+    }
+    text.resize(cut);
+}
+
+void trimEnd(std::string& text)
+{
+    while (!text.empty() && (text.back() == '.' || text.back() == ' '))
+    {
+        text.pop_back();
+    }
+}
+
+// ".jpg" of "city.jpg": a short run of ASCII letters and digits after the last dot ("" when none).
+std::string_view extensionOf(std::string_view name) noexcept
+{
+    const auto dot = name.rfind('.');
+    if (dot == std::string_view::npos || dot == 0 || name.size() - dot - 1 == 0 ||
+        name.size() - dot > kKeptExtensionMaxBytes)
+    {
+        return {};
+    }
+    const auto alphanumeric = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    };
+    if (!std::ranges::all_of(name.substr(dot + 1), alphanumeric))
+    {
+        return {};
+    }
+    return name.substr(dot);
 }
 
 } // namespace
@@ -180,20 +229,17 @@ std::string safeFileName(std::string_view name, std::string_view fallback)
                         c == ' ' || c == '.' || c == '-' || c == '_' || byte >= 0x80;
         out += ok ? c : '-';
     }
-    // Cut at a character boundary.
+    // A long name loses the end of its stem, never its extension: "<long>.jpg" cut to 60 bytes
+    // lost ".jpg", and the rice that named it no longer read.
     if (out.size() > kSafeNameMaxBytes)
     {
-        std::size_t cut = kSafeNameMaxBytes;
-        while (cut > 0 && (static_cast<unsigned char>(out[cut]) & 0xC0) == 0x80)
-        {
-            --cut;
-        }
-        out.resize(cut);
+        const std::string extension(extensionOf(out));
+        std::string stem = out.substr(0, out.size() - extension.size());
+        cutAtCharacter(stem, kSafeNameMaxBytes - extension.size());
+        trimEnd(stem);
+        out = stem.empty() ? std::string() : stem + extension;
     }
-    while (!out.empty() && (out.back() == '.' || out.back() == ' '))
-    {
-        out.pop_back();
-    }
+    trimEnd(out);
     while (!out.empty() && out.front() == ' ')
     {
         out.erase(out.begin());

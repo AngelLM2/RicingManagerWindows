@@ -18,9 +18,14 @@ namespace rmw::domain
 Result<std::string> validatePackagePath(std::string_view path);
 
 // A file or folder name made from free text (a rice's name, a picked file's name): letters,
-// digits, space . - _ and anything non-ASCII kept, everything else '-', at most 60 bytes, and
-// never a name validatePackagePath() refuses (then `fallback`).
+// digits, space . - _ and anything non-ASCII kept, everything else '-', at most 60 bytes (a long
+// name loses the end of its stem, whole characters only, and keeps its extension), and never a
+// name validatePackagePath() refuses (then `fallback`).
 std::string safeFileName(std::string_view name, std::string_view fallback);
+
+// A name Windows keeps for a device, whatever its extension: CON, PRN, AUX, NUL, COM0-9, LPT0-9,
+// COM¹²³, LPT¹²³ ("con.txt" too).
+bool isReservedDeviceName(std::string_view component) noexcept;
 
 // True when the path's extension (case-insensitive, without dot) is one of `allowed`,
 // e.g. hasExtension("a/b.CUR", {"cur", "ani"}).

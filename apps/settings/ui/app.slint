@@ -1,7 +1,7 @@
 // rmw-settings (docs/04 M7, docs/07): the settings and gallery of Ricing Manager.
 import { Button, LineEdit, ListView, Palette } from "std-widgets.slint";
 import { Api, Page, NoticeKind, Notice } from "api.slint";
-import { NavItem, Hint, Metrics } from "common.slint";
+import { NavItem, Hint, IconButton, Metrics } from "common.slint";
 import { Words } from "words.slint";
 import { HomePage } from "pages/home.slint";
 import { RicesPage } from "pages/rices.slint";
@@ -22,7 +22,7 @@ export { Api, Words, Page }
 component InfoBar inherits Rectangle {
     in property <Notice> notice;
     property <bool> bad: root.notice.kind == NoticeKind.failed || root.notice.kind == NoticeKind.not-connected
-        || root.notice.kind == NoticeKind.restored-partly;
+        || root.notice.kind == NoticeKind.restored-partly || root.notice.kind == NoticeKind.not-saved;
     background: root.bad ? #c4314b33 : Palette.accent-background.transparentize(80%);
     border-radius: Metrics.radius;
     accessible-role: AccessibleRole.text;
@@ -53,6 +53,8 @@ component InfoBar inherits Rectangle {
                 : root.notice.kind == NoticeKind.bundle ? @tr("Support bundle ready in {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.connecting ? @tr("Connecting to Ricing Manager…")
                 : root.notice.kind == NoticeKind.not-connected ? @tr("Ricing Manager's core is not running: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.copying ? @tr("Copying into the rice: {}…", root.notice.detail)
+                : root.notice.kind == NoticeKind.not-saved ? @tr("Not saved, so the rice stays readable: {}", root.notice.detail)
                 : @tr("That did not work: {}", root.notice.detail);
         }
 
@@ -63,28 +65,11 @@ component InfoBar inherits Rectangle {
             }
         }
 
-        Rectangle {
-            width: 32px;
-            height: 32px;
-            border-radius: 4px;
-            background: close.has-hover ? Palette.foreground.transparentize(90%) : transparent;
-            accessible-role: AccessibleRole.button;
-            accessible-label: @tr("Close the message");
-            accessible-action-default => {
+        IconButton {
+            glyph: "\u{E711}";
+            label: @tr("Close the message");
+            clicked => {
                 Api.dismiss-notice();
-            }
-
-            Text {
-                text: "\u{E711}";
-                font-family: "Segoe Fluent Icons";
-                font-size: 12px;
-                color: Palette.foreground;
-            }
-
-            close := TouchArea {
-                clicked => {
-                    Api.dismiss-notice();
-                }
             }
         }
     }
@@ -95,8 +80,10 @@ export component AppWindow inherits Window {
     icon: @image-url("../../resources/icon.png");
     preferred-width: 1180px;
     preferred-height: 720px;
+    // At 200% a 1080p screen has ~490 logical pixels of height for it: 560 did not fit. The pages
+    // and the side bar scroll.
     min-width: 820px;
-    min-height: 560px;
+    min-height: 420px;
     background: Palette.background;
     default-font-family: "Segoe UI Variable Text";
     // Flipped by SettingsApp when the window comes back (moved, restored, another monitor): the
@@ -319,74 +306,101 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Which installed app a hotkey or a rule opens.
-    if Api.picking-app: Rectangle {
-        background: #00000080;
-
-        TouchArea { }
+    // Which installed app a hotkey or a rule opens. It takes the keyboard: Esc cancels, Tab stays in
+    // it (v1.7 blocked only the mouse; Tab went on to the page behind).
+    if Api.picking-app: FocusScope {
+        init => {
+            search.focus();
+        }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                Api.app-picked("");
+                return accept;
+            }
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (search.has-focus) {
+                    cancel-pick.focus();
+                } else {
+                    search.focus();
+                }
+                return accept;
+            }
+            reject
+        }
 
         Rectangle {
-            width: min(520px, parent.width - 48px);
-            height: min(560px, parent.height - 48px);
-            background: Palette.background;
-            border-radius: 10px;
-            border-width: 1px;
-            border-color: Palette.border;
+            background: #00000080;
 
-            VerticalLayout {
-                padding: 20px;
-                spacing: 12px;
+            TouchArea { }
 
-                Text {
-                    text: @tr("Choose the app to open");
-                    font-size: 18px;
-                    font-weight: 600;
-                    color: Palette.foreground;
-                }
+            Rectangle {
+                width: min(520px, parent.width - 48px);
+                height: min(560px, parent.height - 48px);
+                background: Palette.background;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Palette.border;
 
-                LineEdit {
-                    placeholder-text: @tr("Search");
-                    accessible-label: @tr("Search the apps");
-                    edited(text) => {
-                        Api.app-filter-edited(text);
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 12px;
+
+                    Text {
+                        text: @tr("Choose the app to open");
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: Palette.foreground;
                     }
-                }
 
-                ListView {
-                    vertical-stretch: 1;
-                    for app in Api.apps-shown: Rectangle {
-                        height: 36px;
-                        border-radius: 4px;
-                        background: row.has-hover ? Palette.foreground.transparentize(92%) : transparent;
-                        accessible-role: AccessibleRole.button;
-                        accessible-label: app.name;
-                        accessible-action-default => {
-                            Api.app-picked(app.id);
+                    search := LineEdit {
+                        placeholder-text: @tr("Search");
+                        accessible-label: @tr("Search the apps (Enter picks the first)");
+                        edited(text) => {
+                            Api.app-filter-edited(text);
                         }
-
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            Text {
-                                text: app.name;
-                                vertical-alignment: center;
-                                color: Palette.foreground;
+                        accepted => {
+                            if (Api.apps-shown.length > 0) {
+                                Api.app-picked(Api.apps-shown[0].id);
                             }
                         }
+                    }
 
-                        row := TouchArea {
-                            clicked => {
+                    ListView {
+                        vertical-stretch: 1;
+                        for app in Api.apps-shown: Rectangle {
+                            height: 36px;
+                            border-radius: 4px;
+                            background: row.has-hover ? Palette.foreground.transparentize(92%) : transparent;
+                            accessible-role: AccessibleRole.button;
+                            accessible-label: app.name;
+                            accessible-action-default => {
                                 Api.app-picked(app.id);
                             }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                Text {
+                                    text: app.name;
+                                    vertical-alignment: center;
+                                    color: Palette.foreground;
+                                }
+                            }
+
+                            row := TouchArea {
+                                clicked => {
+                                    Api.app-picked(app.id);
+                                }
+                            }
                         }
                     }
-                }
 
-                HorizontalLayout {
-                    alignment: end;
-                    Button {
-                        text: @tr("Cancel");
-                        clicked => {
-                            Api.app-picked("");
+                    HorizontalLayout {
+                        alignment: end;
+                        cancel-pick := Button {
+                            text: @tr("Cancel");
+                            clicked => {
+                                Api.app-picked("");
+                            }
                         }
                     }
                 }
@@ -394,67 +408,89 @@ export component AppWindow inherits Window {
         }
     }
 
-    // A question before something that cannot be taken back (or is big).
-    if Api.confirm-what != "": Rectangle {
-        background: #00000080;
-
-        TouchArea { }
+    // A question before something that cannot be taken back (or is big). Esc cancels; Tab goes
+    // between its two buttons only.
+    if Api.confirm-what != "": FocusScope {
+        init => {
+            cancel-confirm.focus();
+        }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                Api.confirm-what = "";
+                return accept;
+            }
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (cancel-confirm.has-focus) {
+                    go-confirm.focus();
+                } else {
+                    cancel-confirm.focus();
+                }
+                return accept;
+            }
+            reject
+        }
 
         Rectangle {
-            width: min(480px, parent.width - 48px);
-            height: dialog.preferred-height;
-            background: Palette.background;
-            border-radius: 10px;
-            border-width: 1px;
-            border-color: Palette.border;
+            background: #00000080;
 
-            dialog := VerticalLayout {
-                padding: 20px;
-                spacing: 14px;
+            TouchArea { }
 
-                Text {
-                    font-size: 18px;
-                    font-weight: 600;
-                    wrap: word-wrap;
-                    color: Palette.foreground;
-                    text: Api.confirm-what == "restore-original" ? @tr("Restore the original Windows?")
-                        : Api.confirm-what == "undo" ? @tr("Undo the last rice?")
-                        : Api.confirm-what == "snapshot" ? @tr("Go back to before this change?")
-                        : Api.confirm-what == "remove-plugin" ? @tr("Uninstall this plugin?")
-                        : Api.confirm-what == "remove-bar" ? @tr("Remove this bar from the rice?")
-                        : @tr("Are you sure?");
-                }
+            Rectangle {
+                width: min(480px, parent.width - 48px);
+                height: dialog.preferred-height;
+                background: Palette.background;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Palette.border;
 
-                Text {
-                    wrap: word-wrap;
-                    color: Palette.foreground;
-                    text: Api.confirm-what == "restore-original" ? @tr("Wallpaper, colors, cursors, taskbar and bars go back to how they were before the first rice. Your rices stay in their folders.")
-                        : Api.confirm-what == "undo" ? @tr("The rice applied before this one comes back.")
-                        : Api.confirm-what == "snapshot" ? @tr("Everything that changed since then goes back.")
-                        : Api.confirm-what == "remove-plugin" ? @tr("Its files and its data are deleted: {}", Api.confirm-arg)
-                        : Api.confirm-what == "remove-bar" ? @tr("Windows' taskbar comes back if no other bar hides it.")
-                        : "";
-                }
+                dialog := VerticalLayout {
+                    padding: 20px;
+                    spacing: 14px;
 
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: end;
-
-                    Button {
-                        text: @tr("Cancel");
-                        clicked => {
-                            Api.confirm-what = "";
-                        }
+                    Text {
+                        font-size: 18px;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                        color: Palette.foreground;
+                        text: Api.confirm-what == "restore-original" ? @tr("Restore the original Windows?")
+                            : Api.confirm-what == "undo" ? @tr("Undo the last rice?")
+                            : Api.confirm-what == "snapshot" ? @tr("Go back to before this change?")
+                            : Api.confirm-what == "remove-plugin" ? @tr("Uninstall this plugin?")
+                            : Api.confirm-what == "remove-bar" ? @tr("Remove this bar from the rice?")
+                            : @tr("Are you sure?");
                     }
 
-                    Button {
-                        text: Api.confirm-what == "remove-plugin" ? @tr("Uninstall")
-                            : Api.confirm-what == "remove-bar" ? @tr("Remove")
-                            : @tr("Go back");
-                        primary: true;
-                        clicked => {
-                            Api.confirmed(Api.confirm-what, Api.confirm-arg);
-                            Api.confirm-what = "";
+                    Text {
+                        wrap: word-wrap;
+                        color: Palette.foreground;
+                        text: Api.confirm-what == "restore-original" ? @tr("Wallpaper, colors, cursors, taskbar and bars go back to how they were before the first rice. Your rices stay in their folders.")
+                            : Api.confirm-what == "undo" ? @tr("The rice applied before this one comes back.")
+                            : Api.confirm-what == "snapshot" ? @tr("Everything that changed since then goes back.")
+                            : Api.confirm-what == "remove-plugin" ? @tr("Its files and its data are deleted: {}", Api.confirm-arg)
+                            : Api.confirm-what == "remove-bar" ? @tr("Windows' taskbar comes back if no other bar hides it.")
+                            : "";
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+
+                        cancel-confirm := Button {
+                            text: @tr("Cancel");
+                            clicked => {
+                                Api.confirm-what = "";
+                            }
+                        }
+
+                        go-confirm := Button {
+                            text: Api.confirm-what == "remove-plugin" ? @tr("Uninstall")
+                                : Api.confirm-what == "remove-bar" ? @tr("Remove")
+                                : @tr("Go back");
+                            primary: true;
+                            clicked => {
+                                Api.confirmed(Api.confirm-what, Api.confirm-arg);
+                                Api.confirm-what = "";
+                            }
                         }
                     }
                 }

@@ -1,6 +1,6 @@
-import { Button, ComboBox, LineEdit, ScrollView, Slider, SpinBox, Switch, CheckBox, Palette } from "std-widgets.slint";
+import { Button, ComboBox, ScrollView, Switch, Palette } from "std-widgets.slint";
 import { Api, EngineItem, MonitorBox, ParticleRow, WallRule } from "../api.slint";
-import { Card, Chip, Hint, PageHeader, SettingRow, Metrics } from "../common.slint";
+import { Card, Chip, Hint, PageHeader, Problem, SettingRow, Metrics, NumberBox, ValueComboBox, ValueLineEdit, ValueSlider, ValueSwitch } from "../common.slint";
 import { EditingBanner } from "editing.slint";
 import { Words } from "../words.slint";
 
@@ -18,12 +18,25 @@ component MonitorMap inherits Rectangle {
         border-radius: 6px;
         clip: true;
         background: Palette.alternate-background;
-        border-width: box.rule >= 0 && box.rule == Api.selected-rule ? 3px : 1px;
-        border-color: box.rule >= 0 && box.rule == Api.selected-rule ? Palette.accent-background : Palette.border;
+        border-width: box-focus.has-focus || (box.rule >= 0 && box.rule == Api.selected-rule) ? 3px : 1px;
+        border-color: box.rule >= 0 && box.rule == Api.selected-rule ? Palette.accent-background
+            : box-focus.has-focus ? Palette.foreground : Palette.border;
         accessible-role: AccessibleRole.button;
         accessible-label: box.label;
         accessible-action-default => {
             area.clicked();
+        }
+        forward-focus: box-focus;
+
+        // Tab reaches it; Space or Enter picks it, like a click.
+        box-focus := FocusScope {
+            key-pressed(event) => {
+                if (event.text == " " || event.text == "\n") {
+                    area.clicked();
+                    return accept;
+                }
+                reject
+            }
         }
 
         if box.has-preview: Image {
@@ -69,20 +82,16 @@ component EffectSlider inherits SettingRow {
     in property <float> scale: 100; // shown as value x scale...
     in property <string> unit: "%"; // ...and this
 
-    // Another rule, or the effects reset: the slider shows it (a drag replaced its binding).
-    changed value => {
-        slider.value = root.value;
-    }
-
     HorizontalLayout {
         spacing: 8px;
-        slider := Slider {
+        // Another rule, the effects reset, a save: the slider shows it (a drag replaced its binding).
+        slider := ValueSlider {
             min-width: 110px;
             preferred-width: 200px;
             max-width: 200px;
             minimum: root.minimum;
             maximum: root.maximum;
-            value: root.value;
+            shown: root.value;
             accessible-label: root.label;
             changed(value) => {
                 Api.rule-effect(root.index, root.field, value);
@@ -247,23 +256,23 @@ component ParticlesEditor inherits VerticalLayout {
 
             HorizontalLayout {
                 spacing: 8px;
-                ComboBox {
+                ValueComboBox {
                     min-width: 90px;
                     preferred-width: 170px;
                     max-width: 170px;
                     model: root.kinds;
-                    current-index: layer.kind;
+                    shown: layer.kind;
                     accessible-label: @tr("Kind of particles");
                     selected => {
                         Api.particle-field(root.index, i, "kind", self.current-index);
                     }
                 }
 
-                LineEdit {
+                ValueLineEdit {
                     min-width: 90px;
                     preferred-width: 150px;
                     max-width: 150px;
-                    text: layer.color;
+                    shown: layer.color;
                     placeholder-text: @tr("Its own color");
                     accessible-label: @tr("Color of the particles (#RRGGBB or palette.name)");
                     accepted(text) => {
@@ -271,9 +280,9 @@ component ParticlesEditor inherits VerticalLayout {
                     }
                 }
 
-                Switch {
+                ValueSwitch {
                     text: @tr("Glow");
-                    checked: layer.glow;
+                    shown: layer.glow;
                     toggled => {
                         Api.particle-field(root.index, i, "glow", self.checked ? "true" : "false");
                     }
@@ -294,38 +303,40 @@ component ParticlesEditor inherits VerticalLayout {
 
             HorizontalLayout {
                 spacing: 8px;
+                alignment: start;
                 Text {
                     text: @tr("How many");
                     color: Palette.foreground;
                     vertical-alignment: center;
                 }
 
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 120px;
-                    max-width: 120px;
+                NumberBox {
                     minimum: 1;
                     maximum: 1000;
                     value: layer.count;
-                    accessible-label: @tr("How many particles");
+                    label: @tr("How many particles");
                     edited(value) => {
                         Api.particle-field(root.index, i, "count", value);
                     }
                 }
+            }
 
+            // Size and speed: a row of their own (with the count they ran past a narrow window).
+            HorizontalLayout {
+                spacing: 8px;
                 Text {
                     text: @tr("Size");
                     color: Palette.foreground;
                     vertical-alignment: center;
                 }
 
-                Slider {
+                ValueSlider {
                     min-width: 90px;
                     preferred-width: 120px;
-                    max-width: 120px;
+                    max-width: 160px;
                     minimum: 0.25;
                     maximum: 4;
-                    value: layer.size;
+                    shown: layer.size;
                     accessible-label: @tr("Size of the particles");
                     changed(value) => {
                         Api.particle-field(root.index, i, "size", value);
@@ -338,13 +349,13 @@ component ParticlesEditor inherits VerticalLayout {
                     vertical-alignment: center;
                 }
 
-                Slider {
+                ValueSlider {
                     min-width: 90px;
                     preferred-width: 120px;
-                    max-width: 120px;
+                    max-width: 160px;
                     minimum: 0;
                     maximum: 4;
-                    value: layer.speed;
+                    shown: layer.speed;
                     accessible-label: @tr("Speed of the particles");
                     changed(value) => {
                         Api.particle-field(root.index, i, "speed", value);
@@ -383,12 +394,12 @@ component RuleEditor inherits VerticalLayout {
     SettingRow {
         label: @tr("Monitor");
         description: @tr("When several rules fit a monitor, the first one counts; “Every monitor” takes the rest.");
-        ComboBox {
+        ValueComboBox {
             min-width: 140px;
             preferred-width: 260px;
             max-width: 260px;
             model: Api.match-labels;
-            current-index: root.rule.match-index;
+            shown: root.rule.match-index;
             accessible-label: @tr("Monitor");
             selected => {
                 Api.rule-field(root.index, "match", Api.match-choices[self.current-index]);
@@ -398,12 +409,12 @@ component RuleEditor inherits VerticalLayout {
 
     SettingRow {
         label: @tr("Kind");
-        ComboBox {
+        ValueComboBox {
             min-width: 140px;
             preferred-width: 260px;
             max-width: 260px;
             model: [@tr("Image"), @tr("Slideshow (a folder)"), @tr("Video"), @tr("Solid color")];
-            current-index: root.rule.kind;
+            shown: root.rule.kind;
             accessible-label: @tr("Kind of wallpaper");
             selected => {
                 Api.rule-field(root.index, "kind", self.current-index);
@@ -445,13 +456,13 @@ component RuleEditor inherits VerticalLayout {
 
     if root.rule.kind != 3: SettingRow {
         label: @tr("Fit");
-        ComboBox {
+        ValueComboBox {
             min-width: 140px;
             preferred-width: 260px;
             max-width: 260px;
             model: root.rule.kind == 2 ? [@tr("Fill"), @tr("Fit"), @tr("Stretch"), @tr("Center")]
                 : [@tr("Fill"), @tr("Fit"), @tr("Stretch"), @tr("Center"), @tr("Tile")];
-            current-index: root.rule.fit;
+            shown: root.rule.fit;
             accessible-label: @tr("Fit");
             selected => {
                 Api.rule-field(root.index, "fit", self.current-index);
@@ -462,11 +473,11 @@ component RuleEditor inherits VerticalLayout {
     if root.rule.kind == 3: SettingRow {
         label: @tr("Color");
         description: @tr("#RRGGBB, then Enter.");
-        LineEdit {
+        ValueLineEdit {
             min-width: 90px;
             preferred-width: 120px;
             max-width: 120px;
-            text: root.rule.color;
+            shown: root.rule.color;
             accessible-label: @tr("Wallpaper color");
             accepted(text) => {
                 Api.rule-field(root.index, "color", text);
@@ -476,14 +487,11 @@ component RuleEditor inherits VerticalLayout {
 
     if root.rule.kind == 1: SettingRow {
         label: @tr("Change every (minutes)");
-        SpinBox {
-            min-width: 90px;
-            preferred-width: 140px;
-            max-width: 140px;
+        NumberBox {
             minimum: 1;
             maximum: 1440;
             value: root.rule.interval;
-            accessible-label: @tr("Minutes between pictures");
+            label: @tr("Minutes between pictures");
             edited(value) => {
                 Api.rule-field(root.index, "interval", value);
             }
@@ -492,8 +500,8 @@ component RuleEditor inherits VerticalLayout {
 
     if root.rule.kind == 1: SettingRow {
         label: @tr("Shuffle");
-        Switch {
-            checked: root.rule.shuffle;
+        ValueSwitch {
+            shown: root.rule.shuffle;
             accessible-label: @tr("Shuffle");
             toggled => {
                 Api.rule-field(root.index, "shuffle", self.checked ? "true" : "false");
@@ -670,12 +678,27 @@ export component WallpapersPage inherits ScrollView {
             for rule[index] in Api.rules: Rectangle {
                 height: 54px;
                 border-radius: 6px;
+                border-width: row-focus.has-focus ? 2px : 0px;
+                border-color: Palette.accent-background;
                 background: index == Api.selected-rule ? Palette.accent-background.transparentize(85%)
                     : touch.has-hover ? Palette.foreground.transparentize(95%) : transparent;
                 accessible-role: AccessibleRole.button;
                 accessible-label: rule.match-label;
+                accessible-item-selected: index == Api.selected-rule;
                 accessible-action-default => {
                     Api.selected-rule = index;
+                }
+                forward-focus: row-focus;
+
+                // Tab reaches it; Space or Enter opens it, like a click.
+                row-focus := FocusScope {
+                    key-pressed(event) => {
+                        if (event.text == " " || event.text == "\n") {
+                            Api.selected-rule = index;
+                            return accept;
+                        }
+                        reject
+                    }
                 }
 
                 touch := TouchArea {
@@ -736,7 +759,9 @@ export component WallpapersPage inherits ScrollView {
             EnginePicker { }
         }
 
-        if Api.editing: Card {
+        // Without [wallpaper] there is nothing to pause: hidden (v1.7 showed, and ignored, the previous
+        // rice's values).
+        if Api.editing && Api.has-wallpaper: Card {
             title: @tr("Videos and live wallpapers");
             subtitle: @tr("A live wallpaper pauses when nobody would see it, and frees its memory after 2 minutes paused.");
 
@@ -776,15 +801,13 @@ export component WallpapersPage inherits ScrollView {
             SettingRow {
                 label: @tr("Frames per second, at most");
                 description: @tr("Fewer frames, less GPU. 30 is smooth for most videos.");
-                SpinBox {
-                    min-width: 90px;
-                    preferred-width: 140px;
-                    max-width: 140px;
+                NumberBox {
                     minimum: 1;
                     maximum: 240;
-                    value <=> Api.fps-limit;
-                    accessible-label: @tr("Frames per second, at most");
-                    edited => {
+                    value: Api.fps-limit;
+                    label: @tr("Frames per second, at most");
+                    edited(value) => {
+                        Api.fps-limit = value;
                         Api.policy-edited();
                     }
                 }

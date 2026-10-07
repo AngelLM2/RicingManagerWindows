@@ -1,6 +1,7 @@
 // The pieces every page uses: Fluent-like cards and rows on Slint's Palette (light and dark follow
 // Windows), the navigation item, a page header, a widget chip.
-import { Palette, Button } from "std-widgets.slint";
+import { Palette, Button, ComboBox, LineEdit, Slider, Switch } from "std-widgets.slint";
+import { Api } from "api.slint";
 
 export global Metrics {
     out property <length> page-padding: 28px;
@@ -196,30 +197,93 @@ export component Chip inherits Rectangle {
     }
 }
 
-// A square of color; clicking picks it.
+// A square of color; clicking (or Space/Enter once Tab reaches it) picks it.
 export component Swatch inherits Rectangle {
     in property <color> swatch-color;
     in property <bool> selected;
     in property <string> name;
     callback clicked;
-    // A narrow window: a row of them narrows instead of running past it.
-    min-width: 20px;
-    preferred-width: 32px;
-    max-width: 32px;
+    width: 32px;
     height: 32px;
     border-radius: 6px;
     background: root.swatch-color;
-    border-width: root.selected ? 3px : 1px;
-    border-color: root.selected ? Palette.foreground : Palette.border;
+    border-width: focus.has-focus ? 3px : root.selected ? 3px : 1px;
+    border-color: focus.has-focus ? Palette.accent-background : root.selected ? Palette.foreground : Palette.border;
     accessible-role: AccessibleRole.button;
     accessible-label: root.name;
+    accessible-item-selected: root.selected;
     accessible-action-default => {
         root.clicked();
+    }
+    forward-focus: focus;
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
     }
 
     TouchArea {
         clicked => {
             root.clicked();
+        }
+    }
+}
+
+// What follows C++. A control the user moved no longer follows a plain binding (`checked: x`): these
+// take their value again whenever it changes and whenever C++ shows the rice again (a save, a refusal,
+// another rice or bar). v1.7 showed the previous bar's values after switching bars.
+export component ValueComboBox inherits ComboBox {
+    in property <int> shown;
+    property <int> refreshed: Api.refreshed;
+    current-index: root.shown;
+    changed shown => {
+        root.current-index = root.shown;
+    }
+    changed refreshed => {
+        root.current-index = root.shown;
+    }
+}
+
+export component ValueSwitch inherits Switch {
+    in property <bool> shown;
+    property <int> refreshed: Api.refreshed;
+    checked: root.shown;
+    changed shown => {
+        root.checked = root.shown;
+    }
+    changed refreshed => {
+        root.checked = root.shown;
+    }
+}
+
+export component ValueSlider inherits Slider {
+    in property <float> shown;
+    property <int> refreshed: Api.refreshed;
+    value: root.shown;
+    changed shown => {
+        root.value = root.shown;
+    }
+    changed refreshed => {
+        root.value = root.shown;
+    }
+}
+
+// A text box: what is being typed in it stays until Enter (or another value comes from the rice).
+export component ValueLineEdit inherits LineEdit {
+    in property <string> shown;
+    property <int> refreshed: Api.refreshed;
+    text: root.shown;
+    changed shown => {
+        root.text = root.shown;
+    }
+    changed refreshed => {
+        if (!root.has-focus) {
+            root.text = root.shown;
         }
     }
 }
@@ -244,7 +308,8 @@ export component Problem inherits Rectangle {
     }
 }
 
-// A round button with an icon (Segoe Fluent Icons) and a name for Narrator and the tooltip.
+// A round button with an icon (Segoe Fluent Icons) and a name for Narrator and the tooltip. Tab
+// reaches it; Space or Enter presses it.
 export component IconButton inherits Rectangle {
     in property <string> glyph;
     in property <string> label;
@@ -254,6 +319,8 @@ export component IconButton inherits Rectangle {
     width: 32px;
     height: 32px;
     border-radius: 16px;
+    border-width: focus.has-focus ? 2px : 0px;
+    border-color: Palette.accent-background;
     background: !root.enabled ? transparent
         : touch.pressed ? Palette.foreground.transparentize(82%)
         : touch.has-hover ? Palette.foreground.transparentize(90%) : transparent;
@@ -264,6 +331,18 @@ export component IconButton inherits Rectangle {
     accessible-action-default => {
         if (root.enabled) {
             root.clicked();
+        }
+    }
+    forward-focus: focus;
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.clicked();
+                return accept;
+            }
+            reject
         }
     }
 
@@ -282,4 +361,131 @@ export component IconButton inherits Rectangle {
         horizontal-alignment: center;
         vertical-alignment: center;
     }
+}
+
+// A whole number with − and + beside it. The mouse wheel changes it only while it has the keyboard:
+// over Slint's SpinBox, scrolling the page changed thickness, margins, gaps, FPS... and applied them.
+export component NumberBox inherits Rectangle {
+    in property <int> minimum: 0;
+    in property <int> maximum: 100;
+    in property <int> step-size: 1;
+    in property <int> value;        // what it shows (taken again whenever it changes)
+    in property <string> label;     // for Narrator
+    callback edited(int);
+    property <int> refreshed: Api.refreshed;
+    min-width: 116px;
+    preferred-width: 150px;
+    min-height: row.min-height;
+    accessible-role: AccessibleRole.spinbox;
+    accessible-label: root.label;
+    accessible-value: root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: root.step-size;
+    accessible-action-increment => {
+        root.step(1);
+    }
+    accessible-action-decrement => {
+        root.step(-1);
+    }
+    forward-focus: input;
+
+    changed value => {
+        input.text = root.value;
+    }
+    changed refreshed => {
+        if (!input.has-focus) {
+            input.text = root.value;
+        }
+    }
+
+    function set(wanted: int) {
+        input.text = clamp(wanted, root.minimum, root.maximum);
+        if (clamp(wanted, root.minimum, root.maximum) != root.value) {
+            root.edited(clamp(wanted, root.minimum, root.maximum));
+        }
+    }
+
+    function step(by: int) {
+        root.set(Math.round(input.text.is-float() ? input.text.to-float() : root.value) + by * root.step-size);
+    }
+
+    // Under the box and its buttons: the wheel reaches it only where they leave it alone.
+    TouchArea {
+        scroll-event(event) => {
+            if (!input.has-focus) {
+                return reject; // the page under it scrolls
+            }
+            if (event.delta-y > 0) {
+                root.step(1);
+            } else if (event.delta-y < 0) {
+                root.step(-1);
+            }
+            accept
+        }
+    }
+
+    row := HorizontalLayout {
+        spacing: 2px;
+        alignment: stretch;
+
+        input := LineEdit {
+            horizontal-stretch: 1;
+            min-width: 48px;
+            input-type: number;
+            text: root.value;
+            accessible-label: root.label;
+            edited(text) => {
+                // Saved as it is typed, once it is a number it may be (as Slint's SpinBox did).
+                if (text.is-float() && text.to-float() >= root.minimum && text.to-float() <= root.maximum
+                        && Math.round(text.to-float()) != root.value) {
+                    root.edited(Math.round(text.to-float()));
+                }
+            }
+            accepted(text) => {
+                root.set(text.is-float() ? Math.round(text.to-float()) : root.value);
+            }
+            changed has-focus => {
+                if (!self.has-focus) {
+                    self.text = root.value;
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                glyph: "\u{E738}";
+                label: @tr("Less");
+                enabled: root.value > root.minimum;
+                clicked => {
+                    root.step(-1);
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                glyph: "\u{E710}";
+                label: @tr("More");
+                enabled: root.value < root.maximum;
+                clicked => {
+                    root.step(1);
+                }
+            }
+        }
+    }
+}
+
+// Items that fill rows and go on in the next one when a row is full (chips, swatches, buttons):
+// a fixed row ran past a narrow window, or past the card in Portuguese.
+export component WrapRow inherits Rectangle {
+    in property <length> item-width;
+    in property <length> item-height;
+    in property <int> count;
+    in property <length> gap: 6px;
+    out property <int> columns: max(1, floor((self.width + root.gap) / (root.item-width + root.gap)));
+    height: max(1, ceil(root.count / root.columns)) * (root.item-height + root.gap) - root.gap;
+    min-width: root.item-width;
 }

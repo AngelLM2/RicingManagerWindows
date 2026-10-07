@@ -62,7 +62,9 @@ public:
     [[nodiscard]] std::optional<PluginEntry> find(std::string_view id);
 
     // The user saw the permissions and said yes: they are approved as the manifest asks now.
-    [[nodiscard]] Result<PluginEntry> approve(std::string_view id);
+    // `shown`: what the user saw; refused when the manifest asks for more (it changed since).
+    [[nodiscard]] Result<PluginEntry> approve(std::string_view id,
+                                              const std::optional<domain::PluginPermissions>& shown = std::nullopt);
     // On or off for good (also clears a stop after failures).
     [[nodiscard]] Result<PluginEntry> setEnabled(std::string_view id, bool enabled);
     // Stops a plugin that failed too often until the user turns it on again.

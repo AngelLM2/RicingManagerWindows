@@ -224,6 +224,30 @@ export global Words {
         return @tr("{} (copy)", name);
     }
 
+    // Why the window did not make a change (SettingsApp's own checks), by key.
+    public pure function problem(key: string) -> string {
+        return key == "color" ? @tr("Not a color: write #RRGGBB, like #1E1E2E.")
+            : key == "palette" ? @tr("That palette color is not in this rice's palette.")
+            : key == "time" ? @tr("Not a time: write it like 07:00.")
+            : key == "same-times" ? @tr("Light and dark need different times.")
+            : key == "program" ? @tr("Write the program's file name, like firefox.exe.")
+            : key == "file-type" ? @tr("Write the file type, like txt.")
+            : key == "value" ? @tr("That value does not fit this setting.")
+            : key == "no-rice-toml" ? @tr("That folder has no rice.toml.")
+            : key == "no-cursors" ? @tr("No install.inf and no file named like a cursor role (normal.cur, link.cur…).")
+            : key == "permissions-unreadable" ? @tr("What it asks for cannot be read, so it cannot be approved.")
+            : key == "name-empty" ? @tr("A rice needs a name.")
+            : key == "name-long" ? @tr("That name is too long.")
+            : key == "name-character" ? @tr("A name cannot have / \\ : * ? \" < > |.")
+            : key == "name-dot" ? @tr("A name cannot end with a dot.")
+            : key == "name-device" ? @tr("Windows keeps that name for itself (CON, NUL, COM1…).")
+            : key;
+    }
+
+    public pure function taken(keys: string) -> string {
+        return @tr("{} is already a hotkey", keys);
+    }
+
     public pure function match(selector: string) -> string {
         return selector == "all" ? @tr("Every monitor")
             : selector == "primary" ? @tr("Main monitor")

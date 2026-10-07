@@ -1,6 +1,6 @@
-import { Button, Palette } from "std-widgets.slint";
+import { Button, LineEdit, Palette } from "std-widgets.slint";
 import { Api, Page } from "../api.slint";
-import { Card, Hint, Problem, Metrics } from "../common.slint";
+import { Card, Hint, IconButton, Problem, Metrics } from "../common.slint";
 
 // Above the editor pages: which rice they change, and applying it. Changes are saved to the rice's
 // folder as they are made; applying makes Windows show them (the bar follows by itself when the rice
@@ -56,11 +56,72 @@ export component EditingBanner inherits VerticalLayout {
             VerticalLayout {
                 horizontal-stretch: 1;
                 alignment: center;
+                spacing: 4px;
 
-                Text {
-                    text: @tr("Editing “{}”", Api.edit-name);
-                    font-weight: 600;
-                    color: Palette.foreground;
+                if !Api.renaming: HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+
+                    Text {
+                        text: @tr("Editing “{}”", Api.edit-name);
+                        font-weight: 600;
+                        color: Palette.foreground;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    IconButton {
+                        glyph: "\u{E8AC}";
+                        label: @tr("Rename {}", Api.edit-name);
+                        clicked => {
+                            Api.renaming = true;
+                        }
+                    }
+                }
+
+                // Enter keeps the new name, Esc leaves it as it was.
+                if Api.renaming: HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+
+                    name := LineEdit {
+                        min-width: 160px;
+                        preferred-width: 300px;
+                        text: Api.edit-name;
+                        accessible-label: @tr("New name of the rice");
+                        init => {
+                            self.focus();
+                            self.select-all();
+                        }
+                        accepted(text) => {
+                            Api.rename-edited(text);
+                        }
+                        key-pressed(event) => {
+                            if (event.text == Key.Escape) {
+                                Api.renaming = false;
+                                return accept;
+                            }
+                            reject
+                        }
+                    }
+
+                    Button {
+                        text: @tr("Rename");
+                        clicked => {
+                            Api.rename-edited(name.text);
+                        }
+                    }
+
+                    Button {
+                        text: @tr("Cancel");
+                        clicked => {
+                            Api.renaming = false;
+                        }
+                    }
+                }
+
+                if Api.renaming && Api.rename-problem != "": Problem {
+                    text: Api.rename-problem;
                 }
 
                 Hint {

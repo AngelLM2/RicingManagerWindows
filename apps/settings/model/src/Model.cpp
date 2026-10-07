@@ -292,6 +292,46 @@ Result<fs::path> newRiceFolder(const fs::path& dataDirectory, std::string_view n
     return fail(ErrorCode::AlreadyExists, std::format("too many rices called {}", base));
 }
 
+std::expected<std::string, RiceNameProblem> checkRiceName(std::string_view name)
+{
+    while (!name.empty() && (name.front() == ' ' || name.front() == '\t'))
+    {
+        name.remove_prefix(1);
+    }
+    while (!name.empty() && (name.back() == ' ' || name.back() == '\t'))
+    {
+        name.remove_suffix(1);
+    }
+    if (name.empty())
+    {
+        return std::unexpected(RiceNameProblem::Empty);
+    }
+    if (name.size() > limits::kShortTextMaxBytes)
+    {
+        return std::unexpected(RiceNameProblem::TooLong);
+    }
+    if (!isValidUtf8(name))
+    {
+        return std::unexpected(RiceNameProblem::Character);
+    }
+    for (const char c : name)
+    {
+        if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F || std::string_view(R"(/\:*?"<>|)").contains(c))
+        {
+            return std::unexpected(RiceNameProblem::Character);
+        }
+    }
+    if (name.back() == '.')
+    {
+        return std::unexpected(RiceNameProblem::TrailingDot);
+    }
+    if (domain::isReservedDeviceName(name))
+    {
+        return std::unexpected(RiceNameProblem::DeviceName);
+    }
+    return std::string(name);
+}
+
 Result<fs::path> duplicateRice(const fs::path& dataDirectory, const fs::path& from, std::string_view name)
 {
     auto loaded = loadRice(from);
@@ -389,6 +429,12 @@ Result<LoadedRice> loadRice(const fs::path& folder)
 Result<void> saveRice(const fs::path& folder, const domain::Rice& rice)
 {
     const std::string text = std::string(kWrittenByLine) + "\n" + domain::writeRice(rice);
+    // What would not read back is not written: the rice on disk stays the last one that read.
+    domain::Diagnostics diagnostics;
+    if (auto reread = domain::parseRice(text, diagnostics); !reread)
+    {
+        return fail(ErrorCode::InvalidData, std::format("the rice would not read back: {}", reread.error().message()));
+    }
     return platform::writeFileAtomic(folder / L"rice.toml", std::as_bytes(std::span(text)));
 }
 
@@ -519,7 +565,12 @@ Result<std::string> importAsset(const fs::path& riceFolder, const fs::path& sour
         {
             break;
         }
-        const std::string name = domain::safeFileName(utf8(it->path().filename()), "file");
+        // Its own name when a package may hold it: install.inf names the files as they are ("Help
+        // (1).cur" became "Help -1-.cur", and the pack no longer applied).
+        const std::string original = utf8(it->path().filename());
+        const std::string name = domain::validatePackagePath(std::format("{}{}/{}", sub, folderName, original))
+                                     ? original
+                                     : domain::safeFileName(original, "file");
         if (auto stored =
                 copyInto(it->path(), target, name, slides ? limits::kImageMaxBytes : limits::kCursorMaxBytes);
             !stored)

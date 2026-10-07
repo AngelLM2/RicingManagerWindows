@@ -2633,7 +2633,18 @@ Result<Json> CoreServer::pluginMethod(const ipc::Request& request)
     Result<PluginEntry> entry = fail(ErrorCode::NotFound, std::format("unknown method '{}'", method));
     if (method == "plugin.approve")
     {
-        entry = m_plugins->approve(id);
+        // The settings window sends the permissions it showed: no more than those are approved.
+        std::optional<domain::PluginPermissions> shown;
+        if (const Json asked = json::memberOr(request.params, "permissions", Json()); !asked.is_null())
+        {
+            auto read = plugins::permissionsFromJson(asked);
+            if (!read)
+            {
+                return std::unexpected(std::move(read.error()).withContext("permissions"));
+            }
+            shown = std::move(*read);
+        }
+        entry = m_plugins->approve(id, shown);
     }
     else if (method == "plugin.enable" || method == "plugin.disable")
     {
