@@ -511,7 +511,10 @@ foreach ($i in 0..399) {
     $link.IconLocation = "$env:WINDIR\System32\shell32.dll,$($i % 300)"
     $link.Save()
 }
-Note 'stress-apps' "$(@(Get-ChildItem $stressFolder).Count) shortcuts"
+# Windows lists new shortcuts once it has looked at the Start menu folder again: waited for, as the menu
+# reads the same list (shell:AppsFolder).
+$listed = Wait-Until { (Invoke-Rmw @('apps')).output -match 'RmwStress App 399' } 180
+Note 'stress-apps' "$(@(Get-ChildItem $stressFolder).Count) shortcuts; listed by Windows: $listed"
 # A new bar plan makes the menu again, with the new list.
 Write-Rice $startRice ("[start]`nmenu = `"ours`"`n`n[[bar]]`nstyle = `"status`"`nthickness = 30`n")
 $r = Invoke-Rmw @('apply', $startRice, '--wait')
@@ -540,7 +543,8 @@ $bar = Bar-Process
 $memoryOpen = if ($bar) { $bar.Refresh(); $bar.PrivateMemorySize64 / 1MB } else { 0 }
 $restarts = @(Select-String -Path $coreLog -Pattern 'worker bar passed its memory limit' -ErrorAction SilentlyContinue).Count - $restartsBefore
 Check 'v18:start-all-apps-keeps-the-bar' ($bar -and $bar.Id -eq $barId -and $restarts -eq 0 -and (Start-Visible)) "bar $barId -> $(if ($bar) { $bar.Id }); memory restarts: $restarts"
-Check 'v18:start-all-apps-memory' ($memoryOpen -lt 50) ('{0:N1} MB before, {1:N1} MB with 400+ apps open' -f $memoryBefore, $memoryOpen)
+# What the open menu costs on top of the bar (icons at the size shown, only the rows in sight made).
+Check 'v18:start-all-apps-memory' ($memoryOpen - $memoryBefore -lt 15 -and $memoryOpen -lt 75) ('{0:N1} MB before, {1:N1} MB with 400+ apps open' -f $memoryBefore, $memoryOpen)
 Note 'start-log' ((Get-Content (Join-Path $data 'logs\bar.log') -Tail 30 | Where-Object { $_ -match 'start menu' }) -join ' | ')
 [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
 [void](Wait-Until { -not (Start-Visible) } 3)
