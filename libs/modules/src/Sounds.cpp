@@ -4,6 +4,7 @@
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/domain/SoundFiles.hpp"
+#include "rmw/modules/RegistryFields.hpp"
 
 #include <array>
 #include <format>
@@ -27,10 +28,13 @@ std::string currentKey(domain::SoundEvent event)
 
 Json stringField(const std::optional<ports::RegistryValue>& value)
 {
-    if (!value || (value->type != ports::RegistryValue::Type::String &&
-                   value->type != ports::RegistryValue::Type::ExpandString))
+    if (!value)
     {
         return nullptr;
+    }
+    if (value->type != ports::RegistryValue::Type::String && value->type != ports::RegistryValue::Type::ExpandString)
+    {
+        return rawField(*value); // not a path: kept as it is, a restore writes it back
     }
     return Json{{"type", value->type == ports::RegistryValue::Type::String ? "string" : "expand"},
                 {"data", value->text}};
@@ -42,6 +46,10 @@ Result<void> writeStringField(ports::IRegistry& registry, ports::IShell& shell, 
     if (value.is_null())
     {
         return registry.remove(key, "");
+    }
+    if (isRawField(value))
+    {
+        return writeRawField(registry, key, "", value);
     }
     const auto type = value.find("type");
     const auto data = value.find("data");
@@ -201,7 +209,7 @@ Result<engine::CaptureResult> SoundsSystem::capture()
             return std::unexpected(std::move(value.error()));
         }
         Json field = stringField(*value);
-        if (field.is_object() && m_shell.isWindowsFile(field["data"].get<std::string>()))
+        if (field.is_object() && field.contains("data") && m_shell.isWindowsFile(field["data"].get<std::string>()))
         {
             field["keep"] = true; // Windows' own sound: never copied
         }

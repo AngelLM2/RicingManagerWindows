@@ -25,10 +25,13 @@ constexpr std::uint32_t kDefaultSize = 32;
 
 Json stringField(const std::optional<ports::RegistryValue>& value)
 {
-    if (!value || (value->type != ports::RegistryValue::Type::String &&
-                   value->type != ports::RegistryValue::Type::ExpandString))
+    if (!value)
     {
         return nullptr;
+    }
+    if (value->type != ports::RegistryValue::Type::String && value->type != ports::RegistryValue::Type::ExpandString)
+    {
+        return rawField(*value); // not a path: kept as it is, a restore writes it back
     }
     return Json{{"type", value->type == ports::RegistryValue::Type::String ? "string" : "expand"},
                 {"data", value->text}};
@@ -40,6 +43,10 @@ Result<void> writeStringField(ports::IRegistry& registry, ports::IShell& shell, 
     if (value.is_null())
     {
         return registry.remove(kCursors, name);
+    }
+    if (isRawField(value))
+    {
+        return writeRawField(registry, kCursors, name, value);
     }
     const auto type = value.find("type");
     const auto data = value.find("data");
@@ -239,7 +246,7 @@ Result<engine::CaptureResult> CursorsSystem::capture()
             return std::unexpected(std::move(value.error()));
         }
         Json field = stringField(*value);
-        if (field.is_object() && m_shell.isWindowsFile(field["data"].get<std::string>()))
+        if (field.is_object() && field.contains("data") && m_shell.isWindowsFile(field["data"].get<std::string>()))
         {
             field["keep"] = true; // Windows' own cursor: never copied
         }
@@ -300,7 +307,15 @@ Result<void> CursorsSystem::apply(const Json& desired)
             return reloaded;
         }
     }
-    if (const auto size = desired.find(kSize.field); size != desired.end())
+    if (const auto size = desired.find(kSize.field); size != desired.end() && isRawField(*size))
+    {
+        // Not a size Windows could use: put back as it was.
+        if (auto written = writeDwordField(m_registry, kSize, *size); !written)
+        {
+            return written;
+        }
+    }
+    else if (size != desired.end())
     {
         if (!size->is_null() && !size->is_number_unsigned() && !size->is_number_integer())
         {

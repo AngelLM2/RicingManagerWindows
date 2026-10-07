@@ -4,6 +4,7 @@
 
 #include "rmw/engine/RiceEngine.hpp"
 #include "rmw/modules/Cursors.hpp"
+#include "rmw/modules/RegistryFields.hpp"
 
 #include <gtest/gtest.h>
 
@@ -98,6 +99,38 @@ TEST_F(CursorsTest, MalformedCursorsAreRefusedBeforeReachingTheStore)
     EXPECT_FALSE(desired().has_value());
     m_rice.cursors->map.clear(); // no map and no install.inf
     EXPECT_FALSE(desired().has_value());
+}
+
+// The review of v1.7: a value of an unexpected type read as absent, so a restore deleted it.
+TEST(CursorsSystem, ValuesOfAnotherTypeComeBackAsTheyWere)
+{
+    FakeRegistry registry;
+    const auto odd = rmw::ports::RegistryValue::fromDword(7); // a DWORD where a path belongs
+    const auto size = rmw::ports::RegistryValue::fromString("48"); // a string where a DWORD belongs
+    registry.values[{std::string(kCursors), "Arrow"}] = odd;
+    registry.values[{std::string(kCursors), "CursorBaseSize"}] = size;
+    FakeShell shell;
+    CursorsSystem system(registry, shell);
+
+    const auto before = system.capture();
+    ASSERT_TRUE(before.has_value()) << before.error().toString();
+    EXPECT_TRUE(isRawField(before->state["Arrow"]));
+    EXPECT_TRUE(isRawField(before->state["size"]));
+
+    ASSERT_TRUE(system.apply({{"Arrow", {{"type", "expand"}, {"data", R"(C:\store\a.cur)"}}}, {"size", 64}}));
+    ASSERT_TRUE(system.apply({{"Arrow", before->state["Arrow"]}, {"size", before->state["size"]}}));
+    EXPECT_EQ(registry.values.at({std::string(kCursors), "Arrow"}), odd);
+    EXPECT_EQ(registry.values.at({std::string(kCursors), "CursorBaseSize"}), size);
+}
+
+TEST(RegistryFields, BinaryValuesKeepTheirRegistryType)
+{
+    rmw::ports::RegistryValue qword{rmw::ports::RegistryValue::Type::Binary, 0, {}, {std::byte{1}, std::byte{2}}, 11};
+    const Json json = registryValueJson(qword);
+    EXPECT_EQ(json["registryType"], 11);
+    const auto back = registryValueFromJson(json);
+    ASSERT_TRUE(back.has_value()) << back.error().toString();
+    EXPECT_EQ(*back, qword);
 }
 
 TEST(CursorsSystem, CapturesAndAppliesTheScheme)
