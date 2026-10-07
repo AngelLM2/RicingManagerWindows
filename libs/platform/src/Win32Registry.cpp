@@ -127,7 +127,13 @@ Result<std::optional<ports::RegistryValue>> Win32Registry::read(std::string_view
         break;
     }
     default:
+        // REG_QWORD, REG_MULTI_SZ... as their bytes, with their type: written back as REG_BINARY they
+        // were another value (Explorer reads some only with their own type).
         value.type = ports::RegistryValue::Type::Binary;
+        if (type != REG_BINARY)
+        {
+            value.registryType = type;
+        }
         data.resize(size);
         value.bytes = std::move(data);
         break;
@@ -179,7 +185,7 @@ Result<void> Win32Registry::write(std::string_view key, std::string_view name,
         {
             return fail(ErrorCode::LimitExceeded, "registry value too large");
         }
-        status = RegSetValueExW(hkey.get(), namePtr, 0, REG_BINARY,
+        status = RegSetValueExW(hkey.get(), namePtr, 0, value.registryType.value_or(REG_BINARY),
                                 reinterpret_cast<const BYTE*>(value.bytes.data()),
                                 static_cast<DWORD>(value.bytes.size()));
         break;

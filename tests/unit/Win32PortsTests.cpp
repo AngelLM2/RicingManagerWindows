@@ -55,6 +55,34 @@ TEST_F(Win32RegistryTest, RoundTripsEveryValueType)
     EXPECT_EQ(m_registry->read(key, "").value(), RegistryValue::fromString("Ricing Manager"));
 }
 
+// The review of v1.7: a REG_QWORD (or REG_MULTI_SZ) was read as bytes and written back as REG_BINARY.
+TEST(Win32Registry, OtherTypesComeBackWithTheirType)
+{
+    const auto suffix = rmw::platform::randomHex(8);
+    ASSERT_TRUE(suffix.has_value());
+    const std::wstring root = LR"(Software\RicingManagerWindows\Tests\)" + std::wstring(suffix->begin(), suffix->end());
+    Win32Registry registry(root);
+    const std::wstring key = root + L"\\Q";
+    const std::uint64_t big = 0x0123'4567'89AB'CDEFULL;
+    ASSERT_EQ(RegSetKeyValueW(HKEY_CURRENT_USER, key.c_str(), L"Big", REG_QWORD, &big, sizeof(big)), ERROR_SUCCESS);
+
+    const auto read = registry.read("Q", "Big").value();
+    ASSERT_TRUE(read.has_value());
+    EXPECT_EQ(read->type, RegistryValue::Type::Binary);
+    EXPECT_EQ(read->registryType, std::optional<std::uint32_t>(REG_QWORD));
+    ASSERT_TRUE(registry.write("Q", "Copy", *read));
+    DWORD type = 0;
+    std::uint64_t copy = 0;
+    DWORD size = sizeof(copy);
+    EXPECT_EQ(RegGetValueW(HKEY_CURRENT_USER, key.c_str(), L"Copy", RRF_RT_ANY, &type, &copy, &size), ERROR_SUCCESS);
+    EXPECT_EQ(type, static_cast<DWORD>(REG_QWORD));
+    EXPECT_EQ(copy, big);
+
+    EXPECT_TRUE(registry.deleteRoot().has_value());
+    RegDeleteKeyW(HKEY_CURRENT_USER, LR"(Software\RicingManagerWindows\Tests)");
+    RegDeleteKeyW(HKEY_CURRENT_USER, LR"(Software\RicingManagerWindows)");
+}
+
 TEST_F(Win32RegistryTest, MissingKeysAndValuesReadAsNothing)
 {
     EXPECT_FALSE(m_registry->read("Nope", "Nothing").value().has_value());
