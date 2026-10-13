@@ -24,6 +24,7 @@ export enum NoticeKind {
     applied,
     restored,
     restored-partly, // the rest came back; `detail` says what did not
+    restored-kept, // it came back, but what the person changed after the apply stays theirs: `detail` says what
     undone,
     saved,
     exported,

@@ -179,6 +179,30 @@ bool sameApps(const Json& byProgram, const Json& byShortcut)
     return true;
 }
 
+// Two captures of the shortcuts: the same when every shortcut both know (same program) shows the same icon.
+// A program installed or removed since is not a change of ours being undone: v1.8 took any new shortcut as
+// the person's change, and a restore left every rice icon where it was.
+bool sameShortcuts(const Json& a, const Json& b)
+{
+    if (!a.is_object() || !b.is_object())
+    {
+        return a == b;
+    }
+    for (const auto& [path, shortcut] : a.items())
+    {
+        const auto other = b.find(path);
+        if (other == b.end() || json::stringOr(*other, "program", "") != json::stringOr(shortcut, "program", ""))
+        {
+            continue;
+        }
+        if (lower(json::stringOr(*other, "icon", "")) != lower(json::stringOr(shortcut, "icon", "")))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 Result<Json> IconsLogic::desiredFromRice(const domain::Rice& rice, engine::IAssetSink& assets) const
@@ -311,6 +335,10 @@ bool IconsLogic::fieldEquivalent(std::string_view field, const Json& a, const Js
         if (b.contains("byProgram") && a.contains("byShortcut"))
         {
             return sameApps(b, a);
+        }
+        if (a.contains("byShortcut") && b.contains("byShortcut"))
+        {
+            return sameShortcuts(a["byShortcut"], b["byShortcut"]);
         }
     }
     return comparable(a) == comparable(b);
@@ -476,9 +504,12 @@ Result<void> IconsSystem::apply(const Json& desired)
             }
             if (wanted && *wanted != shortcut.icon)
             {
+                // One shortcut that cannot be written (read-only, in the cloud only) is not a reason to undo
+                // the whole rice: it keeps its icon, and the log says which.
                 if (auto set = m_icons.setShortcutIcon(shortcut.path, *wanted); !set)
                 {
-                    return set;
+                    log::warn("icons: {} keeps its icon: {}", shortcut.path, set.error().toString());
+                    continue;
                 }
                 changed = true;
             }

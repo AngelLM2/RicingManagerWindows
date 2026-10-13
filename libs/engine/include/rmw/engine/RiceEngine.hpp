@@ -47,6 +47,8 @@ struct RestoreOptions
 {
     // Also restore fields the user changed by other means after we applied them.
     bool force = false;
+    // Only these modules (empty: every one). Uninstalling without a restore still gives the taskbar back.
+    std::vector<std::string> modules;
 };
 
 // Transactional apply/undo (docs/03 §5). Not thread-safe: the core runs one operation at a
@@ -129,8 +131,11 @@ public:
     // The user wins: stop managing these fields (they are not restored or reapplied anymore).
     [[nodiscard]] Result<void> detach(std::string_view moduleId, const std::vector<std::string>& fields);
     // Explorer restarted or a monitor came back: set again only what is still ours and differs.
-    // No history. `modules` limits it (empty = every module).
-    [[nodiscard]] Result<OperationReport> reapplyManaged(std::span<const std::string> modules = {});
+    // No history. `modules` limits it (empty = every module). `windowsResets`: the modules that event
+    // resets in Windows (what differs there is set again); in the others what differs is the person's
+    // change, detached and left as it is.
+    [[nodiscard]] Result<OperationReport> reapplyManaged(std::span<const std::string> modules = {},
+                                                         std::span<const std::string> windowsResets = {});
 
     // Test hook (system tests only): called after each module's apply succeeds, before the next.
     void setAfterModuleHook(std::function<void(std::string_view module)> hook)

@@ -260,12 +260,13 @@ TEST(WallpaperSystem, ApplyMapsIdentityKeysToDevicePaths)
     EXPECT_FALSE(system.apply({{"monitor:AAA-1", "x.jpg"}}).has_value());
 }
 
-// The owner's PC: the original picture was gone, and so was our copy of it. A restore never stops there.
-TEST(WallpaperSystem, APictureThatIsGoneFallsBackToItsCopyThenToWindowsOwn)
+// The owner's PC: the original picture was gone, and so was our copy of it. A restore never stops there, and
+// never puts Windows' own picture in its place (v1.8 did: Windows' defaults over the person's desktop).
+TEST(WallpaperSystem, APictureThatIsGoneFallsBackToItsCopyNeverToWindowsOwn)
 {
     const rmw::test::TempDir dir;
-    std::ofstream(dir.path() / "copy.jpg", std::ios::binary) << "COPY";
-    std::ofstream(dir.path() / "img0.jpg", std::ios::binary) << "WIN0";
+    std::ofstream(dir.path() / "copy.jpg", std::ios::binary) << "\xFF\xD8\xFF" << "COPY";
+    std::ofstream(dir.path() / "img0.jpg", std::ios::binary) << "\xFF\xD8\xFF" << "WIN0";
     FakeDisplayTopology topology;
     FakeWallpaperApi api;
     FakeRegistry registry;
@@ -275,24 +276,37 @@ TEST(WallpaperSystem, APictureThatIsGoneFallsBackToItsCopyThenToWindowsOwn)
     ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}, {"copy", utf8(dir.path() / "copy.jpg")}}}}));
     EXPECT_EQ(api.files[R"(\\?\DISPLAY#AAA#1)"], utf8(dir.path() / "copy.jpg"));
 
+    // The copy lost too: that monitor keeps its picture, and the rest of the restore goes on.
     api.defaultPicture = utf8(dir.path() / "img0.jpg");
-    ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}, {"copy", utf8(dir.path() / "lost.jpg")}}}}));
-    EXPECT_EQ(api.files[R"(\\?\DISPLAY#AAA#1)"], api.defaultPicture);
-
-    // Nothing at all: that monitor keeps its picture, and the rest of the restore goes on.
-    api.defaultPicture.clear();
     api.setCalls = 0;
-    ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}}}, {"background", "#102030"}}));
+    ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}, {"copy", utf8(dir.path() / "lost.jpg")}}},
+                              {"background", "#102030"}}));
     EXPECT_EQ(api.setCalls, 0);
+    EXPECT_EQ(api.files[R"(\\?\DISPLAY#AAA#1)"], utf8(dir.path() / "copy.jpg"));
     EXPECT_EQ(api.background, 0x102030u);
 
-    // One picture everywhere, gone: not set the Settings way (that fails on a missing file).
-    api.defaultPicture = utf8(dir.path() / "img0.jpg");
+    // One picture everywhere, gone: not set the Settings way (that fails on a missing file), nor Windows' own.
     ASSERT_TRUE(system.apply({{"monitor:AAA-1", {{"file", gone}}},
                               {"monitor:BBB-2", {{"file", gone}}},
                               {"wallPaperValue", gone}}));
     EXPECT_TRUE(api.desktopWallpaper.empty());
-    EXPECT_EQ(api.files[R"(\\?\DISPLAY#BBB#2)"], api.defaultPicture);
+    EXPECT_NE(api.files[R"(\\?\DISPLAY#BBB#2)"], api.defaultPicture);
+}
+
+// The review of v1.8: after a rice of Windows' own slideshow (no monitor fields) a restore never set a
+// picture, and the rice's slideshow kept going. The picture Windows named before it comes back, the
+// Settings way (which ends the slideshow).
+TEST(WallpaperSystem, AfterARiceSlideshowTheirPictureComesBack)
+{
+    const rmw::test::TempDir dir;
+    std::ofstream(dir.path() / "mine.jpg", std::ios::binary) << "\xFF\xD8\xFF" << "MINE";
+    FakeDisplayTopology topology;
+    FakeWallpaperApi api;
+    FakeRegistry registry;
+    WallpaperSystem system(topology, api, registry);
+    const std::string mine = utf8(dir.path() / "mine.jpg");
+    ASSERT_TRUE(system.apply({{"slideshow", nullptr}, {"position", 4}, {"backgroundType", 0}, {"wallPaperValue", mine}}));
+    EXPECT_EQ(api.desktopWallpaper, mine);
 }
 
 // Settings' recent pictures: Windows adds ours to them; a restore puts the user's list back as it was.

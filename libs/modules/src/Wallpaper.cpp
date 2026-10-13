@@ -54,9 +54,8 @@ std::string lowerText(std::string_view text)
     return out;
 }
 
-// A restore whose every monitor shows the picture Windows named (Control Panel\Desktop\WallPaper):
-// that file; otherwise nothing.
-std::optional<std::string> everywhereFile(const Json& desired)
+// The picture a restore says Windows named (Control Panel\Desktop\WallPaper), when it says one.
+std::optional<std::string> namedFile(const Json& desired)
 {
     const auto value = desired.find(kWallPaperField);
     if (value == desired.end() || !value->is_string() || whateverWindowsWrites(*value) ||
@@ -64,7 +63,18 @@ std::optional<std::string> everywhereFile(const Json& desired)
     {
         return std::nullopt;
     }
-    const std::string named = value->get<std::string>();
+    return value->get<std::string>();
+}
+
+// A restore whose every monitor shows the picture Windows named: that file; otherwise nothing.
+std::optional<std::string> everywhereFile(const Json& desired)
+{
+    const auto value = namedFile(desired);
+    if (!value)
+    {
+        return std::nullopt;
+    }
+    const std::string& named = *value;
     bool any = false;
     for (const auto& [field, monitor] : desired.items())
     {
@@ -659,12 +669,9 @@ std::optional<std::string> WallpaperSystem::resolve(const Json& monitor)
         log::info("wallpaper: {} is gone; its copy comes back", file);
         return copy;
     }
-    if (std::string windows = m_wallpaper.defaultWallpaper(); there(windows))
-    {
-        log::warn("wallpaper: {} and its copy are gone; Windows' own picture comes back", file);
-        return windows;
-    }
-    log::warn("wallpaper: {} is gone; that monitor keeps its picture", file);
+    // Never Windows' own picture in its place (v1.8 did): that is Windows' defaults over a desktop the
+    // person had made their own. The picture shown now stays, and the log says why.
+    log::warn("wallpaper: {} and its copy are gone; that monitor keeps the picture it shows", file);
     return std::nullopt;
 }
 
@@ -710,9 +717,11 @@ Result<void> WallpaperSystem::apply(const Json& desired)
         }
         // A restore of one picture on every monitor: set the way Settings sets it, and only so (a per-monitor
         // set finishes in the background and makes Windows name its own copy, after us). Only while that
-        // file is there.
-        if (const auto named = everywhereFile(desired);
-            anyMonitor && named && resolve(Json{{"file", *named}}) == named)
+        // file is there. After a rice's slideshow (Windows' own: no monitor fields) the picture Windows named
+        // before it comes back the same way, and the slideshow stops (v1.8 left it running).
+        const bool endsSlideshow = slideshow != desired.end() && slideshow->is_null();
+        if (const auto named = anyMonitor ? everywhereFile(desired) : endsSlideshow ? namedFile(desired) : std::nullopt;
+            named && resolve(Json{{"file", *named}}) == named)
         {
             if (auto set = m_wallpaper.setDesktopWallpaper(*named); !set)
             {

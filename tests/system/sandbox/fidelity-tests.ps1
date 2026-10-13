@@ -381,25 +381,31 @@ public static int ShownWidth() {
 '@
 Step 'pointer-sizes' {
     [void][Rmw.Cursor]::SetCursorPos(400, 400) # over the desktop: the arrow
-    $seen = foreach ($size in 16, 24, 32, 48) {
-        [void][Rmw.Spi]::SetUInt(0x2029, 0, [IntPtr]$size, 0) # reloads the pointers at that size (in memory only)
-        Start-Sleep -Milliseconds 500
-        [void][Rmw.Cursor]::SetCursorPos(401, 401)
-        Start-Sleep -Milliseconds 200
+    # As Settings does it: the registry, the size (saved, announced), the pointers reloaded.
+    $seen = foreach ($size in 16, 24, 32, 48, 64) {
+        Set-ItemProperty 'HKCU:\Control Panel\Cursors' 'CursorBaseSize' $size -Type DWord
+        [void][Rmw.Spi]::SetUInt(0x2029, 0, [IntPtr]$size, 3)
+        [void][Rmw.Spi]::SetUInt(0x57, 0, [IntPtr]::Zero, 3)
+        Start-Sleep -Milliseconds 700
+        [void][Rmw.Cursor]::SetCursorPos(401 + $size, 401)
+        Start-Sleep -Milliseconds 300
         "$size->$(Cursor-Size-Now), drawn $([Rmw.Cursor]::ShownWidth()) px"
     }
-    [void][Rmw.Spi]::SetUInt(0x2029, 0, [IntPtr]64, 0)
-    [void][Rmw.Spi]::SetUInt(0x57, 0, [IntPtr]::Zero, 0)
+    Set-ItemProperty 'HKCU:\Control Panel\Cursors' 'CursorBaseSize' 64 -Type DWord
+    [void][Rmw.Spi]::SetUInt(0x2029, 0, [IntPtr]64, 3)
+    [void][Rmw.Spi]::SetUInt(0x57, 0, [IntPtr]::Zero, 3)
     Note 'pointer-sizes' ($seen -join '; ')
 }
 
 # ---- 8. the data folder lost while a rice was on (uninstalled without restoring, data removed), then the app again: --------
-# the "original" it now takes is the rice's look; restoring it must never mean Windows' defaults.
+# the copy of the original kept next to the folder knows the person's Windows, and what the rice still holds: a restore
+# brings all of it back (v1.8: the rice, or Windows' defaults, became the "original").
 Step 'data-lost' {
     $r = Apply (Join-Path $riceRoot 'Sakura Dawn')
     Start-Sleep -Seconds 3
-    $sakura = Look-Now
     Stop-Core
+    $durable = "$data.original.json"
+    Check 'fidelity:original-kept-next-to-the-data' (Test-Path $durable) $durable
     Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
     $r = Apply (Join-Path $riceRoot 'Mocha Kawaii')
     $r = Restore-Original
@@ -407,9 +413,9 @@ Step 'data-lost' {
     $after = Look-Now
     $defaults = @()
     if ("$($after.Theme)" -match '\\Resources\\Themes\\(aero|dark)\.theme') { $defaults += "theme $($after.Theme)" }
-    if ("$($after.Wallpaper)" -match '\\Web\\Wallpaper\\Windows\\img0') { $defaults += "wallpaper $($after.Wallpaper)" }
+    if ("$($after.Wallpaper)" -match '\\Web\\Wallpaper\\Windows\\img') { $defaults += "wallpaper $($after.Wallpaper)" }
     Check 'fidelity:data-lost-never-windows-defaults' ($defaults.Count -eq 0) ($defaults -join '; ')
-    Note 'data-lost-vs-sakura' (Short (Differences $sakura $after))
+    Same-As-Person 'data-lost-original-comes-back' "$($r.code): $(($r.output -split "`n")[0]);"
 }
 
 # ---- the end ---------------------------------------------------------------------------------------------------------------

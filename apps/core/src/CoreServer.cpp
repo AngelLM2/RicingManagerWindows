@@ -376,7 +376,21 @@ Result<void> CoreServer::initialize()
         runner = m_helper.get();
     }
     m_engine = std::make_unique<engine::RiceEngine>(*m_state, *m_store, m_logic->catalog, *runner);
-    m_engine->setOriginalBackup(m_options.dataDirectory / L"original.json");
+    // The copy of the original lives next to the data folder, not in it: the folder lost with a rice still
+    // on (uninstalled without restoring, data removed) turned the rice, or Windows' defaults, into the
+    // "original" (v1.8). The copy v1.7-v1.8 kept inside moves out.
+    std::filesystem::path dataFolder = m_options.dataDirectory.lexically_normal();
+    if (!dataFolder.has_filename())
+    {
+        dataFolder = dataFolder.parent_path(); // "...\data\"
+    }
+    const std::filesystem::path durable =
+        dataFolder.parent_path() / (dataFolder.filename().native() + L".original.json");
+    if (std::error_code missing; !std::filesystem::exists(durable, missing))
+    {
+        std::filesystem::copy_file(m_options.dataDirectory / L"original.json", durable, missing);
+    }
+    m_engine->setOriginalBackup(durable);
     m_engine->setCoreState([this] { return coreState(); });
     if (auto original = m_engine->originalSnapshot(); !original)
     {
@@ -1636,11 +1650,12 @@ Result<std::vector<std::string>> CoreServer::detachDrifted(const std::string& mo
     return drifted;
 }
 
-Result<void> CoreServer::reapply(const std::vector<std::string>& modules)
+Result<void> CoreServer::reapply(const std::vector<std::string>& modules,
+                                 const std::vector<std::string>& windowsResets)
 {
     const std::scoped_lock lock(m_operation);
     const OperationMark mark(*this);
-    auto report = m_engine->reapplyManaged(modules);
+    auto report = m_engine->reapplyManaged(modules, windowsResets);
     if (!report)
     {
         return std::unexpected(std::move(report.error()));
@@ -1960,7 +1975,13 @@ Result<Json> CoreServer::runAction(std::string_view name, const Json& params, Or
     }
     if (name == "rice.undo")
     {
-        // The rice before the last one comes back (applying it again swaps them: a toggle).
+        // Back to how things were right before the last change, the core's own too (bars, live wallpaper,
+        // schedule): v1.8 applied the previous rice again, and what it does not set stayed as the last one left
+        // it. Undoing twice is still a toggle (the second undoes the first).
+        if (auto history = m_state->history(); history && !history->empty())
+        {
+            return restore(Json{{"id", history->front().id}, {"force", false}}, false);
+        }
         auto previous = m_state->meta(kRicePreviousMeta);
         if (!previous || !*previous || (*previous)->empty())
         {
@@ -2198,7 +2219,17 @@ Result<Json> CoreServer::setAppearance(std::string_view action, Origin origin)
 
 Result<Json> CoreServer::restore(const Json& params, bool original)
 {
-    const engine::RestoreOptions options{.force = json::boolOr(params, "force", false)};
+    engine::RestoreOptions options{.force = json::boolOr(params, "force", false), .modules = {}};
+    if (const auto modules = params.find("modules"); modules != params.end() && modules->is_array())
+    {
+        for (const auto& module : *modules)
+        {
+            if (module.is_string())
+            {
+                options.modules.push_back(module.get<std::string>());
+            }
+        }
+    }
     auto report = original ? m_engine->restoreOriginal(options)
                            : m_engine->restoreHistory(json::intOr(params, "id", 0), options);
     // The original Windows: what is ours goes even when none of Windows' settings could come back.

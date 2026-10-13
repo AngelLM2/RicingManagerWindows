@@ -34,7 +34,6 @@ fit    = "fill"
 
 [cursors]
 source = "assets/cursors"
-size   = 32
 
 [cursors.map]
 normal      = "normal.cur"

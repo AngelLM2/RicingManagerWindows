@@ -564,12 +564,40 @@ Result<std::string> Win32WallpaperApi::sniffImageType(std::string_view file)
     {
         return std::string(); // missing or unreadable
     }
-    std::array<unsigned char, 8> magic{};
+    std::array<unsigned char, 12> magic{};
     DWORD read = 0;
     if (ReadFile(handle.get(), magic.data(), static_cast<DWORD>(magic.size()), &read, nullptr) == FALSE ||
         read < 4)
     {
         return std::string();
+    }
+    // Every picture Windows takes as a wallpaper: a .tif, .webp or .heic one counted as "gone" and its
+    // lower-quality TranscodedWallpaper was kept in its place (v1.8).
+    if ((magic[0] == 'I' && magic[1] == 'I' && magic[2] == 0x2A && magic[3] == 0x00) ||
+        (magic[0] == 'M' && magic[1] == 'M' && magic[2] == 0x00 && magic[3] == 0x2A))
+    {
+        return std::string("tif");
+    }
+    if (magic[0] == 'I' && magic[1] == 'I' && magic[2] == 0xBC)
+    {
+        return std::string("jxr");
+    }
+    if (read >= 12 && magic[0] == 'R' && magic[1] == 'I' && magic[2] == 'F' && magic[3] == 'F' && magic[8] == 'W' &&
+        magic[9] == 'E' && magic[10] == 'B' && magic[11] == 'P')
+    {
+        return std::string("webp");
+    }
+    if (read >= 12 && magic[4] == 'f' && magic[5] == 't' && magic[6] == 'y' && magic[7] == 'p')
+    {
+        const std::string brand(reinterpret_cast<const char*>(magic.data()) + 8, 4);
+        if (brand == "avif" || brand == "avis")
+        {
+            return std::string("avif");
+        }
+        if (brand == "heic" || brand == "heix" || brand == "mif1" || brand == "msf1" || brand == "hevc")
+        {
+            return std::string("heic");
+        }
     }
     if (magic[0] == 0xFF && magic[1] == 0xD8 && magic[2] == 0xFF)
     {

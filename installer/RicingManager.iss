@@ -58,6 +58,8 @@ en.KeepDataQuestion=Keep your rices, settings and history (%1)?%n%nChoose No to 
 ptbr.KeepDataQuestion=Manter seus rices, configurações e histórico (%1)?%n%nEscolha Não para removê-los também.
 en.DataLeft=Some files in %1 were in use and stayed. Delete that folder after restarting Windows.
 ptbr.DataLeft=Alguns arquivos em %1 estavam em uso e ficaram. Apague essa pasta depois de reiniciar o Windows.
+en.StoreKept=Your rice is still on: its pictures, pointers and sounds stay in %1 (Windows uses them), with what Ricing Manager needs to bring your own Windows back. Everything else was removed. To remove that folder too, install Ricing Manager again and restore the original Windows first.
+ptbr.StoreKept=O seu rice continua aplicado: as imagens, ponteiros e sons dele ficam em %1 (o Windows usa esses arquivos), com o que o Ricing Manager precisa para trazer o seu Windows de volta. O resto foi removido. Para remover essa pasta também, instale o Ricing Manager de novo e restaure o Windows original antes.
 en.OpenSettings=Open Ricing Manager
 ptbr.OpenSettings=Abrir o Ricing Manager
 en.OfficialRices=Add the official rices to your library
@@ -152,16 +154,45 @@ begin
     Result := MsgBox(Question, mbConfirmation, MB_YESNO) = IDYES;
 end;
 
+// Everything in the data folder but the store: the files a rice still on screen uses (Windows points at them).
+procedure RemoveAllButTheStore(const Data: String);
+var
+  Found: TFindRec;
+  Path: String;
+begin
+  if not FindFirst(Data + '\*', Found) then
+    exit;
+  try
+    repeat
+      if (Found.Name <> '.') and (Found.Name <> '..') and (CompareText(Found.Name, 'store') <> 0) then
+      begin
+        Path := Data + '\' + Found.Name;
+        if (Found.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+          DelTree(Path, True, True, True)
+        else
+          DeleteFile(Path);
+      end;
+    until not FindNext(Found);
+  finally
+    FindClose(Found);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Rmw, Data: String;
+  Restored: Boolean;
 begin
   if CurUninstallStep <> usUninstall then
     exit;
   Rmw := ExpandConstant('{app}\rmw.exe');
   Data := ExpandConstant('{#DataFolder}');
+  Restored := False;
   if Answer(CustomMessage('RestoreQuestion'), 'RESTORE') then
-    RunQuiet(Rmw, 'restore --original --wait', ewWaitUntilTerminated);
+    Restored := RunQuiet(Rmw, 'restore --original --wait', ewWaitUntilTerminated) = 0
+  else
+    // The rice stays, but its bar goes with the app: Windows' taskbar comes back as it was (not auto-hidden).
+    RunQuiet(Rmw, 'restore --original --module taskbar --wait', ewWaitUntilTerminated);
   // Not at the next sign-in either; then the core goes, and the bar hands the taskbar back.
   RunQuiet(Rmw, 'autostart off', ewWaitUntilTerminated);
   RegDeleteValue(HKCU, RunKey, RunValue);
@@ -169,8 +200,21 @@ begin
   if DirExists(Data) and not Answer(FmtMessage(CustomMessage('KeepDataQuestion'), [Data]), 'KEEPDATA') then
   begin
     // Everything stopped above (rmw shutdown --wait ends what did not): nothing holds a file.
-    DelTree(Data, True, True, True);
-    if DirExists(Data) and not UninstallSilent then
-      MsgBox(FmtMessage(CustomMessage('DataLeft'), [Data]), mbInformation, MB_OK);
+    if Restored then
+    begin
+      DelTree(Data, True, True, True);
+      // The copy of the original kept next to the folder: the person's Windows is back, it is not needed.
+      DeleteFile(Data + '.original.json');
+      if DirExists(Data) and not UninstallSilent then
+        MsgBox(FmtMessage(CustomMessage('DataLeft'), [Data]), mbInformation, MB_OK);
+    end
+    else
+    begin
+      // Not restored: the pictures, pointers and sounds on screen are in the store, and the copy of the
+      // original (next to the folder) can still bring the person's Windows back after a new install.
+      RemoveAllButTheStore(Data);
+      if not UninstallSilent then
+        MsgBox(FmtMessage(CustomMessage('StoreKept'), [Data + '\store']), mbInformation, MB_OK);
+    end;
   end;
 end;

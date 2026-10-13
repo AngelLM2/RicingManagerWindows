@@ -652,7 +652,7 @@ Check 'chain:everything-back' ($diff.Count -eq 0) ($diff -join '; ')
 Check 'chain:no-bar-left' (-not (Get-Process rmw-bar -ErrorAction SilentlyContinue)) ''
 
 # ---- 14. an original whose picture is gone, and our copy of it too (the owner's PC, v1.6): the restore
-# still ends, the rest comes back, and Windows' own picture takes the place of the lost one.
+# still ends and the rest comes back; the picture shown stays (v1.9: never Windows' own in its place).
 Stop-Core
 Add-Type -AssemblyName System.Drawing
 Add-Type -Namespace Rmw -Name Desk -MemberDefinition @'
@@ -682,7 +682,7 @@ Start-Sleep -Seconds 2
 $diff = Compare-State $beforeBroken (Read-State)
 Check 'broken-original:the-rest-came-back' ($diff.Count -eq 0) ($diff -join '; ')
 $shown = & $rmw inspect wallpaper --data-dir $brokenData 2>&1 | Out-String
-Check 'broken-original:windows-picture' ($shown -match 'img0\.jpg') $shown.Trim()
+Check 'broken-original:never-windows-picture' ($shown -notmatch 'img0\.jpg') $shown.Trim()
 & $rmw shutdown --wait --data-dir $brokenData *> $null
 if (Test-Path (Join-Path $brokenData 'logs')) { Copy-Item (Join-Path $brokenData 'logs') (Join-Path $Out 'logs-broken') -Recurse -Force }
 

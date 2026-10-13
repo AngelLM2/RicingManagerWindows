@@ -51,6 +51,7 @@ Commands:
   status                                What is managed now, and the last operations
   history                               Operations you can go back to
   restore --original [--force]          Back to the Windows you had before the first apply
+          [--module <id>]...            (only those modules: taskbar, wallpaper, cursors...)
   restore --snapshot <id> [--force]     Back to how things were before operation <id>
   recover [--discard]                   Undo an operation a crash interrupted, now (safe mode
                                         leaves it); --discard forgets it without undoing it
@@ -146,6 +147,7 @@ struct Options
     std::string path;
     std::string name;
     std::string app;
+    std::vector<std::string> modules; // restore --original --module <id>...
     std::filesystem::path dataDirectory;
 };
 
@@ -189,6 +191,15 @@ Result<Options> parseOptions(std::span<const std::string> args)
         else if (arg == "--discard")
         {
             options.discard = true;
+        }
+        else if (arg == "--module")
+        {
+            auto text = value();
+            if (!text)
+            {
+                return std::unexpected(std::move(text.error()));
+            }
+            options.modules.push_back(std::move(*text));
         }
         else if (arg == "--snapshot" || arg == "--path" || arg == "--data-dir" || arg == "--name" ||
                  arg == "--out" || arg == "--id" || arg == "--app")
@@ -954,11 +965,15 @@ int run(std::span<const std::string> args)
             err("rmw: restore needs exactly one of --original or --snapshot <id>");
             return Usage;
         }
-        auto restored =
-            options->original
-                ? operation(client, "restore.original", Json{{"force", options->force}}, options->wait)
-                : operation(client, "snapshot.restore",
-                            Json{{"id", *options->snapshot}, {"force", options->force}}, options->wait);
+        Json params{{"force", options->force}};
+        if (!options->modules.empty())
+        {
+            params["modules"] = options->modules;
+        }
+        auto restored = options->original
+                            ? operation(client, "restore.original", params, options->wait)
+                            : operation(client, "snapshot.restore",
+                                        Json{{"id", *options->snapshot}, {"force", options->force}}, options->wait);
         if (!restored)
         {
             return failure(restored.error());

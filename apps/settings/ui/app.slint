@@ -40,6 +40,7 @@ component InfoBar inherits Rectangle {
             text: root.notice.kind == NoticeKind.applied ? @tr("Applied: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.restored ? @tr("Restored: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.restored-partly ? @tr("Everything else came back. Not back: {}", root.notice.detail)
+                : root.notice.kind == NoticeKind.restored-kept ? @tr("Restored. Kept the way you changed it: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.undone ? @tr("Undone: {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.saved ? @tr("Saved in {}", root.notice.detail)
                 : root.notice.kind == NoticeKind.exported ? @tr("Your current look is now the rice “{}”", root.notice.detail)
