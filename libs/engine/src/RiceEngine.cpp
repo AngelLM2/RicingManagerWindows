@@ -453,6 +453,7 @@ Result<void> RiceEngine::finishRestore(const JournalEntry& entry, const std::str
     {
         return propagate(recorded);
     }
+    backUpOriginal(); // what we hold changed
     return {};
 }
 
@@ -494,6 +495,31 @@ Result<std::optional<SnapshotRecord>> RiceEngine::originalSnapshot()
     {
         return propagate(added);
     }
+    // What we held then is ours again (the data folder lost with a rice still on, the app installed again):
+    // its fields are not taken as the person's own, and a restore brings their original back over them.
+    if (const auto applied = saved->find("applied"); applied != saved->end() && applied->is_object())
+    {
+        std::size_t held = 0;
+        for (const auto& [id, fields] : applied->items())
+        {
+            auto existing = m_state.applied(id);
+            if (!existing || !existing->empty() || !fields.is_object() || fields.empty())
+            {
+                continue;
+            }
+            if (auto set = m_state.setApplied(id, fields); !set)
+            {
+                log::warn("{} held before cannot be ours again: {}", id, set.error().toString());
+                continue;
+            }
+            ++held;
+        }
+        if (held > 0)
+        {
+            log::warn("what the app held before ({} module(s)) is ours again: a restore brings the original back",
+                      held);
+        }
+    }
     return m_state.baseSnapshot();
 }
 
@@ -508,8 +534,22 @@ void RiceEngine::backUpOriginal()
     {
         return;
     }
-    const std::string text =
-        json::dump(Json{{"label", (*base)->label}, {"createdAt", (*base)->createdAt}, {"modules", (*base)->modules}});
+    // With what we hold now: a state.db lost with a rice still on knows which fields are not the person's.
+    Json applied = Json::object();
+    if (auto modules = m_state.appliedModules())
+    {
+        for (const auto& id : *modules)
+        {
+            if (auto fields = m_state.applied(id); fields && !fields->empty())
+            {
+                applied[id] = std::move(*fields);
+            }
+        }
+    }
+    const std::string text = json::dump(Json{{"label", (*base)->label},
+                                             {"createdAt", (*base)->createdAt},
+                                             {"modules", (*base)->modules},
+                                             {"applied", std::move(applied)}});
     if (auto written = platform::writeFileAtomic(m_originalBackup, std::as_bytes(std::span(text))); !written)
     {
         log::warn("cannot keep a copy of the original snapshot: {}", written.error().toString());
@@ -699,10 +739,16 @@ Result<void> RiceEngine::detach(std::string_view moduleId, const std::vector<std
     {
         applied->erase(field);
     }
-    return m_state.setApplied(moduleId, *applied);
+    if (auto set = m_state.setApplied(moduleId, *applied); !set)
+    {
+        return set;
+    }
+    backUpOriginal(); // the person took them: theirs, not ours, if the data folder is ever lost
+    return {};
 }
 
-Result<OperationReport> RiceEngine::reapplyManaged(std::span<const std::string> modules)
+Result<OperationReport> RiceEngine::reapplyManaged(std::span<const std::string> modules,
+                                                   std::span<const std::string> windowsResets)
 {
     if (auto clean = undoOpenJournalIfAny(); !clean)
     {
@@ -711,11 +757,31 @@ Result<OperationReport> RiceEngine::reapplyManaged(std::span<const std::string> 
     std::vector<Step> steps;
     for (const auto* module : m_catalog.ordered())
     {
-        if (!modules.empty() && std::ranges::find(modules, module->id()) == modules.end())
+        const std::string id(module->id());
+        if (!modules.empty() && std::ranges::find(modules, id) == modules.end())
         {
             continue;
         }
-        auto applied = m_state.applied(module->id());
+        // Where the event that asks for this does not reset Windows, what differs from what we set is the
+        // person's (a sound, an icon, a tweak they changed by hand): theirs now, not set again. v1.8 put it
+        // back at every Explorer restart.
+        if (std::ranges::find(windowsResets, id) == windowsResets.end())
+        {
+            if (auto drifted = driftedFields(id); drifted && !drifted->empty())
+            {
+                std::string names;
+                for (const auto& field : *drifted)
+                {
+                    names += (names.empty() ? "" : ", ") + field;
+                }
+                log::info("reapply: {} changed outside since we set it ({}): left as it is now", id, names);
+                if (auto released = detach(id, *drifted); !released)
+                {
+                    return propagate(released);
+                }
+            }
+        }
+        auto applied = m_state.applied(id);
         if (!applied)
         {
             return propagate(applied);
@@ -795,6 +861,10 @@ Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std:
     for (const auto* module : m_catalog.ordered())
     {
         const std::string id(module->id());
+        if (!options.modules.empty() && std::ranges::find(options.modules, id) == options.modules.end())
+        {
+            continue;
+        }
         auto applied = m_state.applied(id);
         if (!applied)
         {
@@ -927,12 +997,16 @@ Result<void> RiceEngine::rememberOriginals(const Json& beforeModules, const Json
         }
         for (const auto& [field, value] : fields.items())
         {
-            // Only a field we never set: otherwise "before" holds our own value, not the original.
-            if (state.contains(field) || applied->contains(field))
+            // A field we hold now: "before" is our own value, not the original. One we do not hold is the
+            // person's: from before our first apply, or what they chose since (after a restore, or a change
+            // of theirs that took it from us). That is the original to come back to; the one taken weeks
+            // ago brought back an older Windows.
+            if (applied->contains(field))
             {
                 continue;
             }
-            if (const auto original = before->find(field); original != before->end())
+            if (const auto original = before->find(field);
+                original != before->end() && (!state.contains(field) || state[field] != *original))
             {
                 state[field] = *original;
                 changed = true;
@@ -1006,7 +1080,8 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
         }
     }
 
-    if (operation == "apply")
+    // Every operation that takes fields (rules and slideshow pages too), not one that gives them back.
+    if (!isRestore(operation) && operation != "reapply")
     {
         if (auto remembered = rememberOriginals(beforeModules, desiredAll); !remembered)
         {
@@ -1115,6 +1190,7 @@ Result<OperationReport> RiceEngine::run(std::string_view operation, const std::s
     }
     report.historyId = *historyId;
     collectGarbage(report);
+    backUpOriginal(); // what we hold changed
     return report;
 }
 

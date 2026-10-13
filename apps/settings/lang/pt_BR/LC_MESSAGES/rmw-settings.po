@@ -14,6 +14,9 @@ msgstr "Restaurado: {}"
 msgid "Everything else came back. Not back: {}"
 msgstr "O resto voltou. Não voltou: {}"
 
+msgid "Restored. Kept the way you changed it: {}"
+msgstr "Restaurado. Mantido como você mudou: {}"
+
 msgid "Undone: {}"
 msgstr "Desfeito: {}"
 

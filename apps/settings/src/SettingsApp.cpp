@@ -2406,13 +2406,34 @@ void SettingsApp::bind()
                             text(m_ui->global<Words>().invoke_module(shared(json::stringOr(entry, "module", "")))),
                             json::stringOr(entry, "reason", ""));
                     }
-                    if (notBack.empty())
+                    // What the person changed after the apply stays theirs: said, not hidden behind "Restored".
+                    std::vector<std::string> kept;
+                    for (const auto& entry : json::memberOr(*reply, "skipped", Json::array()))
                     {
-                        notice(NoticeKind::Restored, json::stringOr(*reply, "label", ""));
+                        const std::string name = text(
+                            m_ui->global<Words>().invoke_module(shared(json::stringOr(entry, "module", ""))));
+                        if (json::stringOr(entry, "reason", "") == "changed after it was applied" &&
+                            std::ranges::find(kept, name) == kept.end())
+                        {
+                            kept.push_back(name);
+                        }
+                    }
+                    if (!notBack.empty())
+                    {
+                        notice(NoticeKind::RestoredPartly, notBack);
+                    }
+                    else if (!kept.empty())
+                    {
+                        std::string names;
+                        for (const auto& name : kept)
+                        {
+                            names += (names.empty() ? "" : ", ") + name;
+                        }
+                        notice(NoticeKind::RestoredKept, names);
                     }
                     else
                     {
-                        notice(NoticeKind::RestoredPartly, notBack);
+                        notice(NoticeKind::Restored, json::stringOr(*reply, "label", ""));
                     }
                     refreshStatus();
                     refreshRices();

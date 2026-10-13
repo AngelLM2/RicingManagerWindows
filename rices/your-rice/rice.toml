@@ -35,7 +35,6 @@ color = "#0B1026"
 
 [cursors]
 source = "assets/cursors"
-size   = 32
 
 [cursors.map]
 normal      = "normal.cur"

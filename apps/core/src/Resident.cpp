@@ -327,7 +327,9 @@ void Resident::onTimer(std::uint32_t id)
         return;
     case kExplorerTimer:
         m_work->push([this] {
-            if (auto reapplied = m_core->reapply({}); !reapplied)
+            // Explorer restarting resets the taskbar's state, and Windows may drop the theme's accent; what
+            // differs anywhere else is the person's (a sound, an icon they changed): left as it is.
+            if (auto reapplied = m_core->reapply({}, {"taskbar", "appearance"}); !reapplied)
             {
                 log::warn("reapply after the Explorer restart: {}", reapplied.error().toString());
             }
@@ -571,7 +573,7 @@ void Resident::onDisplaySettled()
 {
     m_work->push([this] {
         // A monitor that came back gets its wallpaper again (docs/03 §5.2).
-        if (auto reapplied = m_core->reapply({"wallpaper"}); !reapplied)
+        if (auto reapplied = m_core->reapply({"wallpaper"}, {"wallpaper"}); !reapplied)
         {
             log::warn("reapply after a display change: {}", reapplied.error().toString());
         }

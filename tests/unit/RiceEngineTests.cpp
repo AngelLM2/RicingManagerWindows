@@ -306,7 +306,7 @@ TEST_F(RiceEngineTest, AFieldWindowsDoesNotShowStaysOursUntilItComesBack)
 
     m_wallpaper.unplugged.clear();
     const std::vector<std::string> onlyWallpaper{"wallpaper"};
-    ASSERT_TRUE(m_engine->reapplyManaged(onlyWallpaper).has_value());
+    ASSERT_TRUE(m_engine->reapplyManaged(onlyWallpaper, onlyWallpaper).has_value()); // the monitor is back
     EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg");
     ASSERT_TRUE(m_engine->restoreOriginal().has_value());
     EXPECT_TRUE(m_state->applied("wallpaper").value().empty());
@@ -363,6 +363,25 @@ TEST_F(RiceEngineTest, TheOriginalComesBackFromItsCopyWhenStateDbLosesIt)
 
     ASSERT_TRUE(engine.restoreOriginal({.force = true}).has_value());
     EXPECT_EQ(m_appearance.fields()["accent"], "#000000");
+    // What the first rice still held (the copy knows) comes back too: never the rice as the "original".
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+}
+
+// The owner's fourth test: a restore brought back the Windows of weeks before. A field we do not hold holds
+// the person's own value, and that is the original to come back to.
+TEST_F(RiceEngineTest, TheOriginalFollowsWhatThePersonChoseSince)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+
+    m_appearance.fields()["dark"] = "theirs"; // set by the person in Windows' Settings
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], true);
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_EQ(m_appearance.fields()["dark"], "theirs");
 }
 
 TEST_F(RiceEngineTest, CaptureFailureStopsBeforeAnythingChanges)
@@ -613,7 +632,8 @@ TEST_F(RiceEngineTest, DriftIsDetectedAndDetachedFieldsAreLeftAlone)
 
     // Explorer restarts: only what is still ours comes back; the user's wallpaper stays.
     m_appearance.fields()["dark"] = false; // Windows lost it in the restart
-    const auto reapplied = m_engine->reapplyManaged();
+    const std::vector<std::string> explorerResets{"taskbar", "appearance"};
+    const auto reapplied = m_engine->reapplyManaged({}, explorerResets);
     ASSERT_TRUE(reapplied.has_value()) << reapplied.error().toString();
     EXPECT_EQ(reapplied->historyId, 0);
     EXPECT_EQ(m_appearance.fields()["dark"], true);
@@ -621,6 +641,27 @@ TEST_F(RiceEngineTest, DriftIsDetectedAndDetachedFieldsAreLeftAlone)
     EXPECT_EQ(m_state->history().value().size(), 1u);
 
     EXPECT_FALSE(m_engine->driftedFields("nope").has_value());
+}
+
+// The fourth real test: an Explorer restart put back a sound or an icon the person had changed by hand (only
+// a few modules are watched live). What the restart does not reset in Windows is theirs: left as it is.
+TEST_F(RiceEngineTest, AReapplyLeavesWhatThePersonChangedWhereWindowsResetsNothing)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    m_wallpaper.desired = wants({{"monitor:A", "rice-a.jpg"}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+
+    m_wallpaper.fields()["monitor:A"] = "theirs.jpg"; // never seen live
+    const std::vector<std::string> explorerResets{"taskbar", "appearance"};
+    ASSERT_TRUE(m_engine->reapplyManaged({}, explorerResets).has_value());
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "theirs.jpg");
+    EXPECT_TRUE(m_state->applied("wallpaper").value().empty()); // theirs now
+
+    // A restore of the original leaves it too: it is no longer ours.
+    ASSERT_TRUE(m_engine->restoreOriginal().has_value());
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "theirs.jpg");
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
 }
 
 TEST_F(RiceEngineTest, AutomaticWorkLeavesWhatIsAlreadySoAlone)
@@ -644,7 +685,7 @@ TEST_F(RiceEngineTest, AutomaticWorkLeavesWhatIsAlreadySoAlone)
     m_wallpaper.fields()["monitor:A"] = "windows-default.jpg";
     m_appearance.fields()["dark"] = false;
     const std::vector<std::string> onlyWallpaper{"wallpaper"};
-    const auto reapplied = m_engine->reapplyManaged(onlyWallpaper);
+    const auto reapplied = m_engine->reapplyManaged(onlyWallpaper, onlyWallpaper);
     ASSERT_TRUE(reapplied.has_value()) << reapplied.error().toString();
     EXPECT_EQ(reapplied->modules, onlyWallpaper);
     EXPECT_EQ(m_wallpaper.fields()["monitor:A"], m_state->applied("wallpaper").value()["monitor:A"]);

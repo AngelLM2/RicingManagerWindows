@@ -278,6 +278,13 @@ public:
                 kept.m_pictures.emplace_back(monitor.devicePath, std::move(*file));
             }
         }
+        // One picture everywhere, the one Windows names: it goes back the way Settings sets it (per monitor,
+        // Windows would name its cache, TranscodedWallpaper, as the picture).
+        const auto named = readString(LR"(Control Panel\Desktop)", L"WallPaper");
+        kept.m_everywhere = !kept.m_pictures.empty() && named && sameText(utf16To8Lossy(*named), kept.m_pictures[0].second) &&
+                            std::ranges::all_of(kept.m_pictures, [&](const auto& picture) {
+                                return sameText(picture.second, kept.m_pictures[0].second);
+                            });
         if (const auto position = api.position())
         {
             kept.m_position = *position;
@@ -293,12 +300,23 @@ public:
         }
         Win32WallpaperApi api;
         bool changed = false;
-        for (const auto& [device, file] : m_pictures)
+        const bool moved = std::ranges::any_of(m_pictures, [&](const auto& picture) {
+            const auto now = api.wallpaper(picture.first);
+            return now && !sameText(*now, picture.second);
+        });
+        if (moved && m_everywhere && api.setDesktopWallpaper(m_pictures[0].second))
         {
-            const auto now = api.wallpaper(device);
-            if (now && !sameText(*now, file) && api.setWallpaper(device, file))
+            changed = true;
+        }
+        else if (moved)
+        {
+            for (const auto& [device, file] : m_pictures)
             {
-                changed = true;
+                const auto now = api.wallpaper(device);
+                if (now && !sameText(*now, file) && api.setWallpaper(device, file))
+                {
+                    changed = true;
+                }
             }
         }
         if (const auto now = api.position(); m_position && now && *now != *m_position && api.setPosition(*m_position))
@@ -320,6 +338,7 @@ private:
     }
 
     std::vector<std::pair<std::string, std::string>> m_pictures; // device path, picture
+    bool m_everywhere = false;
     std::optional<ports::WallpaperPosition> m_position;
 };
 
@@ -527,9 +546,10 @@ private:
         };
         for (const auto& app : subkeys(apps))
         {
-            for (const auto& event : subkeys(apps + L"\\" + app))
+            const std::wstring appKey = std::format(L"{}\\{}", apps, app);
+            for (const auto& event : subkeys(appKey))
             {
-                paths.push_back(apps + L"\\" + app + L"\\" + event + L"\\.Current");
+                paths.push_back(std::format(L"{}\\{}\\.Current", appKey, event));
             }
         }
         return paths;

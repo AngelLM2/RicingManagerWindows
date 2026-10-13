@@ -108,7 +108,9 @@ public:
     [[nodiscard]] Result<ipc::Json> perform(const domain::ActionCall& action, Origin origin);
     // Fields of `module` changed outside since we set them: no longer managed. Returns them.
     [[nodiscard]] Result<std::vector<std::string>> detachDrifted(const std::string& module);
-    [[nodiscard]] Result<void> reapply(const std::vector<std::string>& modules);
+    // Sets again what is still ours (see RiceEngine::reapplyManaged for `windowsResets`).
+    [[nodiscard]] Result<void> reapply(const std::vector<std::string>& modules,
+                                       const std::vector<std::string>& windowsResets);
     // Light or dark as the schedule says now. True when it changed something.
     [[nodiscard]] Result<bool> syncSchedule();
     // The next page of the slideshow the core turns on one monitor ("monitor:<key>").
