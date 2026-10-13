@@ -385,7 +385,7 @@ export global Api {
     in property <bool> cursors-managed;
     in property <string> cursors-source;
     in property <[CursorPreview]> cursor-previews;
-    in-out property <int> cursor-size;          // 0 leave, 1 32, 2 48, 3 64, 4 96, 5 128
+    in-out property <int> cursor-size;          // 0 leave, 1 16, 2 24, 3 32, 4 48, 5 64, 6 96, 7 128
     callback cursors-pick();
     callback cursors-clear();
     callback cursors-edited();

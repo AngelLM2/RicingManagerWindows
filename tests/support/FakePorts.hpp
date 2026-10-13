@@ -67,6 +67,27 @@ public:
     }
     std::vector<std::string> removedKeys;
 
+    // Keys are implicit: the first segment under `key` of every value's key.
+    Result<std::vector<std::string>> subkeys(std::string_view key, std::size_t limit) override
+    {
+        const std::string prefix = std::string(key) + "\\";
+        std::set<std::string> names;
+        for (const auto& [where, value] : values)
+        {
+            if (where.first.starts_with(prefix))
+            {
+                const std::string rest = where.first.substr(prefix.size());
+                names.insert(rest.substr(0, rest.find('\\')));
+            }
+        }
+        std::vector<std::string> out(names.begin(), names.end());
+        if (out.size() > limit)
+        {
+            out.resize(limit);
+        }
+        return out;
+    }
+
     void setDword(std::string_view key, std::string_view name, std::uint32_t value)
     {
         values[{std::string(key), std::string(name)}] = ports::RegistryValue::fromDword(value);

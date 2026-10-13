@@ -6,6 +6,7 @@
 
 #include <wil/resource.h>
 
+#include <array>
 #include <cstring>
 #include <format>
 #include <vector>
@@ -241,6 +242,37 @@ Result<void> Win32Registry::removeKeyIfEmpty(std::string_view key)
         return std::unexpected(win32Error(static_cast<std::uint32_t>(status), "delete an empty registry key"));
     }
     return {};
+}
+
+Result<std::vector<std::string>> Win32Registry::subkeys(std::string_view key, std::size_t limit)
+{
+    auto path = fullKey(key);
+    if (!path)
+    {
+        return fail(ErrorCode::InvalidArgument, "registry path is not valid UTF-8");
+    }
+    std::vector<std::string> names;
+    HKEY handle = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, path->c_str(), 0, KEY_ENUMERATE_SUB_KEYS, &handle) != ERROR_SUCCESS)
+    {
+        return names; // not there
+    }
+    for (DWORD i = 0; names.size() < limit; ++i)
+    {
+        std::array<wchar_t, 256> name{}; // a key name is at most 255 characters
+        auto size = static_cast<DWORD>(name.size());
+        const LSTATUS status = RegEnumKeyExW(handle, i, name.data(), &size, nullptr, nullptr, nullptr, nullptr);
+        if (status != ERROR_SUCCESS)
+        {
+            break;
+        }
+        if (auto utf8 = utf16To8(std::wstring_view(name.data(), size)))
+        {
+            names.push_back(std::move(*utf8));
+        }
+    }
+    RegCloseKey(handle);
+    return names;
 }
 
 Result<void> Win32Registry::deleteRoot()

@@ -18,19 +18,23 @@ back as it was.
   if it started with Windows. Your rices and settings stay.
 - **Uninstall** (Settings → Apps, or the Start menu): it asks whether to **restore the Windows look
   you had before** (wallpaper, colors, cursors, taskbar) and whether to **keep your data**. Windows'
-  own taskbar always comes back.
+  own taskbar always comes back, as it was (not left auto-hidden). If you keep the rice on screen and
+  remove your data, the files it shows (pictures, pointers, sounds) stay in
+  `%LOCALAPPDATA%\RicingManagerWindows\store`, because Windows uses them. A note of how your Windows looked
+  stays next to that folder (`RicingManagerWindows.original.json`), so installing Ricing Manager again
+  and restoring the original Windows still brings back your own.
 
 ## First steps
 
 1. Open **Ricing Manager** from the Start menu.
 2. **Rices** lists your library. Pick one — *Diva Stage*, *Tokyo Midnight*, *Sakura Dawn*,
    *Mocha Kawaii* — and press **Apply**. It takes a second or two.
-3. Don't like it? **Home → Undo** goes back to how things were before that rice.
-   **Restore the original Windows** goes back to how Windows was before you first used Ricing
-   Manager.
+3. Don't like it? **Home → Undo** goes back to exactly how things were before that change (pressing
+   it again brings the change back). **Restore the original Windows** goes back to your own Windows.
 
-The first time you apply anything, Ricing Manager notes how your Windows looks, so it can always go
-back.
+Before Ricing Manager changes something, it notes how you had it, so it can always go back. What you
+change yourself afterwards (in Windows' Settings, while a rice is on) is yours: Ricing Manager leaves
+it as you set it, and a restore keeps it.
 
 ## The window
 
@@ -40,7 +44,7 @@ back.
 | **Rices** | Apply, edit, duplicate, share (**Share…** makes a `.rice` file), import (**Import a .rice…**), save your current look as a rice |
 | **Appearance** | Light/dark (or on a schedule), accent color, transparency |
 | **Wallpapers** | Per monitor: a picture, a slideshow folder, a video or a color; how it fits; when videos pause |
-| **Cursors** | A cursor scheme (a folder with `install.inf`, or one file per cursor) and its size |
+| **Cursors** | A cursor scheme (a folder with `install.inf`, or one file per cursor) and its size (16 and 24 draw the rice's pointers smaller; Windows' smallest is 32) |
 | **Taskbar** | Windows' taskbar (alignment, search, auto-hide) — or **bars of your own**: any edge, any size, widgets you drag between left, center and right |
 | **Plugins** | Install (**from a file…** for `.rmwp`, or from a folder), see what each asks for, approve, turn on/off, use in the rice, configure |
 | **Hotkeys and rules** | A hotkey or a rule (time of day, battery, a monitor plugged in) runs an action: apply a rice, toggle dark mode, next wallpaper, open an app… |
@@ -65,9 +69,10 @@ edit is the applied one, its bar follows each change by itself.
   shows it selected again), your mouse pointers as you had them (your own pointer style and size
   included), your sounds, icons, lock screen and wallpaper. Your own files are put back where they
   were; Ricing Manager keeps a copy only for when one of them was deleted. A rice never touches your
-  recent colors or your pointer style behind your back. If something cannot come back (a picture that
-  is gone with its copy), the rest still does, and the message says what stayed: Windows' own picture
-  or theme takes the place of one that is gone.
+  recent colors or your pointer style behind your back. Windows' own defaults never take the place of
+  anything of yours: a theme file of yours that is gone comes back as its colors and its name, and a
+  picture that is gone with its copy leaves the one on screen. The message says what stayed, and what
+  was kept the way you changed it.
 - A rice is plain text (`rice.toml`) plus its files; the format is in the
   [README](../README.md) and in `docs/03-arquitetura.md`.
 

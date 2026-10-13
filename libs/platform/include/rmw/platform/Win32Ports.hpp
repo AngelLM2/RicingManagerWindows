@@ -30,6 +30,7 @@ public:
                                      const ports::RegistryValue& value) override;
     [[nodiscard]] Result<void> remove(std::string_view key, std::string_view name) override;
     [[nodiscard]] Result<void> removeKeyIfEmpty(std::string_view key) override;
+    [[nodiscard]] Result<std::vector<std::string>> subkeys(std::string_view key, std::size_t limit) override;
 
     // Deletes the redirected root and everything below it (no-op for the real HKCU).
     [[nodiscard]] Result<void> deleteRoot();

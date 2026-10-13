@@ -154,10 +154,12 @@ TEST_F(LockScreenTest, ApplyCaptureAndRestore)
     ASSERT_TRUE(system.apply(rice));
     EXPECT_EQ(lockScreen.sets, sets);
 
-    // What was captured before puts everything back: the picture, then Spotlight on.
+    // What was captured before puts everything back: Spotlight on, and no picture set (setting one is what
+    // turns Spotlight off: v1.8 left the lock screen frozen on Spotlight's last picture).
     const Json restore = before->state;
+    const int setsBefore = lockScreen.sets;
     ASSERT_TRUE(system.apply(restore));
-    EXPECT_EQ(lockScreen.source, R"(C:\Windows\Web\Screen\img100.jpg)");
+    EXPECT_EQ(lockScreen.sets, setsBefore);
     EXPECT_EQ(registry.values.at({kDelivery, "RotatingLockScreenEnabled"}).dword, 1u);
     EXPECT_FALSE(registry.values.contains({kDelivery, "RotatingLockScreenOverlayEnabled"}));
 

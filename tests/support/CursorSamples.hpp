@@ -60,6 +60,20 @@ inline std::vector<std::byte> monochromeImage(std::int32_t width = 32, std::int3
     return w.bytes;
 }
 
+// A 32x32 32-bit DIB, opaque white everywhere (alpha 255), with its AND mask (all drawn).
+inline std::vector<std::byte> colorImage()
+{
+    Writer w;
+    w.u32(40).u32(32).u32(64).u16(1).u16(32);
+    w.u32(0).u32(0).u32(0).u32(0).u32(0).u32(0);
+    for (int i = 0; i < 32 * 32; ++i)
+    {
+        w.u8(255).u8(255).u8(255).u8(255);
+    }
+    w.zeros(std::size_t{4} * 32); // AND mask rows (4 bytes each): nothing transparent
+    return w.bytes;
+}
+
 inline std::vector<std::byte> cursorFile(std::uint16_t type = 2,
                                          const std::vector<std::byte>& image = monochromeImage(),
                                          std::uint32_t offset = 22)

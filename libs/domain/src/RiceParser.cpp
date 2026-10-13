@@ -579,10 +579,11 @@ private:
         {
             t.missing("source");
         }
-        config.size = readUnsigned<std::uint32_t>(t, "size", 32, 256);
-        if (config.size && *config.size % 16 != 0)
+        // 16 and 24: the rice's pointers drawn smaller (Windows draws them at 32 px at least).
+        config.size = readUnsigned<std::uint32_t>(t, "size", 16, 256);
+        if (config.size && *config.size != 24 && *config.size % 16 != 0)
         {
-            t.error("size", "size must be a multiple of 16 (32, 48, 64 … 256)");
+            t.error("size", "size must be 16, 24 or a multiple of 16 (32, 48, 64 … 256)");
         }
 
         if (const auto* map = t.table("map"))

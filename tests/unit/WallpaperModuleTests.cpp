@@ -305,7 +305,14 @@ TEST(WallpaperSystem, AfterARiceSlideshowTheirPictureComesBack)
     FakeRegistry registry;
     WallpaperSystem system(topology, api, registry);
     const std::string mine = utf8(dir.path() / "mine.jpg");
-    ASSERT_TRUE(system.apply({{"slideshow", nullptr}, {"position", 4}, {"backgroundType", 0}, {"wallPaperValue", mine}}));
+    const Json restore = {{"slideshow", nullptr}, {"position", 4}, {"backgroundType", 0}, {"wallPaperValue", mine}};
+
+    // No slideshow running (the person chose a picture since): their picture stays, nothing is set.
+    ASSERT_TRUE(system.apply(restore));
+    EXPECT_TRUE(api.desktopWallpaper.empty());
+
+    api.slideshowState.active = true; // the rice's slideshow, still turning
+    ASSERT_TRUE(system.apply(restore));
     EXPECT_EQ(api.desktopWallpaper, mine);
 }
 

@@ -119,7 +119,8 @@ $residueKeys = @(
     'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced',
     'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons',
     'HKCU\Software\Microsoft\Windows\CurrentVersion\Search')
-$volatile = 'InstalledWin32AppsRevision|TranscodedImageCache|TranscodedImageCount|LastUpdated|TaskbarStateLastRun|Pre-High Contrast Scheme|ImageColor|LastWriteTime|ColorizationGlassAttribute|\\History\\Colors|ColorHistory|ThemeChangesDesktopIcons|ThemeChangesMousePointers'
+# (Windows Search writes its own values when Explorer starts: not ours, not the person's.)
+$volatile = 'InstalledWin32AppsRevision|TranscodedImageCache|TranscodedImageCount|LastUpdated|TaskbarStateLastRun|Pre-High Contrast Scheme|ImageColor|LastWriteTime|ColorizationGlassAttribute|\\History\\Colors|ColorHistory|ThemeChangesDesktopIcons|ThemeChangesMousePointers|CortanaStateLastRun|IsWebView2|WebViewBundleType|SearchboxTaskbarModeCache'
 function Registry-Snapshot {
     foreach ($key in $residueKeys) {
         $lines = & reg.exe query $key /s 2>$null
@@ -127,6 +128,9 @@ function Registry-Snapshot {
             $section = $key
             foreach ($line in $lines) {
                 if ($line -match '^HKEY_') { $section = $line.Trim(); continue }
+                # Windows Search keeps its own state there (it changes when Explorer starts): only the
+                # person's choice, the search box, counts.
+                if ($section -match '\\CurrentVersion\\Search$' -and $line.Trim() -notmatch '^SearchboxTaskbarMode\s') { continue }
                 if ($line.Trim() -and $line -notmatch $volatile) { "$section :: $($line.Trim())" }
             }
         } else { "[$key absent]" }
@@ -395,6 +399,74 @@ Step 'pointer-sizes' {
     [void][Rmw.Spi]::SetUInt(0x2029, 0, [IntPtr]64, 3)
     [void][Rmw.Spi]::SetUInt(0x57, 0, [IntPtr]::Zero, 3)
     Note 'pointer-sizes' ($seen -join '; ')
+}
+
+# ---- 7b. a rice's "no sounds" silences every event Windows knows; an Explorer restart leaves a sound the person changed -----
+Step 'sounds' {
+    $folder = Join-Path $Work 'quiet'
+    New-Item -ItemType Directory -Force (Join-Path $folder 'assets') | Out-Null
+    $pop = Get-ChildItem 'C:\Windows\Media' -Filter '*.wav' -ErrorAction SilentlyContinue | Sort-Object Length | Select-Object -First 1
+    Copy-Item $pop.FullName (Join-Path $folder 'assets\pop.wav')
+    [IO.File]::WriteAllText((Join-Path $folder 'rice.toml'), "schema = 1`n`n[meta]`nname = `"Quiet`"`n`n[sounds]`nscheme = `"none`"`n`n[sounds.events]`nnotification = `"assets/pop.wav`"`n")
+    # Every other event first given a sound (as Windows' own scheme has), to see "no sounds" take them all.
+    $events = @(Get-ChildItem 'HKCU:\AppEvents\Schemes\Apps' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq '.Current' })
+    foreach ($event in $events) { Set-ItemProperty $event.PSPath '(default)' 'C:\Windows\Media\Windows Ding.wav' }
+    $person = Look-Now
+    $personRegistry = @(Registry-Snapshot)
+    $r = Apply $folder
+    $loud = @($events | Where-Object { "$((Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).'(default)')" -ne '' -and $_.PSPath -notmatch 'Notification\.Default' })
+    Check 'fidelity:no-sounds-everywhere' ($r.code -eq 0 -and $loud.Count -eq 0) "$($r.code): $($events.Count) events, still sounding: $(($loud | Select-Object -First 5 | ForEach-Object { $_.PSPath -replace '^.*Apps\\', '' }) -join ', ')"
+    # The person picks a sound for Explorer's navigation; Explorer restarts: theirs stays.
+    $navigating = 'HKCU:\AppEvents\Schemes\Apps\Explorer\Navigating\.Current'
+    Set-ItemProperty $navigating '(default)' 'C:\Windows\Media\Windows Navigation Start.wav'
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    for ($i = 0; $i -lt 100 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 200 }
+    if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
+    Start-Sleep -Seconds 15 # the core's Explorer-restart reapply
+    # Windows Search puts its box back when Explorer starts (nothing of ours touches the taskbar here):
+    # the person hides it again, as they had it.
+    Note 'search-after-explorer' "SearchboxTaskbarMode=$((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -ErrorAction SilentlyContinue).SearchboxTaskbarMode)"
+    Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' 'SearchboxTaskbarMode' 0 -Type DWord
+    $theirs = "$((Get-ItemProperty $navigating -ErrorAction SilentlyContinue).'(default)')"
+    Check 'fidelity:explorer-restart-keeps-their-sound' ($theirs -like '*Navigation Start*') "navigating: $theirs"
+    $r = Restore-Original
+    Start-Sleep -Seconds 2
+    $registry = @(Residue $personRegistry @(Registry-Snapshot) | Where-Object { $_ -notmatch 'Explorer\\Navigating\\\.Current' })
+    $nav = "$((Get-ItemProperty $navigating -ErrorAction SilentlyContinue).'(default)')"
+    Check 'fidelity:sounds-come-back-theirs-kept' ($registry.Count -eq 0 -and $nav -like '*Navigation Start*') "$($r.code): navigating $nav; registry: $(Short $registry)"
+    # Back to the person's "no sounds" for what follows.
+    foreach ($event in $events) { Set-ItemProperty $event.PSPath '(default)' '' }
+}
+
+# ---- 7b2. pointers of 24 px (the owner: "no size below 32"): the rice's drawn smaller, Windows at 32 --------------------------
+Step 'small-pointers' {
+    $folder = Join-Path $Work 'small'
+    $cursors = Join-Path $folder 'assets\cursors'
+    New-Item -ItemType Directory -Force $cursors | Out-Null
+    Copy-Item (Join-Path $riceRoot 'Sakura Dawn\assets\cursors\normal.cur') $cursors
+    [IO.File]::WriteAllText((Join-Path $folder 'rice.toml'), "schema = 1`n`n[meta]`nname = `"Small`"`n`n[cursors]`nsource = `"assets/cursors`"`nsize = 24`n`n[cursors.map]`nnormal = `"normal.cur`"`n")
+    $r = Apply $folder
+    $arrow = "$((Get-ItemProperty 'HKCU:\Control Panel\Cursors').Arrow)"
+    $base = (Get-ItemProperty 'HKCU:\Control Panel\Cursors').CursorBaseSize
+    $original = Get-FileHash (Join-Path $cursors 'normal.cur')
+    $drawn = if (Test-Path $arrow) { Get-FileHash $arrow } else { $null }
+    Check 'fidelity:small-pointers' ($r.code -eq 0 -and $base -eq 32 -and $null -ne $drawn -and $drawn.Hash -ne $original.Hash) "$($r.code): base $base, arrow $arrow"
+    $r = Restore-Original
+    Same-As-Person 'small-pointers-then-original' "$($r.code): $(($r.output -split "`n")[0]);"
+}
+
+# ---- 7c. Undo: back to exactly how things were right before the last change ------------------------------------------------
+Step 'undo' {
+    $r = Apply (Join-Path $riceRoot 'Sakura Dawn')
+    Start-Sleep -Seconds 3
+    $withSakura = Look-Now
+    $r = Apply $colors
+    $r = Run @('action', 'rice.undo')
+    Start-Sleep -Seconds 3
+    $back = Differences $withSakura (Look-Now)
+    Check 'fidelity:undo-is-exact' ($r.code -eq 0 -and $back.Count -eq 0) "$($r.code): $(Short $back)"
+    $r = Restore-Original
+    Same-As-Person 'undo-then-original' "$($r.code): $(($r.output -split "`n")[0]);"
 }
 
 # ---- 8. the data folder lost while a rice was on (uninstalled without restoring, data removed), then the app again: --------

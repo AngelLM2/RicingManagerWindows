@@ -145,6 +145,10 @@ Result<Json> CursorsLogic::desiredFromRice(const domain::Rice& rice, engine::IAs
         assignments = std::move(*parsed);
     }
 
+    // Below 32 px (the least Windows draws a pointer at): the rice's pointers drawn smaller in their own
+    // canvas, and Windows at 32.
+    const bool smaller = config.size && *config.size < 32;
+    const double scale = smaller ? static_cast<double>(*config.size) / 32.0 : 1.0;
     for (const auto& assignment : assignments)
     {
         auto path = domain::validatePackagePath(config.source + "/" + assignment.file);
@@ -162,7 +166,20 @@ Result<Json> CursorsLogic::desiredFromRice(const domain::Rice& rice, engine::IAs
         {
             return std::unexpected(std::move(valid.error()).withContext(context));
         }
-        auto stored = assets.fromPackage(*path);
+        Result<std::filesystem::path> stored = std::filesystem::path();
+        if (smaller)
+        {
+            auto shrunk = domain::shrinkCursorFile(*bytes, extensionOf(*path), scale);
+            if (!shrunk)
+            {
+                return std::unexpected(std::move(shrunk.error()).withContext(context));
+            }
+            stored = assets.fromBytes(*shrunk, extensionOf(*path));
+        }
+        else
+        {
+            stored = assets.fromPackage(*path);
+        }
         if (!stored)
         {
             return std::unexpected(std::move(stored.error()));
@@ -179,7 +196,7 @@ Result<Json> CursorsLogic::desiredFromRice(const domain::Rice& rice, engine::IAs
     }
     if (config.size)
     {
-        desired["size"] = *config.size;
+        desired["size"] = smaller ? 32U : *config.size;
     }
     return desired;
 }

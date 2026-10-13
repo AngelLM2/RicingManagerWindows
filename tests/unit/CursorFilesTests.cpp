@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -140,6 +141,40 @@ TEST(CursorInf, RejectsHostileOrUselessFiles)
     ASSERT_TRUE(traversal.has_value());
     EXPECT_EQ((*traversal)[0].file, "x.cur");
     EXPECT_FALSE(parseCursorInf(std::string(70'000, 'x')).has_value());
+}
+
+// The owner's fourth test: "no pointer size below 32". The rice's pointers drawn smaller in their canvas.
+TEST(CursorFiles, ACursorIsDrawnSmallerInItsCanvas)
+{
+    const auto original = cursorFile(2, colorImage());
+    const auto shrunk = shrinkCursorFile(original, "cur", 0.5);
+    ASSERT_TRUE(shrunk.has_value()) << shrunk.error().toString();
+    ASSERT_EQ(shrunk->size(), original.size()); // same structure
+    const auto u8 = [&](std::size_t at) { return std::to_integer<std::uint8_t>((*shrunk)[at]); };
+    const auto u16 = [&](std::size_t at) { return static_cast<std::uint16_t>(u8(at) | (u8(at + 1) << 8)); };
+    EXPECT_EQ(u16(6 + 4), 2); // the hotspot, from (4, 4)
+    EXPECT_EQ(u16(6 + 6), 2);
+    // Pixels: rows bottom-up from 22 + 40. The top-left 16x16 drawn, the rest transparent (alpha 0, mask set).
+    const auto alpha = [&](std::size_t x, std::size_t topDownY) {
+        return u8(22 + 40 + ((((31 - topDownY) * 32) + x) * 4) + 3);
+    };
+    const auto maskBit = [&](std::size_t x, std::size_t topDownY) {
+        return (u8(22 + 40 + (32 * 32 * 4) + ((31 - topDownY) * 4) + (x / 8)) & (0x80U >> (x % 8))) != 0;
+    };
+    EXPECT_EQ(alpha(0, 0), 255);
+    EXPECT_EQ(alpha(15, 15), 255);
+    EXPECT_FALSE(maskBit(15, 15));
+    EXPECT_EQ(alpha(16, 16), 0);
+    EXPECT_EQ(alpha(31, 31), 0);
+    EXPECT_TRUE(maskBit(31, 31));
+
+    // A monochrome bitmap stays as it is (only the hotspot moves); an .ani's frames go one by one.
+    const auto mono = shrinkCursorFile(cursorFile(), "cur", 0.75);
+    ASSERT_TRUE(mono.has_value());
+    EXPECT_TRUE(std::equal(mono->begin() + 22, mono->end(), cursorFile().begin() + 22));
+    EXPECT_TRUE(shrinkCursorFile(aniFile(), "ani", 0.75).has_value());
+    EXPECT_FALSE(shrinkCursorFile(original, "cur", 0.1).has_value());
+    EXPECT_FALSE(shrinkCursorFile(std::vector<std::byte>(10), "cur", 0.5).has_value());
 }
 
 } // namespace

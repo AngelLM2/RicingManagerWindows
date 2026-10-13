@@ -200,13 +200,14 @@ TEST_F(SoundsTest, EventsAreValidatedAndStored)
     EXPECT_FALSE(fields->contains("beep")); // not in the rice: left alone
     EXPECT_EQ((*fields)["scheme"]["data"], ".Current");
 
-    // Silence everywhere: Windows' "No Sounds".
+    // Silence everywhere: Windows' "No Sounds" (every other event too).
     m_rice.sounds = SoundsConfig{SoundScheme::None, {}};
     const auto none = desired();
     ASSERT_TRUE(none.has_value());
-    EXPECT_EQ(none->size(), kSoundEventCount + 1);
+    EXPECT_EQ(none->size(), kSoundEventCount + 2);
     EXPECT_EQ((*none)["scheme"]["data"], ".None");
     EXPECT_EQ((*none)["navigating"]["data"], "");
+    EXPECT_EQ((*none)["others"], "silent");
 
     // A broken .wav never reaches the store.
     auto broken = wave();
@@ -244,6 +245,40 @@ TEST(SoundsSystem, CapturesAndAppliesTheEvents)
     ASSERT_TRUE(system.apply({{"empty-recycle-bin", nullptr}}));
     EXPECT_FALSE(registry.values.contains({recycle, ""}));
     EXPECT_FALSE(system.apply({{"beep", 3}}).has_value()); // not the field shape
+}
+
+// The fourth real test: a rice's "no sounds" left every event but the eighteen playing (an app's own,
+// Explorer's others). Now all of them, and a restore puts each back.
+TEST(SoundsSystem, NoSoundsSilencesEveryEventAndARestoreBringsEachBack)
+{
+    const std::string app = R"(AppEvents\Schemes\Apps\SomeApp\Ding\.Current)";
+    const std::string other = R"(AppEvents\Schemes\Apps\Explorer\BlockedPopup\.Current)";
+    FakeRegistry registry;
+    registry.values[{app, ""}] = rmw::ports::RegistryValue::fromString(R"(C:\Users\me\ding.wav)");
+    registry.values[{other, ""}] = rmw::ports::RegistryValue::fromExpandString(R"(%SystemRoot%\media\Windows Pop-up Blocked.wav)");
+    FakeShell shell;
+    SoundsSystem system(registry, shell);
+    const auto before = system.capture();
+    ASSERT_TRUE(before.has_value());
+    const Json others = before->state["others"];
+    ASSERT_EQ(others.size(), 2u);
+    EXPECT_EQ(others[R"(Apps\SomeApp\Ding)"]["data"], R"(C:\Users\me\ding.wav)");
+
+    ASSERT_TRUE(system.apply({{"others", "silent"}}));
+    EXPECT_EQ(registry.values.at({app, ""}).text, "");
+    EXPECT_EQ(registry.values.at({other, ""}).text, "");
+    const SoundsLogic logic;
+    EXPECT_TRUE(logic.fieldEquivalent("others", "silent", system.capture()->state["others"]));
+    EXPECT_FALSE(logic.fieldEquivalent("others", "silent", others));
+
+    ASSERT_TRUE(system.apply({{"others", others}}));
+    EXPECT_EQ(registry.values.at({app, ""}).text, R"(C:\Users\me\ding.wav)");
+    EXPECT_EQ(registry.values.at({other, ""}).type, rmw::ports::RegistryValue::Type::ExpandString);
+
+    // An event an app adds afterwards is no change of ours.
+    Json later = system.capture()->state["others"];
+    later[R"(Apps\NewApp\Hello)"] = Json{{"type", "string"}, {"data", R"(C:\new.wav)"}};
+    EXPECT_TRUE(logic.fieldEquivalent("others", others, later));
 }
 
 TEST(SoundsExport, UsersFilesGoWindowsOwnStay)
