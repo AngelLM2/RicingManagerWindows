@@ -70,17 +70,24 @@ Depois, cada caminho tem que deixar tudo isso como estava, comparando o registro
 16. Sem restaurar e com "remover dados", ficam o `store` (as fotos, ponteiros e sons que o Windows ainda usa) e a cópia do original. Antes, o Windows ficava com setas padrão, silêncio e ícones em branco.
 17. Restaurando e removendo os dados, a cópia do original também sai.
 
+### Voltar no histórico e tweaks
+
+18. **Voltar para antes de um rice traz o que um rice posterior pegou primeiro.** O retrato daquele momento não tinha o campo, porque só o rice seguinte o pegou. Agora o campo volta como a primeira operação posterior a pegá-lo o encontrou; a v1.8 deixava como o rice posterior pôs. Um campo que nenhuma operação posterior pegou não mudou desde então e fica. A primeira versão desta correção usava o original nesse caso, e a `fidelity` pegou: desfazer um rice devolvia ao Windows da pessoa o papel de parede e os ponteiros do rice anterior.
+19. **Tweaks não brigam mais com os módulos.** O layout e as recomendações do Iniciar, o Destaque da tela de bloqueio e tudo em `AppEvents\Schemes` (sons) passam a ser recusados num tweak, como já eram o papel de parede e o modo escuro. Um tweak neles seria desfeito como "mudança da pessoa", ou desfaria o rice.
+
 ### Abertura, fechamento e sincronização
 
-Um agente separado trabalha nisto (ver a seção de resultados):
+Revisado por um agente separado, com nove itens, e conferido na suíte `break` (passo `lifecycle`):
 
-- a barra é encerrada de verdade ao sair, e não morta, para a faixa reservada voltar;
-- `rmw shutdown` não abre o app inteiro só para fechar;
-- reabrir logo depois de fechar funciona;
-- o supervisor não mata workers ao acordar do sono;
-- a ordem de saída na hora de sair do Windows;
-- a janela não apaga edições feitas no `settings.toml` por fora;
-- teclas presas.
+20. **A barra sai quando pedida e devolve a tela.** Antes, sair, desligar a barra ou restaurar matava a barra, e a faixa reservada ficava vazia na tela. Agora o core pede, espera 2 s e só então encerra. Se ela acabar mal, o core remove as app bars mortas dela e anuncia a área de trabalho de novo (`<dados>\bar\space.json`). Um pedido feito enquanto a barra ainda está abrindo é repetido até ela poder ouvir: na primeira rodada, uma barra aberta 48 ms antes do fechamento foi encerrada à força.
+21. **`rmw shutdown` e `rmw autostart` não abrem o app.** O instalador e o desinstalador abriam o core inteiro (barra, *tiler*, vídeo, plugins, talvez um pedido de administrador) só para fechá-lo.
+22. **Reabrir logo depois de fechar funciona.** O *pipe* fecha assim que a parada começa. Um core novo espera o antigo terminar (até 15 s), e os clientes tentam de novo.
+23. **Dormir não é travar.** Um intervalo maior que o silêncio permitido entre duas checagens dá um novo prazo, e as checagens pausam entre a suspensão e a volta.
+24. **Ao sair do Windows**, a barra e o *tiler* são avisados antes dos apps.
+25. **A janela de configurações** não apaga edições feitas no `settings.toml` por fora: aplica só os campos que ela mudou, e recusa se as duas edições conflitarem. Fechada, ela sempre termina o processo; antes, uma miniatura presa no shell podia segurá-lo.
+26. **Teclas presas:** depois de um *tiler* que acabou mal, o core solta os modificadores que o Windows ainda vê apertados.
+27. **`rmw-tiler --restore`** tira também o visual do rice das janelas dos outros apps.
+28. **A barra termina limpa.** Na suíte `break` da v1.8.1, saídas normais da barra acabavam em 0xC0000409 depois de "bar: stopped", e o core contava como queda. Depois de devolver tudo, a barra agora se encerra sem esperar o resto da desmontagem (Slint, COM, DLLs do shell).
 
 ## Limites conhecidos
 
@@ -88,3 +95,6 @@ Um agente separado trabalha nisto (ver a seção de resultados):
 - **Destaque da tela de bloqueio:** volta ligado, mas a Sandbox não tem rede para confirmar que o Windows volta a trocar as fotos. Isso se confere no PC real.
 - **Um atalho com o ícone mudado à mão** tira todo o campo de ícones de apps do app. Os outros ícones do rice ficam até a pessoa trocar o rice.
 - **Ponteiros abaixo de 32 px** só funcionam com os ponteiros do próprio rice. Os do Windows não são redesenhados.
+- **A queda 0xC0000409 da barra ao sair** não foi reproduzida fora da suíte; a causa, fora do nosso código, segue desconhecida. A barra agora não passa mais por esse trecho.
+- **Teclas presas:** o Windows não distingue a tecla física da lógica. Ao soltar Win ou Alt, o core manda antes uma tecla sem função, para não abrir o Iniciar nem a barra de menus.
+- **Desligar a barra** (`bar.off`, Ctrl+Alt+Win+T) traz a barra do Windows de volta como o rice a deixou (em auto-ocultar, quando o rice pede); "Restaurar" a traz como era.

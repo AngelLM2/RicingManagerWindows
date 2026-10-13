@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <format>
 #include <memory>
 #include <thread>
@@ -422,14 +423,41 @@ Result<std::uint32_t> Win32WallpaperApi::backgroundColor()
 Result<void> Win32WallpaperApi::setBackgroundColor(std::uint32_t rgb)
 {
     const COLORREF color = RGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
-    return onSta<void>([&](IDesktopWallpaper& api) -> Result<void> {
-        const HRESULT hr = api.SetBackgroundColor(color);
-        if (FAILED(hr))
+    const auto set = [&] {
+        return onSta<void>([&](IDesktopWallpaper& api) -> Result<void> {
+            const HRESULT hr = api.SetBackgroundColor(color);
+            if (FAILED(hr))
+            {
+                return std::unexpected(hresultError(hr, "SetBackgroundColor"));
+            }
+            return {};
+        });
+    };
+    if (auto done = set(); !done)
+    {
+        return done;
+    }
+    // Explorer may still be finishing the picture set just before, and write the color it had over ours (the
+    // fidelity suite, once: the rice's color after a restore). Read back while it settles, and set it again.
+    const std::wstring wanted = std::format(L"{} {} {}", GetRValue(color), GetGValue(color), GetBValue(color));
+    for (const auto wait : {std::chrono::milliseconds(400), std::chrono::milliseconds(1200)})
+    {
+        std::this_thread::sleep_for(wait);
+        std::array<wchar_t, 32> text{};
+        auto size = static_cast<DWORD>(text.size() * sizeof(wchar_t));
+        if (RegGetValueW(HKEY_CURRENT_USER, LR"(Control Panel\Colors)", L"Background", RRF_RT_REG_SZ, nullptr,
+                         text.data(), &size) == ERROR_SUCCESS &&
+            text.data() != wanted)
         {
-            return std::unexpected(hresultError(hr, "SetBackgroundColor"));
+            log::info("wallpaper: Explorer wrote the background color over ours ({}); set again",
+                      utf16To8Lossy(text.data()));
+            if (auto again = set(); !again)
+            {
+                return again;
+            }
         }
-        return {};
-    });
+    }
+    return {};
 }
 
 Result<ports::SlideshowState> Win32WallpaperApi::slideshow()

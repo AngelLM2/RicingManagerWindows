@@ -105,9 +105,18 @@ function Look-Now {
         TaskbarLeft  = Value 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarAl'
     }
 }
+# Our theme is written to RicingManager.theme and RicingManager-2.theme in turn (Windows applies a file again only
+# under another name): the same look under either.
+function Same-Value([string] $Key, [string] $A, [string] $B) {
+    if ($Key -eq 'Theme') {
+        $A = $A -replace 'RicingManager-2\.theme$', 'RicingManager.theme'
+        $B = $B -replace 'RicingManager-2\.theme$', 'RicingManager.theme'
+    }
+    $A -eq $B
+}
 function Differences($Before, $After, [string[]] $Only = @()) {
     @($Before.Keys | Where-Object { $Only.Count -eq 0 -or $Only -contains $_ } |
-        Where-Object { "$($Before[$_])" -ne "$($After[$_])" } |
+        Where-Object { -not (Same-Value $_ "$($Before[$_])" "$($After[$_])") } |
         ForEach-Object { "$_ '$($Before[$_])' -> '$($After[$_])'" })
 }
 # Everything Windows keeps for the look, as reg.exe prints it (values Windows changes on its own left out).
@@ -253,6 +262,8 @@ $person = Look-Now
 $personRegistry = @(Registry-Snapshot)
 Note 'person' (($person.Keys | ForEach-Object { "$_=$($person[$_])" }) -join '; ')
 
+# The first line of a report, and what it kept (a field it left as it found it says why).
+function Report($R) { @(($R.output -split "`n") | Where-Object { $_ -match '^\s*kept ' -or $_ -eq ($R.output -split "`n")[0] } | ForEach-Object { $_.Trim() }) -join ' / ' }
 function Same-As-Person([string] $Name, [string] $Detail = '') {
     Start-Sleep -Seconds 2
     $look = Differences $person (Look-Now)
@@ -274,7 +285,7 @@ function Colors-Only([string] $Name) {
     Check "fidelity:$Name-applies" ($r.code -eq 0 -and $after.AppsLight -eq 1 -and $after.Accent -eq '2E9D5B') "$($r.code): $($r.output); light=$($after.AppsLight) accent=$($after.Accent)"
     Check "fidelity:$Name-touches-only-the-look" ($touched.Count -eq 0) (Short $touched)
     $r = Restore-Original
-    Same-As-Person "$Name-restores-all" "$($r.code): $(($r.output -split "`n")[0]);"
+    Same-As-Person "$Name-restores-all" "$($r.code): $(Report $r);"
 }
 
 # ---- 1. a rice of colors only: nothing but the look changes, and all of it comes back --------------------------------
@@ -300,7 +311,7 @@ Step 'official' {
     Note 'official-applied' ($applied -join ', ')
     Check 'fidelity:official-apply' (@($applied | Where-Object { $_ -notmatch '=0$' }).Count -eq 0) ($applied -join ', ')
     $r = Restore-Original
-    Same-As-Person 'official-then-original' "$($r.code): $(($r.output -split "`n")[0]);"
+    Same-As-Person 'official-then-original' "$($r.code): $(Report $r);"
     Check 'fidelity:official-taskbar-back' (Native-Taskbar) ''
 }
 
@@ -333,7 +344,7 @@ Step 'close-open' {
     $afterOpen = Look-Now
     Check 'fidelity:opened-nothing-changes' ((Differences $withRice $afterOpen).Count -eq 0) (Short (Differences $withRice $afterOpen))
     $r = Restore-Original
-    Same-As-Person 'close-open-restores-all' "$($r.code): $(($r.output -split "`n")[0]);"
+    Same-As-Person 'close-open-restores-all' "$($r.code): $(Report $r);"
 }
 
 # ---- 6. the person changes something while a rice is on: the app leaves it alone ----------------------------------------------
@@ -452,7 +463,7 @@ Step 'small-pointers' {
     $drawn = if (Test-Path $arrow) { Get-FileHash $arrow } else { $null }
     Check 'fidelity:small-pointers' ($r.code -eq 0 -and $base -eq 32 -and $null -ne $drawn -and $drawn.Hash -ne $original.Hash) "$($r.code): base $base, arrow $arrow"
     $r = Restore-Original
-    Same-As-Person 'small-pointers-then-original' "$($r.code): $(($r.output -split "`n")[0]);"
+    Same-As-Person 'small-pointers-then-original' "$($r.code): $(Report $r);"
 }
 
 # ---- 7c. Undo: back to exactly how things were right before the last change ------------------------------------------------
@@ -461,12 +472,14 @@ Step 'undo' {
     Start-Sleep -Seconds 3
     $withSakura = Look-Now
     $r = Apply $colors
-    $r = Run @('action', 'rice.undo')
+    # --wait: as the settings window does, asked again while the core is busy (Windows' notices of the apply
+    # may still be settling).
+    $r = Run @('action', 'rice.undo', '--wait')
     Start-Sleep -Seconds 3
     $back = Differences $withSakura (Look-Now)
-    Check 'fidelity:undo-is-exact' ($r.code -eq 0 -and $back.Count -eq 0) "$($r.code): $(Short $back)"
+    Check 'fidelity:undo-is-exact' ($r.code -eq 0 -and $back.Count -eq 0) "$($r.code) '$(($r.output -split "`n")[0])': $(Short $back)"
     $r = Restore-Original
-    Same-As-Person 'undo-then-original' "$($r.code): $(($r.output -split "`n")[0]);"
+    Same-As-Person 'undo-then-original' "$($r.code): $(Report $r);"
 }
 
 # ---- 8. the data folder lost while a rice was on (uninstalled without restoring, data removed), then the app again: --------
@@ -478,6 +491,11 @@ Step 'data-lost' {
     Stop-Core
     $durable = "$data.original.json"
     Check 'fidelity:original-kept-next-to-the-data' (Test-Path $durable) $durable
+    if (Test-Path (Join-Path $data 'logs')) {
+        # The logs of every step before (the folder goes now).
+        Remove-Item (Join-Path $Out 'fidelity-logs-before-loss') -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item (Join-Path $data 'logs') (Join-Path $Out 'fidelity-logs-before-loss') -Recurse -Force
+    }
     Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
     $r = Apply (Join-Path $riceRoot 'Mocha Kawaii')
     $r = Restore-Original
@@ -487,7 +505,7 @@ Step 'data-lost' {
     if ("$($after.Theme)" -match '\\Resources\\Themes\\(aero|dark)\.theme') { $defaults += "theme $($after.Theme)" }
     if ("$($after.Wallpaper)" -match '\\Web\\Wallpaper\\Windows\\img') { $defaults += "wallpaper $($after.Wallpaper)" }
     Check 'fidelity:data-lost-never-windows-defaults' ($defaults.Count -eq 0) ($defaults -join '; ')
-    Same-As-Person 'data-lost-original-comes-back' "$($r.code): $(($r.output -split "`n")[0]);"
+    Same-As-Person 'data-lost-original-comes-back' "$($r.code): $(Report $r);"
 }
 
 # ---- the end ---------------------------------------------------------------------------------------------------------------

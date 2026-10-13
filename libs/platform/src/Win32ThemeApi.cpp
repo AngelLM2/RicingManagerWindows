@@ -348,7 +348,7 @@ private:
 // of Control Panel\Cursors (the pointers, their scheme, their size) and the pointer style of Accessibility
 // (size, type, color); the wallpaper and the screen saver; the sound scheme and every event's sound; the
 // desktop icons shown and their pictures; Settings' recent colors (every apply adds its accent to them) and
-// the theme to come back to after high contrast.
+// the theme to come back to after high contrast; the desktop's color behind the picture (the wallpaper's).
 class Kept
 {
 public:
@@ -385,6 +385,7 @@ public:
         bool cursors = false;
         bool saver = false;
         bool icons = false;
+        bool desktopColor = false;
         std::optional<DWORD> size;
         for (const Key& before : m_keys)
         {
@@ -425,6 +426,7 @@ public:
             cursors = cursors || (changed && before.refresh == Refresh::Cursors);
             saver = saver || (changed && before.refresh == Refresh::ScreenSaver);
             icons = icons || (changed && before.refresh == Refresh::DesktopIcons);
+            desktopColor = desktopColor || (changed && before.refresh == Refresh::DesktopColor);
         }
         if (cursors)
         {
@@ -458,6 +460,22 @@ public:
             SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSHNOWAIT, nullptr, nullptr);
             log::info("theme: the desktop icons a theme apply changed are back");
         }
+        if (desktopColor)
+        {
+            // Windows keeps it in memory too ("R G B" in the registry).
+            unsigned red = 0;
+            unsigned green = 0;
+            unsigned blue = 0;
+            const auto text = readString(LR"(Control Panel\Colors)", L"Background").value_or(L"");
+            if (swscanf_s(text.c_str(), L"%u %u %u", &red, &green, &blue) == 3 && red < 256 && green < 256 &&
+                blue < 256)
+            {
+                const INT element = COLOR_DESKTOP;
+                const COLORREF color = RGB(red, green, blue);
+                SetSysColors(1, &element, &color);
+            }
+            log::info("theme: the desktop color a theme apply changed is back");
+        }
         m_wallpapers.putBack();
     }
 
@@ -468,6 +486,7 @@ private:
         Cursors,
         ScreenSaver,
         DesktopIcons,
+        DesktopColor,
     };
     struct Value
     {
@@ -489,10 +508,11 @@ private:
         std::size_t count = 0;
         Refresh refresh = Refresh::None;
     };
-    static constexpr std::array<Spec, 15> kKeys = {{
+    static constexpr std::array<Spec, 16> kKeys = {{
         {LR"(Control Panel\Cursors)", {}, 0, Refresh::Cursors},
         {LR"(Software\Microsoft\Accessibility)", {L"CursorSize", L"CursorType", L"CursorColor"}, 3, Refresh::Cursors},
         {LR"(Control Panel\Desktop)", {L"WallPaper", L"WallpaperStyle", L"TileWallpaper"}, 3, Refresh::None},
+        {LR"(Control Panel\Colors)", {L"Background"}, 1, Refresh::DesktopColor},
         {LR"(Control Panel\Desktop)",
          {L"SCRNSAVE.EXE", L"ScreenSaveActive", L"ScreenSaveTimeOut", L"ScreenSaverIsSecure"},
          4,
