@@ -3,6 +3,7 @@
 #include "Surface.hpp"
 
 #include "rmw/bar/Geometry.hpp"
+#include "rmw/bar/Space.hpp"
 #include "rmw/domain/Rice.hpp"
 
 #include <slint-platform.h>
@@ -44,6 +45,10 @@ public:
     void setMatte(Surface::Matte matte) { m_matte = std::move(matte); }
     // How long the bar wants to be, in logical pixels (length = "auto", M10).
     void setContentLength(std::function<double()> length) { m_contentLength = std::move(length); }
+    // What it holds of the screen (an app bar, a strip): `window` 0 when nothing. Whoever is told of
+    // changes keeps it where the core finds it if this process ends badly.
+    [[nodiscard]] bar::SpaceEntry space() const noexcept;
+    void setSpaceChanged(std::function<void()> changed) { m_spaceChanged = std::move(changed); }
 
 private:
     struct Access;
@@ -76,6 +81,7 @@ private:
     // The window at the length it has now (m_shownContent) in the area place() found: no new request to the
     // shell (the strip a bar reserves does not depend on its length).
     void reshape();
+    void noteSpace(); // tells m_spaceChanged when space() is not what it was
     [[nodiscard]] slint::LogicalPosition logical(std::int32_t x, std::int32_t y) const;
 
     domain::BarConfig m_config;
@@ -104,6 +110,8 @@ private:
     bool m_autohide = false;
     bool m_tucked = false;
     std::function<double()> m_contentLength;
+    std::function<void()> m_spaceChanged;
+    bar::SpaceEntry m_toldSpace;  // what m_spaceChanged last heard
     double m_placedContent = 0.0; // the content length the window goes to
     double m_shownContent = 0.0;  // ... and the one it has now, on the way there
     double m_growFrom = 0.0;

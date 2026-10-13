@@ -100,6 +100,9 @@ public:
     SingleInstance& operator=(SingleInstance&&) = delete;
 
     [[nodiscard]] bool owned() const noexcept { return m_owned; }
+    // Not owned: waits up to `timeout` for the owner to let go (it ends, or releases it); true when
+    // this process owns it now.
+    [[nodiscard]] bool waitOwned(std::chrono::milliseconds timeout) noexcept;
 
 private:
     SingleInstance() noexcept = default;

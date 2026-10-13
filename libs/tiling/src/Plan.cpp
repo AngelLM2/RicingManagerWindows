@@ -485,6 +485,11 @@ const domain::TilingRule* matchRule(std::span<const domain::TilingRule> rules, c
 
 std::string toJson(std::span<const Original> windows)
 {
+    return toJson(windows, std::nullopt);
+}
+
+std::string toJson(std::span<const Original> windows, const std::optional<Painted>& painted)
+{
     Json list = Json::array();
     for (const auto& w : windows)
     {
@@ -495,7 +500,67 @@ std::string toJson(std::span<const Original> windows)
                         {"hidden", w.hidden},
                         {"placed", w.placed}});
     }
-    return json::dump({{"version", kPlanVersion}, {"windows", std::move(list)}});
+    Json root = {{"version", kPlanVersion}, {"windows", std::move(list)}};
+    if (painted)
+    {
+        Json paintedList = Json::array();
+        for (const auto& w : painted->windows)
+        {
+            paintedList.push_back(Json::array({w.window, w.process}));
+        }
+        root["painted"] = {{"look", lookJson(painted->look)},
+                           {"systemDark", painted->systemDark},
+                           {"windows", std::move(paintedList)}};
+    }
+    return json::dump(root);
+}
+
+Result<std::optional<Painted>> parsePainted(std::string_view text)
+{
+    auto parsed = json::parse(text, json::ParseLimits{.maxBytes = kMaxOriginalsBytes});
+    if (!parsed)
+    {
+        return std::unexpected(std::move(parsed.error()));
+    }
+    const Json& root = *parsed;
+    if (!root.is_object() || intIn(root, "version", 0, 1000) != kPlanVersion)
+    {
+        return fail(ErrorCode::InvalidData, "tiler windows: not a version 1 list");
+    }
+    const auto found = root.find("painted");
+    if (found == root.end() || found->is_null())
+    {
+        return std::optional<Painted>();
+    }
+    const auto look = found->is_object() ? found->find("look") : found->end();
+    const auto windows = found->is_object() ? found->find("windows") : found->end();
+    const auto systemDark = found->is_object() ? boolIn(*found, "systemDark") : std::nullopt;
+    if (look == found->end() || windows == found->end() || !windows->is_array() ||
+        windows->size() > kMaxOriginals || !systemDark)
+    {
+        return fail(ErrorCode::InvalidData, "tiler windows: the painted ones are malformed");
+    }
+    auto parsedLook = lookFrom(*look);
+    if (!parsedLook)
+    {
+        return std::unexpected(std::move(parsedLook.error()));
+    }
+    Painted painted{std::move(*parsedLook), *systemDark, {}};
+    painted.windows.reserve(windows->size());
+    for (const auto& entry : *windows)
+    {
+        // (A negative number reads as a huge unsigned one: out of range as well.)
+        if (!entry.is_array() || entry.size() != 2 || !entry[0].is_number_integer() ||
+            !entry[1].is_number_integer() || entry[0].get<std::uint64_t>() == 0 ||
+            entry[0].get<std::uint64_t>() > (std::uint64_t{1} << 48) ||
+            entry[1].get<std::uint64_t>() > 0xFFFFFFFF)
+        {
+            return fail(ErrorCode::InvalidData, "tiler windows: a painted window is malformed");
+        }
+        painted.windows.push_back({static_cast<WindowId>(entry[0].get<std::uint64_t>()),
+                                   static_cast<std::uint32_t>(entry[1].get<std::uint64_t>())});
+    }
+    return std::optional<Painted>(std::move(painted));
 }
 
 Result<std::vector<Original>> parseOriginals(std::string_view text)

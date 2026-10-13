@@ -369,6 +369,9 @@ int run(std::span<const std::wstring_view> args)
 
 int wmain(int argc, wchar_t** argv) // NOLINT(misc-use-internal-linkage): the entry point
 {
+    // Told of a sign-out before the apps (0x3FF: the first of the applications' range): the windows it hid
+    // are shown again (WM_QUERYENDSESSION) before the apps ask "save your work?" from them.
+    SetProcessShutdownParameters(0x3FF, 0);
     try
     {
         if (auto hardened = rmw::platform::hardenProcess(); !hardened)

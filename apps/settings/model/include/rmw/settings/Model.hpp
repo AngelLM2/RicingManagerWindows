@@ -138,4 +138,25 @@ void markKey(domain::BarConfig& bar, std::string_view key);
 [[nodiscard]] Result<void> saveSettings(const std::filesystem::path& dataDirectory,
                                         const domain::Settings& settings);
 
+// settings.toml as the window read it: what it says, and its text (nullopt: there was no file), so a
+// save can tell whether something else wrote the file meanwhile.
+struct ReadSettings
+{
+    domain::Settings settings;
+    std::optional<std::string> text;
+};
+[[nodiscard]] Result<ReadSettings> readSettings(const std::filesystem::path& dataDirectory,
+                                                std::span<const std::string_view> knownActions);
+// Each field `edited` changed from `base` is `edited`'s, every other `onDisk`'s (the tiling part field by
+// field).
+[[nodiscard]] domain::Settings mergeSettings(const domain::Settings& base, const domain::Settings& edited,
+                                             const domain::Settings& onDisk);
+// Writes the window's `edited` copy of `read`. A file someone else changed since it was read (a text
+// editor, another window) is read again and gets only what the window changed: v1.8.1 wrote its old
+// copy over such edits. One that does not read now is not written (it fails). Returns what the file
+// holds after.
+[[nodiscard]] Result<ReadSettings> saveSettingsOver(const std::filesystem::path& dataDirectory,
+                                                    const ReadSettings& read, const domain::Settings& edited,
+                                                    std::span<const std::string_view> knownActions);
+
 } // namespace rmw::settings

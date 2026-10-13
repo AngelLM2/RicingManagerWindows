@@ -1,5 +1,6 @@
 // rmw.exe — command-line client of rmw-core (docs/04 M1). English on purpose for v1.0.
 
+#include "CoreNeed.hpp"
 #include "PluginTools.hpp"
 
 #include "rmw/base/Limits.hpp"
@@ -10,6 +11,7 @@
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/ipc/JsonRpc.hpp"
 #include "rmw/package/Package.hpp"
+#include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/Console.hpp"
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
@@ -876,6 +878,124 @@ int pluginCommand(const Options& options)
     return Ok;
 }
 
+// `rmw autostart on|off|status`: the per-user Run entry alone. No core needed: the uninstaller runs
+// `autostart off` with Ricing Manager stopped, and it started a whole core (bar, tiler...) for it.
+int autostartCommand(const Options& options)
+{
+    const std::string choice = options.positional.size() == 1 ? options.positional[0] : std::string();
+    if (choice != "on" && choice != "off" && choice != "status")
+    {
+        err("rmw: usage: rmw autostart on|off|status");
+        return Usage;
+    }
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return failure(self.error());
+    }
+    // The entry starts the core of this installation (`rmw-core --startup`), as the core itself writes it.
+    const auto core = self->parent_path() / L"rmw-core.exe";
+    if (choice != "status")
+    {
+        if (auto set = platform::setAutostart(choice == "on", core); !set)
+        {
+            return failure(set.error());
+        }
+    }
+    auto state = platform::autostartState(core);
+    if (!state)
+    {
+        return failure(state.error());
+    }
+    if (state->registered && state->current)
+    {
+        out("Ricing Manager starts with Windows.");
+    }
+    else if (state->registered)
+    {
+        out("A start entry exists but points elsewhere: " + utf16To8Lossy(state->command));
+    }
+    else
+    {
+        out("Ricing Manager does not start with Windows.");
+    }
+    if (state->registered && state->disabledByUser)
+    {
+        out("It is switched off in Task Manager (Startup apps); turn it on there if you want it.");
+    }
+    return Ok;
+}
+
+// `rmw shutdown --wait`: until the core and its helpers from this installation are gone (the installer
+// replaces or removes their files next). The bar first hands Windows' taskbar back.
+int waitUntilStopped(const Options& options)
+{
+    auto self = platform::currentExecutable();
+    if (!self)
+    {
+        return failure(self.error());
+    }
+    constexpr std::array<std::wstring_view, 6> kPrograms = {L"rmw-core.exe",      L"rmw-bar.exe",
+                                                            L"rmw-wallpaper.exe", L"rmw-plugin-host.exe",
+                                                            L"rmw-settings.exe",  L"rmw-tiler.exe"};
+    // The settings window closes like when its X is clicked.
+    constexpr std::array<std::wstring_view, 1> kWindows = {L"rmw-settings.exe"};
+    auto windows = platform::processesFromFolder(self->parent_path(), kWindows);
+    EnumWindows(
+        [](HWND window, LPARAM pids) -> BOOL {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            // NOLINTNEXTLINE(performance-no-int-to-ptr): EnumWindows hands its context back as an LPARAM
+            if (std::ranges::contains(*reinterpret_cast<std::vector<std::uint32_t>*>(pids), pid) &&
+                IsWindowVisible(window) != FALSE)
+            {
+                PostMessageW(window, WM_CLOSE, 0, 0);
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&windows));
+    const auto deadline = std::chrono::steady_clock::now() + 30s;
+    auto askAgain = std::chrono::steady_clock::now() + 1s;
+    while (!platform::processesFromFolder(self->parent_path(), kPrograms).empty())
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (now > askAgain)
+        {
+            // A core started again meanwhile (an open settings window did, before v1.7): it stops too.
+            CoreClient again(options.dataDirectory);
+            if (again.connect(false))
+            {
+                [[maybe_unused]] const auto ignored = again.call("shutdown", Json::object(), 5s);
+            }
+            askAgain = now + 1s;
+        }
+        if (now > deadline)
+        {
+            // The installer replaces or deletes these files next: what is left is ended, and Windows'
+            // taskbar comes back (the bar could not hand it back itself).
+            for (const std::uint32_t pid : platform::processesFromFolder(self->parent_path(), kPrograms))
+            {
+                const wil::unique_handle process(OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid));
+                if (process && TerminateProcess(process.get(), 1) != FALSE)
+                {
+                    WaitForSingleObject(process.get(), 2000);
+                }
+            }
+            platform::showNativeTaskbars();
+            if (!platform::processesFromFolder(self->parent_path(), kPrograms).empty())
+            {
+                err("rmw: the core or one of its helpers is still running after 30 s");
+                return Failed;
+            }
+            err("rmw: the core or one of its helpers did not stop in 30 s; it was ended");
+            break;
+        }
+        std::this_thread::sleep_for(100ms);
+    }
+    out("Stopped.");
+    return Ok;
+}
+
 int run(std::span<const std::string> args)
 {
     if (args.empty() || args[0] == "--help" || args[0] == "-h" || args[0] == "help")
@@ -925,10 +1045,21 @@ int run(std::span<const std::string> args)
     {
         return validateRice(options->positional[0]);
     }
+    if (command == "autostart")
+    {
+        return autostartCommand(*options);
+    }
 
     CoreClient client(options->dataDirectory);
-    if (auto connected = client.connect(); !connected)
+    if (auto connected = client.connect(cli::coreNeed(command) == cli::CoreNeed::Start); !connected)
     {
+        const ErrorCode code = connected.error().code();
+        if (command == "shutdown" && (code == ErrorCode::NotFound || code == ErrorCode::Busy))
+        {
+            // None runs (or the one there is on its way out): nothing to start just to stop it.
+            out(code == ErrorCode::NotFound ? "Ricing Manager is not running." : "The core is stopping.");
+            return options->wait ? waitUntilStopped(*options) : Ok;
+        }
         return failure(connected.error());
     }
 
@@ -1338,39 +1469,6 @@ int run(std::span<const std::string> args)
                                                       : "There is no settings.toml: nothing configured.");
         return Ok;
     }
-    if (command == "autostart")
-    {
-        const std::string choice = options->positional.size() == 1 ? options->positional[0] : std::string();
-        if (choice != "on" && choice != "off" && choice != "status")
-        {
-            err("rmw: usage: rmw autostart on|off|status");
-            return Usage;
-        }
-        auto state = choice == "status"
-                         ? client.call("autostart.get", Json::object(), 30s)
-                         : client.call("autostart.set", Json{{"enabled", choice == "on"}}, 30s);
-        if (!state)
-        {
-            return failure(state.error());
-        }
-        if (json::boolOr(*state, "enabled", false))
-        {
-            out("Ricing Manager starts with Windows.");
-        }
-        else if (json::boolOr(*state, "registered", false))
-        {
-            out("A start entry exists but points elsewhere: " + json::stringOr(*state, "command", "?"));
-        }
-        else
-        {
-            out("Ricing Manager does not start with Windows.");
-        }
-        if (json::boolOr(*state, "registered", false) && json::boolOr(*state, "disabledByUser", false))
-        {
-            out("It is switched off in Task Manager (Startup apps); turn it on there if you want it.");
-        }
-        return Ok;
-    }
     if (command == "shutdown")
     {
         auto stopped = client.call("shutdown", Json::object(), 10s);
@@ -1379,76 +1477,7 @@ int run(std::span<const std::string> args)
             return failure(stopped.error());
         }
         out("The core is stopping.");
-        if (!options->wait)
-        {
-            return Ok;
-        }
-        // Until the core and its helpers from this installation are gone (the installer replaces
-        // or removes their files next). The bar first hands Windows' taskbar back.
-        auto self = platform::currentExecutable();
-        if (!self)
-        {
-            return failure(self.error());
-        }
-        constexpr std::array<std::wstring_view, 6> kPrograms = {L"rmw-core.exe",        L"rmw-bar.exe",
-                                                                L"rmw-wallpaper.exe",   L"rmw-plugin-host.exe",
-                                                                L"rmw-settings.exe",    L"rmw-tiler.exe"};
-        // The settings window closes like when its X is clicked.
-        constexpr std::array<std::wstring_view, 1> kWindows = {L"rmw-settings.exe"};
-        auto windows = platform::processesFromFolder(self->parent_path(), kWindows);
-        EnumWindows(
-            [](HWND window, LPARAM pids) -> BOOL {
-                DWORD pid = 0;
-                GetWindowThreadProcessId(window, &pid);
-                // NOLINTNEXTLINE(performance-no-int-to-ptr): EnumWindows hands its context back as an LPARAM
-                if (std::ranges::contains(*reinterpret_cast<std::vector<std::uint32_t>*>(pids), pid) &&
-                    IsWindowVisible(window) != FALSE)
-                {
-                    PostMessageW(window, WM_CLOSE, 0, 0);
-                }
-                return TRUE;
-            },
-            reinterpret_cast<LPARAM>(&windows));
-        const auto deadline = std::chrono::steady_clock::now() + 30s;
-        auto askAgain = std::chrono::steady_clock::now() + 1s;
-        while (!platform::processesFromFolder(self->parent_path(), kPrograms).empty())
-        {
-            const auto now = std::chrono::steady_clock::now();
-            if (now > askAgain)
-            {
-                // A core started again meanwhile (an open settings window did, before v1.7): it stops too.
-                CoreClient again(options->dataDirectory);
-                if (again.connect(false))
-                {
-                    [[maybe_unused]] const auto ignored = again.call("shutdown", Json::object(), 5s);
-                }
-                askAgain = now + 1s;
-            }
-            if (now > deadline)
-            {
-                // The installer replaces or deletes these files next: what is left is ended, and Windows'
-                // taskbar comes back (the bar could not hand it back itself).
-                for (const std::uint32_t pid : platform::processesFromFolder(self->parent_path(), kPrograms))
-                {
-                    const wil::unique_handle process(OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid));
-                    if (process && TerminateProcess(process.get(), 1) != FALSE)
-                    {
-                        WaitForSingleObject(process.get(), 2000);
-                    }
-                }
-                platform::showNativeTaskbars();
-                if (!platform::processesFromFolder(self->parent_path(), kPrograms).empty())
-                {
-                    err("rmw: the core or one of its helpers is still running after 30 s");
-                    return Failed;
-                }
-                err("rmw: the core or one of its helpers did not stop in 30 s; it was ended");
-                break;
-            }
-            std::this_thread::sleep_for(100ms);
-        }
-        out("Stopped.");
-        return Ok;
+        return options->wait ? waitUntilStopped(*options) : Ok;
     }
 
     err(std::format("rmw: unknown command '{}'\n\n{}", command, kUsage));

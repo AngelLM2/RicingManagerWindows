@@ -1,6 +1,7 @@
 #include "rmw/bar/Geometry.hpp"
 #include "rmw/bar/Plan.hpp"
 #include "rmw/bar/Source.hpp"
+#include "rmw/bar/Space.hpp"
 #include "rmw/domain/RiceParser.hpp"
 #include "rmw/domain/RiceWriter.hpp"
 
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 
 namespace
 {
@@ -280,6 +282,47 @@ TEST(BarSource, CallbacksPassTheirArgumentsThrough)
     EXPECT_NE(source.find("callback w0-moved(int, string);"), std::string::npos);
     EXPECT_NE(source.find("activate(a0) => { root.w0-activate(a0); }"), std::string::npos);
     EXPECT_NE(source.find("moved(a0, a1) => { root.w0-moved(a0, a1); }"), std::string::npos);
+}
+
+// The lifecycle review (v1.8.1): a bar ended outright left its strip reserved. What it holds is kept
+// where the core reads it back.
+TEST(BarSpace, WhatABarHoldsComesBackAsItWas)
+{
+    const std::vector<SpaceEntry> entries = {
+        {0x1A2B3C, kMonitor, Rect{0, 0, 1920, 40}, true},
+        {0x10, Rect{-1280, 0, 0, 1024}, Rect{}, false}, // a floating bar: an app bar, no strip
+    };
+    const auto again = parseSpace(spaceToJson(entries));
+    ASSERT_TRUE(again.has_value()) << again.error().toString();
+    EXPECT_EQ(*again, entries);
+    EXPECT_TRUE(parseSpace(R"({"version": 1, "bars": []})")->empty());
+    EXPECT_FALSE(parseSpace(R"({"bars":[]})").has_value());
+    EXPECT_FALSE(parseSpace("not json").has_value());
+    for (const char* bad : {
+             R"({"window":0,"monitor":[0,0,1,1],"reserved":[0,0,0,0],"claimed":false})",
+             R"({"window":-5,"monitor":[0,0,1,1],"reserved":[0,0,0,0],"claimed":false})",
+             R"({"window":7,"monitor":[0,0,1],"reserved":[0,0,0,0],"claimed":false})",
+             R"({"window":7,"monitor":[0,0,1,1],"reserved":[0,0,0,99999999],"claimed":false})",
+             R"({"window":7,"monitor":[0,0,1,1],"reserved":[0,0,0,0]})",
+         })
+    {
+        EXPECT_FALSE(parseSpace(std::format(R"({{"version":1,"bars":[{}]}})", bad)).has_value()) << bad;
+    }
+}
+
+TEST(BarSpace, TheStripGoesBackIntoTheWorkArea)
+{
+    // A top bar's strip, the work area without it (Windows' taskbar at the bottom stays out).
+    const SpaceEntry top{1, kMonitor, Rect{0, 0, 1920, 40}, true};
+    EXPECT_EQ(workAreaWithout(top, Rect{0, 40, 1920, 1032}), (Rect{0, 0, 1920, 1032}));
+    // A right bar's.
+    const SpaceEntry right{1, kMonitor, Rect{1620, 0, 1920, 1080}, false};
+    EXPECT_EQ(workAreaWithout(right, Rect{0, 0, 1620, 1032}), (Rect{0, 0, 1920, 1080}));
+    // No strip, or one off the monitor (laid out otherwise since): the area as it is.
+    const SpaceEntry floating{1, kMonitor, Rect{}, false};
+    EXPECT_EQ(workAreaWithout(floating, Rect{0, 0, 1920, 1032}), (Rect{0, 0, 1920, 1032}));
+    const SpaceEntry elsewhere{1, kMonitor, Rect{2000, 0, 2300, 1080}, false};
+    EXPECT_EQ(workAreaWithout(elsewhere, Rect{0, 0, 1920, 1032}), (Rect{0, 0, 1920, 1032}));
 }
 
 } // namespace

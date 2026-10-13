@@ -37,6 +37,7 @@ enum class SystemEventKind
     Timer,         // id = timer id
     FolderChanged, // id = watch id (something in a watched folder was written)
     SessionEnding, // log off / shut down: the process may be killed once the handler returns
+    Suspending,    // the PC goes to sleep (Resumed follows when it is back)
 };
 
 struct SystemEvent
@@ -86,6 +87,13 @@ public:
 
     // Pumps messages (and folder watches) until quit(). Returns the exit code passed to quit().
     int run();
+    // After run(), as the process stops: the tray icon and the hotkeys go now, and what is posted from
+    // here on is dropped (the part of the program it would call is going away).
+    void beginClosing() noexcept;
+    // Keeps answering the system (WM_QUERYENDSESSION, broadcasts that wait for every window) until
+    // `handle` is signaled or `timeout` passes; true when it was signaled. A window nobody pumps holds
+    // up a sign-out and every program that broadcasts a change.
+    bool pumpUntil(void* handle, std::chrono::milliseconds timeout);
 
     // Any thread.
     void post(std::function<void()> task); // runs `task` on the window thread
@@ -124,6 +132,7 @@ private:
 
     std::mutex m_tasksMutex;
     std::vector<std::function<void()>> m_tasks;
+    bool m_closing = false; // beginClosing(): posted tasks are dropped (under m_tasksMutex)
 };
 
 } // namespace rmw::platform

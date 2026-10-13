@@ -381,6 +381,85 @@ Step 'state-damaged' {
     Check 'break:empty-db-core-starts' ($r.code -eq 0) $r.output
 }
 
+# ---- 13. the lifecycle (v1.8.1 review): stopping gives the screen back and starts nothing; a new start works at once
+Step 'lifecycle' {
+    function Log-Count([string] $Name, [string] $Text) {
+        @(Select-String -Path (Join-Path $data "logs\$Name") -SimpleMatch -Pattern $Text -ErrorAction SilentlyContinue).Count
+    }
+    # Within 2 px on every edge: the strip a bar set aside is 32 px or more.
+    function Same-Area($A, $B) {
+        [Math]::Abs($A.Left - $B.Left) -le 2 -and [Math]::Abs($A.Top - $B.Top) -le 2 -and
+        [Math]::Abs($A.Right - $B.Right) -le 2 -and [Math]::Abs($A.Bottom - $B.Bottom) -le 2
+    }
+    function Bar-Running { $null -ne (Get-Process rmw-bar -ErrorAction SilentlyContinue) }
+    [void](Rmw @('restore', '--original', '--wait') 180)
+    [void](Rmw @('shutdown', '--wait'))
+    $areaBefore = Work-Area
+    Note 'lifecycle-area' "$areaBefore"
+
+    # (b) Nothing runs: `rmw shutdown --wait` and `rmw autostart` (the installer's and the uninstaller's) start
+    # no core, no bar, no tiler (they did, only to end them).
+    $seenFile = Join-Path $Work 'lifecycle-seen.txt'
+    Remove-Item $seenFile, "$seenFile.stop" -Force -ErrorAction SilentlyContinue
+    $watcher = Start-Job -ArgumentList $seenFile -ScriptBlock {
+        param($file)
+        Set-Content $file 'ready'
+        $deadline = (Get-Date).AddSeconds(90)
+        while ((Get-Date) -lt $deadline -and -not (Test-Path "$file.stop")) {
+            Get-Process rmw-core, rmw-bar, rmw-tiler -ErrorAction SilentlyContinue | ForEach-Object { Add-Content $file $_.Name }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    $ready = Wait-Until { Test-Path $seenFile } 60
+    $down = Rmw @('shutdown', '--wait') 60
+    $auto = Rmw @('autostart', 'status') 30
+    Start-Sleep -Milliseconds 500
+    New-Item "$seenFile.stop" -ItemType File -Force | Out-Null
+    [void](Wait-Job $watcher -Timeout 15)
+    Remove-Job $watcher -Force -ErrorAction SilentlyContinue
+    $seen = @(Get-Content $seenFile -ErrorAction SilentlyContinue | Where-Object { $_ -ne 'ready' } | Select-Object -Unique)
+    Check 'break:lifecycle-shutdown-starts-nothing' ($ready -and $down.code -eq 0 -and $auto.code -eq 0 -and $seen.Count -eq 0) "watcher=$ready shutdown=$($down.code) '$($down.output)' autostart=$($auto.code) '$($auto.output)' seen: $($seen -join ', ')"
+
+    # (a, d) A bar that reserves a strip; bar.off: it leaves by itself and the strip comes back.
+    $r = Rmw @('apply', $sakura, '--wait') 180
+    $reserved = (Wait-Until { Bar-Running } 15) -and (Wait-Until { -not (Same-Area (Work-Area) $areaBefore) } 15)
+    Check 'break:lifecycle-bar-reserves' ($r.code -eq 0 -and $reserved) "before=$areaBefore now=$(Work-Area): $($r.output)"
+    $asked = Log-Count 'bar.log' 'bar: asked to leave'
+    $stopped = Log-Count 'bar.log' 'bar: stopped'
+    $left = Log-Count 'core.log' 'worker bar left'
+    $off = Rmw @('action', 'bar.off')
+    $back = Wait-Until { -not (Bar-Running) -and (Same-Area (Work-Area) $areaBefore) } 15
+    Check 'break:lifecycle-bar-off-gives-the-strip-back' ($off.code -eq 0 -and $back) "before=$areaBefore after=$(Work-Area) bar=$(Bar-Running): $($off.output)"
+    $graceful = (Wait-Until { (Log-Count 'bar.log' 'bar: stopped') -gt $stopped } 10) -and (Log-Count 'bar.log' 'bar: asked to leave') -gt $asked -and (Log-Count 'core.log' 'worker bar left') -gt $left
+    Check 'break:lifecycle-bar-off-leaves-gracefully' $graceful "asked $asked -> $(Log-Count 'bar.log' 'bar: asked to leave'), stopped $stopped -> $(Log-Count 'bar.log' 'bar: stopped'), core 'worker bar left' $left -> $(Log-Count 'core.log' 'worker bar left')"
+
+    # (a, d) The same at exit: `rmw shutdown --wait` with the bar on.
+    $on = Rmw @('action', 'bar.on')
+    $reserved = (Wait-Until { Bar-Running } 15) -and (Wait-Until { -not (Same-Area (Work-Area) $areaBefore) } 15)
+    Check 'break:lifecycle-bar-on-again' ($on.code -eq 0 -and $reserved) "now=$(Work-Area): $($on.output)"
+    $stopped = Log-Count 'bar.log' 'bar: stopped'
+    $left = Log-Count 'core.log' 'worker bar left'
+    $notLeft = Log-Count 'core.log' 'worker bar did not leave by itself'
+    $down = Rmw @('shutdown', '--wait') 90
+    $back = Wait-Until { Same-Area (Work-Area) $areaBefore } 10
+    Check 'break:lifecycle-exit-gives-the-strip-back' ($down.code -eq 0 -and $back -and -not (Bar-Running)) "before=$areaBefore after=$(Work-Area) bar=$(Bar-Running): $($down.output)"
+    $graceful = (Log-Count 'bar.log' 'bar: stopped') -gt $stopped -and (Log-Count 'core.log' 'worker bar left') -gt $left -and (Log-Count 'core.log' 'worker bar did not leave by itself') -eq $notLeft
+    Check 'break:lifecycle-exit-bar-leaves-gracefully' $graceful "stopped $stopped -> $(Log-Count 'bar.log' 'bar: stopped'), left $left -> $(Log-Count 'core.log' 'worker bar left'), not left $notLeft -> $(Log-Count 'core.log' 'worker bar did not leave by itself')"
+    Check 'break:lifecycle-exit-taskbar-back' (Wait-Until { Native-Visible } 10) ''
+
+    # (c) Reopening at once: `rmw shutdown`, then a command right away (it waited 10-40 s, or said "busy").
+    $r = Rmw @('status') 60
+    $old = Core
+    $down = Rmw @('shutdown')
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $again = Rmw @('status') 60
+    $timer.Stop()
+    $oldGone = $null -eq $old -or (Wait-Until { $null -eq (Get-Process -Id $old.Id -ErrorAction SilentlyContinue) } 15)
+    $new = Core
+    Check 'break:lifecycle-reopens-at-once' ($r.code -eq 0 -and $down.code -eq 0 -and $again.code -eq 0 -and $timer.Elapsed.TotalSeconds -lt 15 -and $oldGone -and $null -ne $new) "status=$($again.code) in $([Math]::Round($timer.Elapsed.TotalSeconds, 1)) s; core $($old.Id) -> $($new.Id): $($again.output)"
+    [void](Rmw @('restore', '--original', '--wait') 180)
+}
+
 # ---- the end: nothing of ours left running, Windows' taskbar there, the logs kept --------------------------------
 [void](Rmw @('shutdown', '--wait'))
 Check 'break:taskbar-at-the-end' (Wait-Until { Native-Visible } 10) ''

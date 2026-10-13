@@ -383,6 +383,19 @@ SingleInstance::~SingleInstance()
     }
 }
 
+bool SingleInstance::waitOwned(std::chrono::milliseconds timeout) noexcept
+{
+    if (m_owned || m_mutex == nullptr)
+    {
+        return m_owned;
+    }
+    const auto ms = static_cast<DWORD>(std::clamp<std::int64_t>(timeout.count(), 0, INFINITE - 1));
+    // Abandoned: the owner ended without letting go (killed); the mutex is ours all the same.
+    const DWORD waited = WaitForSingleObject(m_mutex, ms);
+    m_owned = waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED;
+    return m_owned;
+}
+
 SingleInstance::SingleInstance(SingleInstance&& other) noexcept
     : m_mutex(std::exchange(other.m_mutex, nullptr))
     , m_owned(std::exchange(other.m_owned, false))

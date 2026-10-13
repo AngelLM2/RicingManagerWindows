@@ -128,12 +128,12 @@ void Looks::set(const std::optional<tiling::WindowLook>& look)
     log::info("tiler: the rice's look on {} window(s)", m_painted.size());
 }
 
-void Looks::paint(Window window, bool again)
+bool Looks::paint(Window window, bool again)
 {
     if (!m_look || (!again && m_painted.contains(window)) || !isAppWindow(window) || isOurs(window) ||
         leftOut(*m_look, window))
     {
-        return;
+        return false;
     }
     if (m_painted.size() >= kMaxPainted && !m_painted.contains(window))
     {
@@ -165,12 +165,12 @@ void Looks::paint(Window window, bool again)
     {
         setAttribute<DWORD>(window, kBackdrop, backdropValue(*look.backdrop));
     }
-    m_painted.insert(window);
+    return m_painted.insert(window).second;
 }
 
-void Looks::forget(Window window) noexcept
+bool Looks::forget(Window window) noexcept
 {
-    m_painted.erase(window);
+    return m_painted.erase(window) > 0;
 }
 
 void Looks::reset() noexcept
@@ -179,40 +179,61 @@ void Looks::reset() noexcept
     {
         return;
     }
-    const tiling::WindowLook& look = *m_look;
     for (Window window : m_painted)
     {
-        if (IsWindow(hwnd(window)) == FALSE)
+        if (IsWindow(hwnd(window)) != FALSE)
         {
-            continue;
-        }
-        if (look.dark)
-        {
-            setAttribute<BOOL>(window, kDarkMode, m_systemDark ? TRUE : FALSE);
-        }
-        if (look.corners)
-        {
-            setAttribute<DWORD>(window, kCorners, 0); // DWMWCP_DEFAULT
-        }
-        if (look.border || look.noBorder)
-        {
-            setAttribute<COLORREF>(window, kBorderColor, kDefaultColor);
-        }
-        if (look.caption)
-        {
-            setAttribute<COLORREF>(window, kCaptionColor, kDefaultColor);
-        }
-        if (look.text)
-        {
-            setAttribute<COLORREF>(window, kTextColor, kDefaultColor);
-        }
-        if (look.backdrop)
-        {
-            setAttribute<DWORD>(window, kBackdrop, 0); // DWMSBT_AUTO
+            unpaint(window, *m_look, m_systemDark);
         }
     }
     m_painted.clear();
     m_look.reset();
+}
+
+std::optional<tiling::Painted> Looks::painted() const
+{
+    if (!m_look)
+    {
+        return std::nullopt;
+    }
+    tiling::Painted painted{*m_look, m_systemDark, {}};
+    painted.windows.reserve(m_painted.size());
+    for (Window window : m_painted)
+    {
+        if (IsWindow(hwnd(window)) != FALSE)
+        {
+            painted.windows.push_back({idOf(window), processOf(window)});
+        }
+    }
+    return painted;
+}
+
+void unpaint(Window window, const tiling::WindowLook& look, bool systemDark) noexcept
+{
+    if (look.dark)
+    {
+        setAttribute<BOOL>(window, kDarkMode, systemDark ? TRUE : FALSE);
+    }
+    if (look.corners)
+    {
+        setAttribute<DWORD>(window, kCorners, 0); // DWMWCP_DEFAULT
+    }
+    if (look.border || look.noBorder)
+    {
+        setAttribute<COLORREF>(window, kBorderColor, kDefaultColor);
+    }
+    if (look.caption)
+    {
+        setAttribute<COLORREF>(window, kCaptionColor, kDefaultColor);
+    }
+    if (look.text)
+    {
+        setAttribute<COLORREF>(window, kTextColor, kDefaultColor);
+    }
+    if (look.backdrop)
+    {
+        setAttribute<DWORD>(window, kBackdrop, 0); // DWMSBT_AUTO
+    }
 }
 
 std::optional<std::uint32_t> Looks::border() const noexcept

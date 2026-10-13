@@ -275,6 +275,7 @@ PipeServer::PipeServer(PipeServer&& other) noexcept
     , m_instance(std::exchange(other.m_instance, nullptr))
     , m_event(std::exchange(other.m_event, nullptr))
     , m_descriptor(std::exchange(other.m_descriptor, nullptr))
+    , m_closed(std::exchange(other.m_closed, false))
 {
 }
 
@@ -287,6 +288,7 @@ PipeServer& PipeServer::operator=(PipeServer&& other) noexcept
         m_instance = std::exchange(other.m_instance, nullptr);
         m_event = std::exchange(other.m_event, nullptr);
         m_descriptor = std::exchange(other.m_descriptor, nullptr);
+        m_closed = std::exchange(other.m_closed, false);
     }
     return *this;
 }
@@ -347,8 +349,12 @@ Result<void> PipeServer::createInstance(bool first)
     return {};
 }
 
-Result<PipeConnection> PipeServer::accept(std::chrono::milliseconds timeout)
+Result<PipeConnection> PipeServer::accept(std::chrono::milliseconds timeout, void* cancel)
 {
+    if (m_closed)
+    {
+        return fail(ErrorCode::Cancelled, "the pipe server is closed");
+    }
     if (m_instance == nullptr)
     {
         if (auto created = createInstance(false); !created)
@@ -365,11 +371,18 @@ Result<PipeConnection> PipeServer::accept(std::chrono::milliseconds timeout)
         if (error == ERROR_IO_PENDING)
         {
             DWORD ignored = 0;
-            if (WaitForSingleObject(m_event, waitMs(timeout)) == WAIT_TIMEOUT)
+            const std::array<HANDLE, 2> waits = {m_event, cancel};
+            const DWORD woken =
+                WaitForMultipleObjects(cancel != nullptr ? 2 : 1, waits.data(), FALSE, waitMs(timeout));
+            if (woken != WAIT_OBJECT_0)
             {
                 CancelIoEx(m_instance, &overlapped);
                 // A client that connected as we gave up is taken by the next accept (PIPE_CONNECTED).
                 GetOverlappedResult(m_instance, &overlapped, &ignored, TRUE);
+                if (woken == WAIT_OBJECT_0 + 1)
+                {
+                    return fail(ErrorCode::Cancelled, "accept cancelled");
+                }
                 return fail(ErrorCode::Timeout, "no client connected");
             }
             error = GetOverlappedResult(m_instance, &overlapped, &ignored, FALSE) != FALSE ? ERROR_SUCCESS
@@ -394,6 +407,16 @@ Result<PipeConnection> PipeServer::accept(std::chrono::milliseconds timeout)
     PipeConnection connection(std::exchange(m_instance, nullptr), client);
     // The next client gets a fresh instance (created lazily on the next accept).
     return connection;
+}
+
+void PipeServer::close() noexcept
+{
+    m_closed = true;
+    if (m_instance != nullptr)
+    {
+        CancelIoEx(m_instance, nullptr);
+        CloseHandle(std::exchange(m_instance, nullptr));
+    }
 }
 
 void PipeServer::recycle() noexcept

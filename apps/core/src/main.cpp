@@ -36,6 +36,10 @@ namespace
 
 using namespace rmw;
 
+// How long a core started by a client waits for one that is stopping (it ends its workers first: the
+// tiler and the bar get a few seconds each to put things back).
+constexpr std::chrono::seconds kOldCoreWait{15};
+
 struct Arguments
 {
     bool version = false;
@@ -284,8 +288,20 @@ int run(std::span<wchar_t*> args)
     }
     if (!instance->owned())
     {
-        log::info("another core is already running");
-        return 0;
+        // At logon the one running is enough. Started by a client, the one running may be on its way
+        // out (`rmw shutdown`, then a new command at once): it lets go as it ends, and this one goes on.
+        if (parsed->startup)
+        {
+            log::info("another core is already running");
+            return 0;
+        }
+        log::info("another core is running; waiting for it to end");
+        if (!instance->waitOwned(kOldCoreWait))
+        {
+            log::info("another core is still running; leaving it to the clients");
+            return 0;
+        }
+        log::info("the other core ended; starting");
     }
 
     core::CoreOptions options;
