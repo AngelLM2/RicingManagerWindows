@@ -54,15 +54,16 @@ public:
     // Returns once Windows reports the look, or Timeout.
     [[nodiscard]] virtual Result<void> applyLook(const ThemeLook& look) = 0;
     // Applies a theme file of the user's again (a restore: the theme they had selected), its look only
-    // where Windows allows. Neither call changes the pointers or Settings' recent colors: what a theme
-    // apply changes there is put back.
+    // where Windows allows. Neither call changes anything but the look: what a theme apply changes in the
+    // pointers, the wallpaper, the sounds, the screen saver, the desktop icons or Settings' recent colors
+    // is put back.
     [[nodiscard]] virtual Result<void> applyThemeFile(const std::string& file) = 0;
     // Names a theme file of the user's as the current one (Settings shows it selected) without applying
     // it: after the look it carries was set another way.
     [[nodiscard]] virtual Result<void> nameCurrentTheme(const std::string& file) = 0;
-    // The theme Windows ships for light (aero.theme) or dark (dark.theme) mode: what comes back when the
-    // theme the user had is gone, or was one of ours.
-    [[nodiscard]] virtual std::string windowsThemeFile(bool dark) = 0;
+    // Removes our managed theme files when neither is the current theme (after a restore named the
+    // user's again): Settings no longer lists "Ricing Manager".
+    virtual void forgetManagedThemes() = 0;
 };
 
 } // namespace rmw::ports

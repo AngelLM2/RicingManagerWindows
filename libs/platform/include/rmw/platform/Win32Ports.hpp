@@ -96,7 +96,7 @@ public:
     [[nodiscard]] Result<void> applyLook(const ports::ThemeLook& look) override;
     [[nodiscard]] Result<void> applyThemeFile(const std::string& file) override;
     [[nodiscard]] Result<void> nameCurrentTheme(const std::string& file) override;
-    [[nodiscard]] std::string windowsThemeFile(bool dark) override;
+    void forgetManagedThemes() override;
 
 private:
     std::chrono::milliseconds m_wait;

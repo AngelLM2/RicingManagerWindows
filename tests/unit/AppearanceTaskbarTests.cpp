@@ -185,12 +185,13 @@ TEST(Appearance, ARestoreBringsTheUsersThemeBack)
     EXPECT_EQ(theme.applied.size(), looks);
     EXPECT_EQ(registry.dword(kPersonalize, "AppsUseLightTheme"), 0u);
 
-    // A theme that is gone: its look comes back through ours.
+    // A theme Windows will not apply: its look comes back through ours, and it is named the current one.
     Json gone = before->state;
     gone["theme"] = R"(C:\Users\me\deleted.theme)";
     gone["appsLight"] = false;
     ASSERT_TRUE(system.apply(gone));
     EXPECT_EQ(theme.files.size(), 2u);
+    EXPECT_EQ(theme.named.back(), gone["theme"].get<std::string>());
 }
 
 TEST(Appearance, ATakenThemeWithoutItsAccentStillEndsAsTheUsers)
@@ -212,41 +213,43 @@ TEST(Appearance, ATakenThemeWithoutItsAccentStillEndsAsTheUsers)
     EXPECT_EQ(system.capture()->state["theme"], original);
 }
 
-// The owner's PC: the original was captured over an earlier install's rice, so its theme was ours.
-TEST(Appearance, AnOriginalThemeOfOursOrGoneBecomesWindowsOwn)
+// The owner's fourth test: "restore goes back to Windows' defaults; that must be the last resort". Until
+// v1.8 an original theme of ours (the snapshot taken over an earlier install's rice) or one of the user's
+// that was gone became the theme Windows ships, and with it Windows' look. Now its colors come back as
+// they were, and the user's theme keeps its name.
+TEST(Appearance, AnOriginalThemeOfOursOrGoneNeverBringsWindowsDefaults)
 {
     const AppearanceLogic logic;
-    Json original = {{"appsLight", false},
-                     {"systemLight", false},
-                     {"accent", "#0078D4"},
-                     {"theme", R"(C:\Users\me\AppData\Local\Microsoft\Windows\Themes\RicingManager-2.theme)"}};
+    const std::string ours = R"(C:\Users\me\AppData\Local\Microsoft\Windows\Themes\RicingManager-2.theme)";
+    Json original = {{"appsLight", false}, {"systemLight", false}, {"accent", "#D2691E"}, {"theme", ours}};
     logic.forOriginal(original);
-    EXPECT_EQ(original["theme"], "windows");
-    Json users = {{"theme", R"(C:\Users\me\Pictures\Mine.theme)"}};
-    logic.forOriginal(users);
-    EXPECT_EQ(users["theme"], R"(C:\Users\me\Pictures\Mine.theme)"); // the user's stays
+    EXPECT_EQ(original["theme"], ours); // stays ours
 
     FakeRegistry registry;
     FakeShell shell;
     FakeThemeApi theme(registry);
-    const std::string dark = theme.windowsThemeFile(true);
-    theme.looks[dark] = rmw::ports::ThemeLook{false, false, 0xC40078D4};
     AppearanceSystem system(registry, shell, theme, std::chrono::milliseconds(0));
     ASSERT_TRUE(system.apply(original));
-    ASSERT_EQ(theme.files, (std::vector<std::string>{dark})); // dark mode: Windows' dark theme
-    EXPECT_TRUE(theme.applied.empty());
-    ASSERT_EQ(theme.named.size(), 1u);
-    EXPECT_EQ(theme.named[0], dark);
-    EXPECT_EQ(registry.dword(kPersonalize, "AppsUseLightTheme"), 0u);
+    EXPECT_TRUE(theme.files.empty()); // no theme file of anyone's: the colors, through ours
+    ASSERT_EQ(theme.applied.size(), 1u);
+    EXPECT_EQ(theme.applied[0], (rmw::ports::ThemeLook{false, false, 0xC4D2691E}));
+    EXPECT_TRUE(theme.named.empty());
 
-    // The user's own theme file, deleted since: Windows' theme for the mode too.
+    // What v1.7-v1.8 wrote for such an original ("windows"): the colors only, no theme of Windows'.
+    ASSERT_TRUE(system.apply({{"appsLight", true}, {"systemLight", true}, {"accent", "#0078D4"}, {"theme", "windows"}}));
+    EXPECT_TRUE(theme.files.empty());
+    EXPECT_TRUE(theme.named.empty());
+
+    // The user's own theme file, deleted since: its look comes back, and its name (as they had it).
     const std::string deleted = R"(C:\Users\me\Pictures\Gone.theme)";
     shell.gone.insert(deleted);
-    const std::string light = theme.windowsThemeFile(false);
-    theme.looks[light] = rmw::ports::ThemeLook{true, true, 0xC40078D4};
-    ASSERT_TRUE(system.apply({{"appsLight", true}, {"systemLight", true}, {"theme", deleted}}));
-    EXPECT_EQ(theme.files.back(), light);
-    EXPECT_EQ(theme.named.back(), light);
+    ASSERT_TRUE(system.apply({{"appsLight", false}, {"systemLight", false}, {"theme", deleted}}));
+    EXPECT_TRUE(theme.files.empty()); // never applied (it is gone), never replaced by Windows' own
+    EXPECT_EQ(theme.applied.back().appsLight, false);
+    ASSERT_EQ(theme.named.size(), 1u);
+    EXPECT_EQ(theme.named[0], deleted);
+    EXPECT_EQ(system.capture()->state["theme"], deleted);
+    EXPECT_EQ(theme.forgotten, 1); // and ours goes from Settings' list
 }
 
 TEST(Appearance, AccentComparisonIgnoresCase)
