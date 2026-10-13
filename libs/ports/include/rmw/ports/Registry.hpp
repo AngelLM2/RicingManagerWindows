@@ -58,6 +58,8 @@ public:
     // Deletes the key when it holds no value and no subkey (what a restore leaves of a key that was
     // not there before); succeeds when it is not empty or not there.
     [[nodiscard]] virtual Result<void> removeKeyIfEmpty(std::string_view key) = 0;
+    // The names of the key's subkeys (none when it is not there), at most `limit` of them.
+    [[nodiscard]] virtual Result<std::vector<std::string>> subkeys(std::string_view key, std::size_t limit = 1024) = 0;
 };
 
 } // namespace rmw::ports

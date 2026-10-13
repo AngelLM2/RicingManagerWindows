@@ -10,6 +10,8 @@
 //   "beep", "asterisk", ... "navigating"   {"type": "expand"|"string", "data": path} or null (absent);
 //                                          "data" empty: no sound for that event
 //   "scheme"                               the scheme's name, same shape or null
+//   "others"                               every other event Windows knows ("Apps\<app>\<event>" -> the
+//                                          same shape), or "silent" from a rice's "no sounds" (all of them)
 // Every file is checked by validateWaveFile() before it reaches the store: Windows plays them in
 // many processes.
 namespace rmw::modules

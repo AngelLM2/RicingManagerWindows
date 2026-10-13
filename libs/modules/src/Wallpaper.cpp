@@ -719,7 +719,10 @@ Result<void> WallpaperSystem::apply(const Json& desired)
         // set finishes in the background and makes Windows name its own copy, after us). Only while that
         // file is there. After a rice's slideshow (Windows' own: no monitor fields) the picture Windows named
         // before it comes back the same way, and the slideshow stops (v1.8 left it running).
-        const bool endsSlideshow = slideshow != desired.end() && slideshow->is_null();
+        // Only while a slideshow runs: every picture rice says "no slideshow", and a restore whose pictures
+        // are the person's own by now (changed after the apply) must leave them.
+        const bool endsSlideshow = !anyMonitor && slideshow != desired.end() && slideshow->is_null() &&
+                                   m_wallpaper.slideshow().value_or(ports::SlideshowState{}).active;
         if (const auto named = anyMonitor ? everywhereFile(desired) : endsSlideshow ? namedFile(desired) : std::nullopt;
             named && resolve(Json{{"file", *named}}) == named)
         {

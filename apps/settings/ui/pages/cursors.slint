@@ -71,12 +71,12 @@ export component CursorsPage inherits ScrollView {
 
             SettingRow {
                 label: @tr("Cursor size");
-                description: @tr("Windows draws them at this size (pixels).");
+                description: @tr("Windows draws them at this size (pixels). Below 32, the rice's pointers are drawn smaller.");
                 ComboBox {
                     min-width: 110px;
                     preferred-width: 200px;
                     max-width: 200px;
-                    model: [@tr("Leave as it is"), "32", "48", "64", "96", "128"];
+                    model: [@tr("Leave as it is"), "16", "24", "32", "48", "64", "96", "128"];
                     current-index <=> Api.cursor-size;
                     accessible-label: @tr("Cursor size");
                     selected => {

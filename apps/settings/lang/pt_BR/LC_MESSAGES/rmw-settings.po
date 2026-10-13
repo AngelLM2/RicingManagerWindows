@@ -1154,8 +1154,8 @@ msgstr "Tamanho"
 msgid "Cursor size"
 msgstr "Tamanho do cursor"
 
-msgid "Windows draws them at this size (pixels)."
-msgstr "O Windows os desenha neste tamanho (pixels)."
+msgid "Windows draws them at this size (pixels). Below 32, the rice's pointers are drawn smaller."
+msgstr "O Windows os desenha neste tamanho (pixels). Abaixo de 32, os ponteiros do rice são desenhados menores."
 
 msgid "What runs, what it costs, and what went wrong lately."
 msgstr "O que roda, quanto custa, e o que deu errado ultimamente."

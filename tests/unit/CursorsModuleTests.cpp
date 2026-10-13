@@ -71,6 +71,23 @@ TEST_F(CursorsTest, MapFilesAreValidatedAndStored)
     EXPECT_EQ((*fields)["schemeSource"], 0);
 }
 
+// Below 32 px: Windows at 32, and the rice's pointers drawn smaller (a new file in the store).
+TEST_F(CursorsTest, ASizeBelow32DrawsTheRicePointersSmaller)
+{
+    writeBytes(package() / "cursors" / "color.cur", rmw::test::cursorFile(2, rmw::test::colorImage()));
+    m_rice.cursors->map = {{rmw::domain::CursorRole::Normal, "color.cur"}, {rmw::domain::CursorRole::Busy, "busy.ani"}};
+    m_rice.cursors->size = 24;
+    const auto fields = desired();
+    ASSERT_TRUE(fields.has_value()) << fields.error().toString();
+    EXPECT_EQ((*fields)["size"], 32);
+    const std::filesystem::path stored = (*fields)["Arrow"]["data"].get<std::string>();
+    std::ifstream in(stored, std::ios::binary);
+    const std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    ASSERT_GT(bytes.size(), 22u + 40u + 4u);
+    // The bottom-right pixel of the 32x32 picture (the first one stored, rows bottom-up) is not drawn now.
+    EXPECT_EQ(static_cast<unsigned char>(bytes[22 + 40 + (31 * 4) + 3]), 0);
+}
+
 TEST_F(CursorsTest, InstallInfIsReadWhenThereIsNoMap)
 {
     const std::string inf =

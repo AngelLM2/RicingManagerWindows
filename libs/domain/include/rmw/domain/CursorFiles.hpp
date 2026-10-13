@@ -29,6 +29,13 @@ enum class CursorFormat
 // and every app showing a file dialog read it.
 [[nodiscard]] Result<void> validateIconFile(std::span<const std::byte> bytes);
 
+// The same cursor drawn smaller inside the same canvas: a pointer below the 32 px Windows draws at least
+// (the owner's fourth test: "no size below 32"). Every 32-bit bitmap image is scaled by `scale`
+// (0.25..1) from its top-left corner, the hotspot with it; an image Windows draws from a PNG, or a bitmap
+// of fewer colors, stays as it is. Same size, same structure: validated like any cursor first.
+[[nodiscard]] Result<std::vector<std::byte>> shrinkCursorFile(std::span<const std::byte> bytes,
+                                                              std::string_view extension, double scale);
+
 // Reads the cursor scheme of an install.inf (the format cursor packs ship with): the value list
 // written to HKCU\Control Panel\Cursors\Schemes, with %strings% substituted, mapped to roles in
 // Windows' order. Returns file names (no folders); each passed PathRules and is .cur or .ani.

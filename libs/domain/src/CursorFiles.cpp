@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <map>
@@ -419,7 +420,193 @@ std::string_view baseName(std::string_view path) noexcept
     return slash == std::string_view::npos ? path : path.substr(slash + 1);
 }
 
+// ---- drawing a cursor smaller (pointer sizes below 32) ------------------------------------------------
+
+void put16At(std::vector<std::byte>& out, std::size_t at, std::uint16_t value) noexcept
+{
+    out[at] = static_cast<std::byte>(value & 0xFFu);
+    out[at + 1] = static_cast<std::byte>(value >> 8);
+}
+
+// One 32-bit bitmap image (BITMAPINFOHEADER, BGRA bottom-up, then its AND mask), in place: drawn `scale`
+// times as large from its top-left corner, the rest transparent. Left as it is when it is not one.
+void shrinkImage(std::vector<std::byte>& file, std::size_t at, std::size_t length, double scale)
+{
+    const Bytes image(std::span<const std::byte>(file).subspan(at, length));
+    if (isPng(image) || !image.has(0, 40) || image.u32(0) != 40 || image.u16(14) != 32 || image.u32(16) != 0 ||
+        image.u32(32) != 0)
+    {
+        return; // a PNG, another header, another depth, a compression or a palette: not ours to redraw
+    }
+    const auto width = static_cast<std::int32_t>(image.u32(4));
+    const auto height = static_cast<std::int32_t>(image.u32(8)) / 2;
+    if (width <= 0 || height <= 0)
+    {
+        return;
+    }
+    const auto w = static_cast<std::size_t>(width);
+    const auto h = static_cast<std::size_t>(height);
+    const std::size_t andStride = ((w + 31) / 32) * 4;
+    const std::size_t xorAt = 40;
+    const std::size_t andAt = xorAt + (w * 4 * h);
+    if (!image.has(andAt, andStride * h))
+    {
+        return;
+    }
+    const auto masked = [&](std::size_t x, std::size_t bottomUpRow) {
+        return (image.u8(andAt + (bottomUpRow * andStride) + (x / 8)) & (0x80U >> (x % 8))) != 0;
+    };
+    bool anyAlpha = false;
+    for (std::size_t i = 0; i < w * h && !anyAlpha; ++i)
+    {
+        anyAlpha = image.u8(xorAt + (i * 4) + 3) != 0;
+    }
+    // Premultiplied, top-down; an image without alpha takes it from its mask (an old cursor).
+    std::vector<double> source(w * h * 4);
+    for (std::size_t y = 0; y < h; ++y)
+    {
+        const std::size_t row = h - 1 - y;
+        for (std::size_t x = 0; x < w; ++x)
+        {
+            const std::size_t from = xorAt + (((row * w) + x) * 4);
+            const double alpha = anyAlpha ? image.u8(from + 3) : (masked(x, row) ? 0.0 : 255.0);
+            double* to = &source[((y * w) + x) * 4];
+            for (std::size_t c = 0; c < 3; ++c)
+            {
+                to[c] = image.u8(from + c) * alpha / 255.0;
+            }
+            to[3] = alpha;
+        }
+    }
+    // Each pixel of the smaller picture averages the area of the source it covers.
+    const std::size_t tw = std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(static_cast<double>(w) * scale)));
+    const std::size_t th = std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(static_cast<double>(h) * scale)));
+    const double stepX = static_cast<double>(w) / static_cast<double>(tw);
+    const double stepY = static_cast<double>(h) / static_cast<double>(th);
+    std::vector<double> scaled(w * h * 4, 0.0);
+    for (std::size_t ty = 0; ty < th; ++ty)
+    {
+        const double y0 = static_cast<double>(ty) * stepY;
+        const double y1 = y0 + stepY;
+        for (std::size_t tx = 0; tx < tw; ++tx)
+        {
+            const double x0 = static_cast<double>(tx) * stepX;
+            const double x1 = x0 + stepX;
+            std::array<double, 4> sum{};
+            double area = 0.0;
+            for (auto sy = static_cast<std::size_t>(y0); sy < h && static_cast<double>(sy) < y1; ++sy)
+            {
+                const double cover = std::min(y1, static_cast<double>(sy + 1)) - std::max(y0, static_cast<double>(sy));
+                for (auto sx = static_cast<std::size_t>(x0); sx < w && static_cast<double>(sx) < x1; ++sx)
+                {
+                    const double weight =
+                        cover * (std::min(x1, static_cast<double>(sx + 1)) - std::max(x0, static_cast<double>(sx)));
+                    for (std::size_t c = 0; c < 4; ++c)
+                    {
+                        sum[c] += source[(((sy * w) + sx) * 4) + c] * weight;
+                    }
+                    area += weight;
+                }
+            }
+            for (std::size_t c = 0; c < 4; ++c)
+            {
+                scaled[(((ty * w) + tx) * 4) + c] = area > 0.0 ? sum[c] / area : 0.0;
+            }
+        }
+    }
+    // Back: straight BGRA bottom-up, and a mask set where nothing is drawn.
+    for (std::size_t y = 0; y < h; ++y)
+    {
+        const std::size_t row = h - 1 - y;
+        for (std::size_t x = 0; x < w; ++x)
+        {
+            const double* pixel = &scaled[((y * w) + x) * 4];
+            const auto alpha = static_cast<std::uint8_t>(std::clamp(std::lround(pixel[3]), 0L, 255L));
+            const std::size_t to = at + xorAt + (((row * w) + x) * 4);
+            for (std::size_t c = 0; c < 3; ++c)
+            {
+                const double straight = alpha > 0 ? pixel[c] * 255.0 / alpha : 0.0;
+                file[to + c] = static_cast<std::byte>(std::clamp(std::lround(straight), 0L, 255L));
+            }
+            file[to + 3] = static_cast<std::byte>(alpha);
+            const std::size_t maskByte = at + andAt + (row * andStride) + (x / 8);
+            const auto bit = static_cast<std::uint8_t>(0x80U >> (x % 8));
+            const auto old = std::to_integer<std::uint8_t>(file[maskByte]);
+            file[maskByte] = static_cast<std::byte>(alpha == 0 ? (old | bit) : (old & ~bit));
+        }
+    }
+}
+
+// An icon/cursor directory at [at, at + length): every image, and a cursor's hotspots.
+void shrinkDirectory(std::vector<std::byte>& file, std::size_t at, std::size_t length, double scale)
+{
+    const Bytes directory(std::span<const std::byte>(file).subspan(at, length));
+    const bool cursor = directory.u16(2) == 2;
+    const std::uint16_t count = directory.u16(4);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const std::size_t entry = 6 + (16 * i);
+        const std::uint32_t size = directory.u32(entry + 8);
+        const std::uint32_t offset = directory.u32(entry + 12);
+        if (cursor)
+        {
+            put16At(file, at + entry + 4, static_cast<std::uint16_t>(std::lround(directory.u16(entry + 4) * scale)));
+            put16At(file, at + entry + 6, static_cast<std::uint16_t>(std::lround(directory.u16(entry + 6) * scale)));
+        }
+        shrinkImage(file, at + offset, size, scale);
+    }
+}
+
 } // namespace
+
+Result<std::vector<std::byte>> shrinkCursorFile(std::span<const std::byte> bytes, std::string_view extension,
+                                                double scale)
+{
+    auto format = validateCursorFile(bytes, extension);
+    if (!format)
+    {
+        return std::unexpected(std::move(format.error()));
+    }
+    if (std::isnan(scale) || scale < 0.25 || scale > 1.0)
+    {
+        return fail(ErrorCode::InvalidArgument, "a cursor is drawn between a quarter and its whole size");
+    }
+    std::vector<std::byte> out(bytes.begin(), bytes.end());
+    if (*format == CursorFormat::Static)
+    {
+        shrinkDirectory(out, 0, out.size(), scale);
+    }
+    else
+    {
+        // The chunks were checked above: every frame of the animation, one by one.
+        const Bytes file(bytes);
+        const std::uint64_t riffEnd = std::uint64_t{file.u32(4)} + 8;
+        for (std::uint64_t position = 12; position + 8 <= riffEnd;)
+        {
+            const auto at = static_cast<std::size_t>(position);
+            const std::uint32_t size = file.u32(at + 4);
+            if (file.tag(at, "LIST") && size >= 4 && file.tag(at + 8, "fram"))
+            {
+                for (std::uint64_t inner = position + 12; inner + 8 <= position + 8 + size;)
+                {
+                    const auto innerAt = static_cast<std::size_t>(inner);
+                    const std::uint32_t innerSize = file.u32(innerAt + 4);
+                    if (file.tag(innerAt, "icon"))
+                    {
+                        shrinkDirectory(out, innerAt + 8, innerSize, scale);
+                    }
+                    inner += 8 + std::uint64_t{innerSize} + (innerSize & 1u);
+                }
+            }
+            position += 8 + std::uint64_t{size} + (size & 1u);
+        }
+    }
+    if (auto valid = validateCursorFile(out, extension); !valid)
+    {
+        return std::unexpected(std::move(valid.error()).withContext("the smaller cursor"));
+    }
+    return out;
+}
 
 Result<CursorFormat> validateCursorFile(std::span<const std::byte> bytes, std::string_view extension)
 {

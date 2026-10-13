@@ -53,7 +53,7 @@ constexpr auto kSelectors =
 constexpr auto kBuiltinActions = std::to_array<std::string_view>(
     {"rice.apply", "rice.undo", "restore.original", "appearance.toggle", "appearance.dark",
      "appearance.light", "bar.toggle", "bar.on", "bar.off", "wallpaper.next", "launch.app"});
-constexpr auto kCursorSizes = std::to_array<std::uint32_t>({0, 32, 48, 64, 96, 128});
+constexpr auto kCursorSizes = std::to_array<std::uint32_t>({0, 16, 24, 32, 48, 64, 96, 128});
 
 std::string utf8(const fs::path& path)
 {
