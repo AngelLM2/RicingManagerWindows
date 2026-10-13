@@ -23,6 +23,7 @@ add_executable(rmw_unit_tests
     unit/MessageWindowTests.cpp
     unit/IpcTests.cpp
     unit/JsonTests.cpp
+    unit/LifecycleTests.cpp
     unit/LogTests.cpp
     unit/MonitorSelectorTests.cpp
     unit/PackageTests.cpp
@@ -52,7 +53,9 @@ add_executable(rmw_unit_tests
     unit/Win32PortsTests.cpp
     unit/WinErrorTests.cpp
 )
-target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_include_directories(rmw_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support"
+                                                  # rmw's command table (CoreNeed.hpp, header only)
+                                                  "${PROJECT_SOURCE_DIR}/apps/cli/src")
 target_link_libraries(rmw_unit_tests PRIVATE
     rmw::bar
     rmw::base
