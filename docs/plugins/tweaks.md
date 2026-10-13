@@ -53,7 +53,7 @@ Abaixo de `HKEY_CURRENT_USER`:
 | `Control Panel\Colors` | cores clássicas |
 | `Control Panel\Mouse` | mouse |
 | `Control Panel\Keyboard` | teclado |
-| `AppEvents\Schemes` | sons |
+| `AppEvents\Schemes` | (nenhum valor: os sons são do módulo de sons, abaixo) |
 
 Pedidos de chaves novas: abra uma issue com o caso de uso. Uma chave entra na lista só se nada abaixo dela puder iniciar programas.
 
@@ -62,7 +62,7 @@ Pedidos de chaves novas: abra uma issue com o caso de uso. Uma chave entra na li
 - **Qualquer outra raiz** (`HKLM`, `HKCR`...) — tweaks nunca pedem administrador.
 - **Componentes bloqueados**, em qualquer nível do caminho: `Run`, `RunOnce`, `RunOnceEx`, `RunServices`, `RunServicesOnce`, `StartupApproved`, `Startup`, `Classes`, `CLSID`, `Policies`, `Environment`, `Volatile Environment`, `Winlogon`, `Windows NT`, `Image File Execution Options`, `SilentProcessExit`, `AppCompatFlags`, `App Paths`, `Shell Extensions`, `ShellServiceObjectDelayLoad`, `ShellExecuteHooks`, `ShellIconOverlayIdentifiers`, `Browser Helper Objects`, `Command Processor`, `Terminal Server`, `Services`, `Scripts`, `Shell Folders`, `User Shell Folders`, `FileExts`, `Internet Settings`, `Protocols`. O bloqueio vence a lista permitida.
 - **Valores que iniciam programas**, em qualquer chave: `Shell`, `Userinit`, `Load`, `Run`, `Debugger`, `AppInit_DLLs`, `SCRNSAVE.EXE`, `AutoRun`.
-- **Valores que os módulos do Ricing Manager já cuidam** (o tweak brigaria com eles): `Wallpaper*`, `TileWallpaper`, `Transcoded*` (papel de parede), `AppsUseLightTheme`, `SystemUsesLightTheme` (modo claro/escuro), `EnableTransparency`, `ColorPrevalence` (aparência), `TaskbarAl`, `ShowTaskViewButton`, `SearchboxTaskbarMode` (barra de tarefas). Use as seções do rice para eles.
+- **Valores que os módulos do Ricing Manager já cuidam** (o tweak brigaria com eles): `Wallpaper*`, `TileWallpaper`, `Transcoded*` (papel de parede), `AppsUseLightTheme`, `SystemUsesLightTheme` (modo claro/escuro), `EnableTransparency`, `ColorPrevalence` (aparência), `TaskbarAl`, `ShowTaskViewButton`, `SearchboxTaskbarMode` (barra de tarefas), `Start_Layout`, `Start_TrackDocs`, `Start_IrisRecommendations` (menu Iniciar), `RotatingLockScreen*`, `SubscribedContent-338387Enabled` (tela de bloqueio) e tudo em `AppEvents\Schemes` e abaixo (sons: o módulo cuida de todos os eventos). Use as seções do rice para eles.
 - **Textos** com variáveis de ambiente (`%...%`), caminhos de rede ou URLs (`\\`, `//`), extensões de programas, scripts ou bibliotecas (`.exe`, `.dll`, `.ps1`, `.lnk`, `.msi`...) ou nomes de lançadores (`powershell`, `cmd`, `rundll32`, `mshta`, `regsvr32`...).
 
 ## Como é aplicado

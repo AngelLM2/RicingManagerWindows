@@ -17,8 +17,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     }
     const auto* bytes = reinterpret_cast<const std::byte*>(data);
     const std::span<const std::byte> file(bytes + 1, size - 1);
-    [[maybe_unused]] const auto format =
-        rmw::domain::validateCursorFile(file, (data[0] & 1) != 0 ? "ani" : "cur");
+    const auto* extension = (data[0] & 1) != 0 ? "ani" : "cur";
+    [[maybe_unused]] const auto format = rmw::domain::validateCursorFile(file, extension);
     [[maybe_unused]] const auto icon = rmw::domain::validateIconFile(file);
+    // v1.9: the same file drawn smaller (pointers below 32 px) writes into its own copy.
+    [[maybe_unused]] const auto smaller = rmw::domain::shrinkCursorFile(file, extension, 0.75);
     return 0;
 }

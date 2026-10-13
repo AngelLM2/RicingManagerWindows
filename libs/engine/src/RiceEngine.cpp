@@ -858,6 +858,14 @@ Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std:
 
     OperationReport report;
     std::vector<Step> steps;
+    std::optional<SnapshotRecord> base;
+    if (update == AppliedUpdate::Merge)
+    {
+        if (auto found = m_state.baseSnapshot(); found && *found)
+        {
+            base = std::move(**found);
+        }
+    }
     for (const auto* module : m_catalog.ordered())
     {
         const std::string id(module->id());
@@ -904,10 +912,17 @@ Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std:
             continue;
         }
 
+        // Going back in the history: a field that snapshot never took (a later operation took it first) was
+        // the person's then, as the original keeps it. v1.8 left it as the later rice set it.
+        const Json* fallback = update == AppliedUpdate::Merge && base ? stateIn(base->modules, id) : nullptr;
+
         // Three-way, per field: the target / what we set (applied, or what that operation set) / now.
         Json desired = Json::object();
         const auto consider = [&](const std::string& field, const Json& ours, bool managed) {
-            if (wanted == nullptr || !wanted->contains(field))
+            const Json* from = wanted != nullptr && wanted->contains(field) ? wanted
+                               : fallback != nullptr && fallback->contains(field) ? fallback
+                                                                                 : nullptr;
+            if (from == nullptr)
             {
                 if (managed)
                 {
@@ -916,7 +931,7 @@ Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std:
                 return;
             }
             const auto now = current->state.find(field);
-            if (!managed && now != current->state.end() && module->fieldEquivalent(field, *now, (*wanted)[field]))
+            if (!managed && now != current->state.end() && module->fieldEquivalent(field, *now, (*from)[field]))
             {
                 return; // already as it was then
             }
@@ -925,7 +940,7 @@ Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std:
                 report.skipped.push_back({id, field, "changed after it was applied"});
                 return;
             }
-            desired[field] = (*wanted)[field];
+            desired[field] = (*from)[field];
         };
         for (const auto& [field, ours] : applied->items())
         {

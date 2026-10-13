@@ -643,6 +643,25 @@ TEST_F(RiceEngineTest, DriftIsDetectedAndDetachedFieldsAreLeftAlone)
     EXPECT_FALSE(m_engine->driftedFields("nope").has_value());
 }
 
+// The review of v1.8: going back past a rice to before an earlier one left what the later one took first
+// (that earlier snapshot never held it). It comes back as the person had it then: the original.
+TEST_F(RiceEngineTest, GoingBackPastALaterRiceBringsBackWhatItTookFirst)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    const auto first = m_engine->apply(m_rice, package());
+    ASSERT_TRUE(first.has_value()) << first.error().toString();
+    m_appearance.desired = wants(Json::object());
+    m_wallpaper.desired = wants({{"monitor:A", "rice-b.jpg"}});
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "rice-b.jpg");
+
+    const auto back = m_engine->restoreHistory(first->historyId);
+    ASSERT_TRUE(back.has_value()) << back.error().toString();
+    EXPECT_EQ(m_appearance.fields()["dark"], false);
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg");
+}
+
 // The fourth real test: an Explorer restart put back a sound or an icon the person had changed by hand (only
 // a few modules are watched live). What the restart does not reset in Windows is theirs: left as it is.
 TEST_F(RiceEngineTest, AReapplyLeavesWhatThePersonChangedWhereWindowsResetsNothing)
