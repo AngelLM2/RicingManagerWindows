@@ -2,12 +2,14 @@
 
 #include <slint.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -50,7 +52,9 @@ private:
     std::condition_variable_any m_wake;
     std::deque<Job> m_jobs;
     std::map<Key, slint::Image> m_cache; // UI thread only
-    std::jthread m_thread;               // last: stops first
+    std::shared_ptr<std::atomic<bool>> m_done =
+        std::make_shared<std::atomic<bool>>(false); // the thread ended
+    std::jthread m_thread;                          // last: stops first
 };
 
 } // namespace rmw::settingsapp

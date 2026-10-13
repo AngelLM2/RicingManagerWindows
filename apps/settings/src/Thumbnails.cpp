@@ -9,6 +9,8 @@
 #include <objbase.h>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 namespace rmw::settingsapp
@@ -17,6 +19,7 @@ namespace
 {
 
 constexpr std::size_t kCacheMax = 256;
+constexpr auto kStopPatience = std::chrono::seconds(1);
 
 // The bitmap's pixels, top-down RGBA. Thumbnails of photos come without alpha (all zero): opaque.
 std::optional<slint::SharedPixelBuffer<slint::Rgba8Pixel>> pixelsOf(HBITMAP bitmap)
@@ -63,7 +66,10 @@ std::optional<slint::SharedPixelBuffer<slint::Rgba8Pixel>> pixelsOf(HBITMAP bitm
 } // namespace
 
 Thumbnails::Thumbnails()
-    : m_thread([this](const std::stop_token& stop) { work(stop); })
+    : m_thread([this, done = m_done](const std::stop_token& stop) {
+        work(stop);
+        *done = true;
+    })
 {
 }
 
@@ -71,6 +77,22 @@ Thumbnails::~Thumbnails()
 {
     m_thread.request_stop();
     m_wake.notify_all();
+    // The shell can take as long as it likes over one file (a video, a folder on the network): a closing
+    // window does not wait for it. Once stopped, the thread touches nothing of this object (its job is
+    // its own), so it may finish after it.
+    const auto deadline = std::chrono::steady_clock::now() + kStopPatience;
+    while (!*m_done && std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (*m_done)
+    {
+        m_thread.join();
+    }
+    else
+    {
+        m_thread.detach();
+    }
 }
 
 void Thumbnails::request(const std::filesystem::path& file, std::uint32_t width, std::uint32_t height,

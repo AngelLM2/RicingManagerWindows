@@ -130,9 +130,12 @@ int run(HANDLE showEvent, HANDLE closeEvent, wil::unique_mutex_nothrow& instance
     {
         // Its reply would come to no window: what the core was asked, the core finishes by itself.
         log::warn("settings: a task is still running; leaving without it");
-        log::instance().flush();
-        TerminateProcess(GetCurrentProcess(), 0);
     }
+    // Nothing is left to save, and the rest of a normal exit can wait forever: the thumbnail thread may
+    // be inside the shell (IShellItemImageFactory::GetImage on a video, a network folder) and ~Thumbnails
+    // joined it, so a closed window left its process behind. Ended here, within the patience above.
+    log::instance().flush();
+    TerminateProcess(GetCurrentProcess(), 0);
     return 0;
 }
 
