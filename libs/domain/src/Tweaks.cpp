@@ -87,6 +87,7 @@ struct OwnedValue
     std::string_view key;
     std::string_view name; // a trailing '*' matches any name with that start
     std::string_view owner;
+    bool subtree = false; // every value of the key and of the keys below it
 };
 
 // Values our modules manage (a tweak would fight them, and drift detection would undo it).
@@ -104,6 +105,16 @@ constexpr auto kOwnedValues = std::to_array<OwnedValue>({
     {R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced)", "TaskbarAl", "the taskbar"},
     {R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced)", "ShowTaskViewButton", "the taskbar"},
     {R"(Software\Microsoft\Windows\CurrentVersion\Search)", "SearchboxTaskbarMode", "the taskbar"},
+    {R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced)", "Start_Layout", "the Start menu"},
+    {R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced)", "Start_TrackDocs", "the Start menu"},
+    {R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced)", "Start_IrisRecommendations",
+     "the Start menu"},
+    {R"(Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager)", "RotatingLockScreen*",
+     "the lock screen"},
+    {R"(Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager)", "SubscribedContent-338387Enabled",
+     "the lock screen"},
+    // v1.9: the sounds module holds every event (a rice's "no sounds" silences them all).
+    {R"(AppEvents\Schemes)", "*", "the sounds", true},
 });
 
 // File types that run or load code. Any ".exe" inside the data is refused, wherever it is.
@@ -267,7 +278,9 @@ Result<void> validateTweakValueName(std::string_view key, std::string_view name)
     }
     for (const auto& owned : kOwnedValues)
     {
-        if (!equalsIgnoringCase(key, owned.key))
+        const bool below = owned.subtree && key.size() > owned.key.size() && key[owned.key.size()] == '\\' &&
+                           startsWithIgnoringCase(key, owned.key);
+        if (!below && !equalsIgnoringCase(key, owned.key))
         {
             continue;
         }

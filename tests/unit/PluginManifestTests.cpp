@@ -364,6 +364,20 @@ TEST(PluginTweaks, ValuesThatStartProgramsOrBelongToModulesAreRejected)
     EXPECT_FALSE(validateTweakValueName(R"(Software\Microsoft\Windows\CurrentVersion\Themes\Personalize)",
                                         "AppsUseLightTheme")
                      .has_value());
+    // v1.9: the Start menu, the lock screen and every sound are the modules' too.
+    EXPECT_FALSE(
+        validateTweakValueName(R"(Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced)", "Start_Layout")
+            .has_value());
+    EXPECT_FALSE(validateTweakValueName(R"(Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager)",
+                                        "RotatingLockScreenEnabled")
+                     .has_value());
+    EXPECT_FALSE(validateTweakValueName(R"(AppEvents\Schemes)", "").has_value());
+    EXPECT_FALSE(
+        validateTweakValueName(R"(AppEvents\Schemes\Apps\.Default\SystemAsterisk\.Current)", "").has_value());
+    EXPECT_TRUE(validateTweakValueName(R"(AppEvents\SchemesX)", "").has_value()); // not a key below it
+    EXPECT_TRUE(validateTweakValueName(R"(Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager)",
+                                       "SystemPaneSuggestionsEnabled")
+                    .has_value());
     EXPECT_TRUE(validateTweakValueName(desktop, "MenuShowDelay").has_value());
     EXPECT_TRUE(validateTweakValueName(desktop, "").has_value()); // the default value
 }
