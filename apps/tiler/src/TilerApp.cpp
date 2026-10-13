@@ -294,6 +294,10 @@ TilerApp::Ending TilerApp::run()
         }
     }
     stop();
+    // Windows' own look back on every window now (~Looks would, after the file was last written): the
+    // file then lists nothing, and is gone unless an admin app's windows wait in it.
+    m_looks.reset();
+    save();
     log::info("tiler: stopped");
     return m_ending;
 }
@@ -505,6 +509,7 @@ void TilerApp::applyPlan(tiling::Plan plan)
         return;
     }
     m_looks.set(m_plan->look);
+    scheduleSave(); // what is painted now
     if (now.enabled && (!old || !old->settings.enabled))
     {
         m_paused = false; // turned on in the settings: a Toggle from before does not keep it off
@@ -1073,13 +1078,20 @@ std::size_t TilerApp::currentMonitor() const
 
 void TilerApp::onEvent(std::uint32_t event, Window window)
 {
+    // The painted ones are kept in windows.json too: a tiler ended badly cannot take its look off them.
     if (event == EVENT_OBJECT_SHOW || event == EVENT_OBJECT_UNCLOAKED || event == EVENT_SYSTEM_FOREGROUND)
     {
-        m_looks.paint(window);
+        if (m_looks.paint(window))
+        {
+            scheduleSave();
+        }
     }
     else if (event == EVENT_OBJECT_DESTROY)
     {
-        m_looks.forget(window);
+        if (m_looks.forget(window))
+        {
+            scheduleSave();
+        }
     }
     if (!m_desktop)
     {
@@ -1496,7 +1508,12 @@ void TilerApp::save()
     std::erase_if(m_waiting, [](const tiling::Original& original) {
         return IsWindow(static_cast<HWND>(windowOf(original.window))) == FALSE;
     });
-    if (m_originals.empty() && m_waiting.empty())
+    auto painted = m_looks.painted();
+    if (painted && painted->windows.empty())
+    {
+        painted.reset();
+    }
+    if (m_originals.empty() && m_waiting.empty() && !painted)
     {
         std::filesystem::remove(m_windowsFile, ec);
         return;
@@ -1515,7 +1532,7 @@ void TilerApp::save()
             windows.push_back(waiting);
         }
     }
-    const std::string text = tiling::toJson(windows);
+    const std::string text = tiling::toJson(windows, painted);
     const auto* bytes = reinterpret_cast<const std::byte*>(text.data());
     // Not flushed to the disk: it is written at every switch, and a crash of the tiler (what it is for)
     // leaves it in Windows' cache all the same.
