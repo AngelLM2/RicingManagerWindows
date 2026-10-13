@@ -121,24 +121,42 @@ int run(std::span<const std::wstring_view> args)
             bridge = std::wstring(args[i + 1]);
         }
     }
-    barapp::BarApp bar(loop, planFile, std::move(bridge));
-    app = &bar;
-    if (!bar.start())
     {
-        log::info("bar: nothing to show");
-        return 0;
-    }
-    log::info("bar: running");
-    // Until asked: rebuilding hides every bar for a moment, which must not end the loop.
-    slint::run_event_loop(slint::EventLoopMode::RunUntilQuit);
+        barapp::BarApp bar(loop, planFile, std::move(bridge));
+        app = &bar;
+        if (!bar.start())
+        {
+            log::info("bar: nothing to show");
+        }
+        else
+        {
+            log::info("bar: running");
+            // Until asked: rebuilding hides every bar for a moment, which must not end the loop.
+            slint::run_event_loop(slint::EventLoopMode::RunUntilQuit);
+        }
+        app = nullptr;
+    } // ~BarApp: the app bars and the strips given back, Windows' taskbar shown, the tray's icons back to it
     log::info("bar: stopped");
-    return 0; // ~BarApp shows the native taskbar again
+    return 0;
+}
+
+// Everything of ours is put back by now: the rest of a normal exit (Slint's runtime, COM and the
+// shell's DLLs letting go) is not needed, and in the Sandbox it ended clean exits with a fail-fast
+// (0xC0000409, after "bar: stopped", v1.8.1's break suite), which the core counts as crashes.
+[[noreturn]] void exitNow(int code) noexcept
+{
+    rmw::log::instance().flush();
+    TerminateProcess(GetCurrentProcess(), static_cast<UINT>(code));
+    std::_Exit(code);
 }
 
 } // namespace
 
 int wmain(int argc, wchar_t** argv) // NOLINT(misc-use-internal-linkage): process entry point
 {
+    // Asked about a sign-out before the apps (0x3FF: the first of the applications' range), as rmw-tiler is:
+    // never one more window between the person and their apps' "save your work?".
+    SetProcessShutdownParameters(0x3FF, 0);
     try
     {
         if (auto hardened = rmw::platform::hardenProcess(); !hardened)
@@ -150,7 +168,7 @@ int wmain(int argc, wchar_t** argv) // NOLINT(misc-use-internal-linkage): proces
         {
             args.emplace_back(argv[i]);
         }
-        return run(args);
+        exitNow(run(args));
     }
     catch (const std::exception& e)
     {

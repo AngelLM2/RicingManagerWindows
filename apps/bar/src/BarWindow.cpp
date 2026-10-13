@@ -171,6 +171,12 @@ BarWindow::BarWindow(domain::BarConfig config, void* monitor)
 BarWindow::~BarWindow()
 {
     const auto hwnd = static_cast<HWND>(m_window);
+    if (hwnd != nullptr)
+    {
+        // First: giving the space back makes the shell (and our own broadcast) send messages to the app
+        // bars, this one included, at once; one half torn down must take none of them.
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+    }
     if (m_appBar)
     {
         APPBARDATA data{};
@@ -194,8 +200,28 @@ BarWindow::~BarWindow()
     releaseTarget();
     if (hwnd != nullptr)
     {
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         DestroyWindow(hwnd);
+    }
+}
+
+bar::SpaceEntry BarWindow::space() const noexcept
+{
+    if (!m_appBar || m_window == nullptr)
+    {
+        return {};
+    }
+    return {reinterpret_cast<std::uintptr_t>(m_window), m_screen, m_reserved, m_claimed};
+}
+
+void BarWindow::noteSpace()
+{
+    if (const bar::SpaceEntry now = space(); now != m_toldSpace)
+    {
+        m_toldSpace = now;
+        if (m_spaceChanged)
+        {
+            m_spaceChanged();
+        }
     }
 }
 
@@ -316,6 +342,7 @@ void BarWindow::place()
         // Explorer works the work area out a moment later: looked at then (for the logs).
         SetTimer(hwnd, kStripTimer, kStripCheckMs, nullptr);
     }
+    noteSpace();
 
     m_area = area;
     m_placedContent = m_config.length.fit && m_contentLength ? m_contentLength() : 0.0;
@@ -412,6 +439,7 @@ void BarWindow::claimWorkArea(const bar::Rect& work)
         return;
     }
     m_claimed = true;
+    noteSpace();
     log::info("bar: the work area is now {},{} {}x{}, set by the bar", area.left, area.top, area.right - area.left,
               area.bottom - area.top);
     refitMaximized(work, fromRect(area));

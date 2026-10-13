@@ -160,6 +160,15 @@ struct BarApp::Access
 {
     static LRESULT CALLBACK proc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     {
+        if (message == WM_CLOSE)
+        {
+            // The core asks us to leave (bar off, Ricing Manager exiting): the loop ends and ~BarApp gives
+            // the strips, Windows' taskbar and the tray's icons back. (Not DefWindowProc: it would destroy
+            // this window and nothing else.)
+            log::info("bar: asked to leave");
+            slint::quit_event_loop();
+            return 0;
+        }
         auto* self = reinterpret_cast<BarApp*>( // NOLINT(performance-no-int-to-ptr)
             GetWindowLongPtrW(window, GWLP_USERDATA));
         if (self != nullptr)
@@ -235,6 +244,11 @@ BarApp::BarApp(Win32Platform& loop, std::filesystem::path planFile, std::wstring
 
 BarApp::~BarApp()
 {
+    if (m_events != nullptr)
+    {
+        // What comes while the bars go (broadcasts of the space they give back) finds no half-gone app.
+        SetWindowLongPtrW(static_cast<HWND>(m_events), GWLP_USERDATA, 0);
+    }
     setBarWindowLookup({});
     try
     {
@@ -254,14 +268,66 @@ BarApp::~BarApp()
         m_loop->unwatch(m_planWatch);
         FindCloseChangeNotification(m_planWatch);
     }
-    clear();
+    clear(); // every app bar removed, every strip given back
+    forgetSpace();
     TrayHost::instance().shutdown(); // apps keep their icons in Explorer's tray
     m_native.show();
     if (m_events != nullptr)
     {
-        SetWindowLongPtrW(static_cast<HWND>(m_events), GWLP_USERDATA, 0);
         DestroyWindow(static_cast<HWND>(m_events));
     }
+}
+
+void BarApp::writeSpace()
+{
+    std::vector<bar::SpaceEntry> entries;
+    for (const auto& shown : m_bars)
+    {
+        if (shown->window != nullptr)
+        {
+            if (const bar::SpaceEntry entry = shown->window->space(); entry.window != 0)
+            {
+                entries.push_back(entry);
+            }
+        }
+    }
+    if (entries.empty())
+    {
+        forgetSpace();
+        return;
+    }
+    std::string text = bar::spaceToJson(entries);
+    if (text == m_spaceText)
+    {
+        return;
+    }
+    const auto file = m_planFile.parent_path() / L"space.json";
+    // Cached, not flushed: it is for a crash of this process, which leaves it in Windows' cache all the same.
+    if (auto written =
+            platform::writeFileAtomic(file, std::as_bytes(std::span(text)), platform::Durability::Cached);
+        !written)
+    {
+        log::warn("bar: cannot keep what it holds of the screen: {}", written.error().toString());
+        return;
+    }
+    m_spaceText = std::move(text);
+}
+
+void BarApp::forgetSpace() noexcept
+{
+    if (m_spaceText.empty())
+    {
+        return;
+    }
+    try
+    {
+        std::error_code ec;
+        std::filesystem::remove(m_planFile.parent_path() / L"space.json", ec);
+    }
+    catch (...) // NOLINT(bugprone-empty-catch): never throws past here; the core removes it after us
+    {
+    }
+    m_spaceText.clear();
 }
 
 bool BarApp::start()
@@ -512,6 +578,7 @@ bool BarApp::useAppIcons(const std::vector<bar::PlanAppIcon>& icons)
 bool BarApp::rebuild()
 {
     clear();
+    writeSpace(); // the old bars gave theirs back
     auto bytes = platform::readFileLimited(m_planFile, limits::kManifestMaxBytes);
     if (!bytes)
     {
@@ -630,6 +697,7 @@ bool BarApp::rebuild()
                         (*strong)->set_property("bar-matte", Value(slint::Brush(matte)));
                     }
                 });
+                m_created->setSpaceChanged([this] { writeSpace(); });
                 m_created = nullptr;
             }
             instance->set_property("bar-background", Value(backgroundOf(config, light)));
@@ -740,6 +808,7 @@ bool BarApp::rebuild()
         });
     }
     sendInstances();
+    writeSpace(); // every new bar in (each told of its own as it was placed, before it was listed)
     log::info("bar: {} bar window(s) shown", m_bars.size());
     return true;
 }

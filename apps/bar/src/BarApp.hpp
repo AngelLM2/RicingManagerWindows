@@ -67,6 +67,10 @@ private:
     };
 
     [[nodiscard]] bool rebuild();
+    // <data>\bar\space.json: what the bars hold of the screen now, for the core to give back if this
+    // process ends badly (rmw/bar/Space.hpp); gone when they give it back themselves.
+    void writeSpace();
+    void forgetSpace() noexcept;
     // The plan's program icons that are valid .ico files go to the icon drawing; true when they changed.
     bool useAppIcons(const std::vector<bar::PlanAppIcon>& icons);
     void clear();
@@ -92,6 +96,7 @@ private:
     platform::NativeTaskbarHider m_native;
     void* m_events = nullptr;    // HWND: display changes, Explorer restarts, the rebuild timer
     void* m_planWatch = nullptr; // change notification on the plan's folder
+    std::string m_spaceText;     // what space.json holds (empty: no file of ours)
     unsigned m_taskbarCreated = 0;
     std::size_t m_traySubscription = 0; // plugins watch "tray"
 
