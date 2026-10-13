@@ -8,6 +8,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 namespace
@@ -307,6 +308,62 @@ TEST_F(SettingsModel, SettingsFileMissingIsEmpty)
     // A broken file is reported, not replaced.
     write(L"data/config/settings.toml", "[core\n");
     EXPECT_FALSE(settings::loadSettings(data(), actions));
+}
+
+// The lifecycle review (v1.8.1): the window wrote the copy it had read over the file, and what a text
+// editor had changed meanwhile was gone.
+TEST_F(SettingsModel, AnEditMadeOutsideMeanwhileStays)
+{
+    const std::array<std::string_view, 2> actions = {"appearance.toggle", "appearance.dark"};
+    write(L"data/config/settings.toml", "schema = 1\n[core]\nkeep_in_tray = true\n");
+    auto read = settings::readSettings(data(), actions);
+    ASSERT_TRUE(read) << read.error().message();
+    ASSERT_TRUE(read->text.has_value());
+    // Meanwhile, by hand: a hotkey.
+    write(L"data/config/settings.toml", "schema = 1\n[core]\nkeep_in_tray = true\n[[hotkey]]\nkeys = "
+                                        "\"Win+Alt+D\"\naction = \"appearance.toggle\"\n");
+    // The window turns the tray icon off.
+    domain::Settings edited = read->settings;
+    edited.keepInTray = false;
+    auto saved = settings::saveSettingsOver(data(), *read, edited, actions);
+    ASSERT_TRUE(saved) << saved.error().message();
+    EXPECT_FALSE(saved->settings.keepInTray);
+    ASSERT_EQ(saved->settings.hotkeys.size(), 1u);
+    auto onDisk = settings::loadSettings(data(), actions);
+    ASSERT_TRUE(onDisk);
+    EXPECT_FALSE(onDisk->keepInTray);
+    EXPECT_EQ(onDisk->hotkeys.size(), 1u);
+    // Nothing changed outside since: the window's copy goes as it is.
+    domain::Settings again = saved->settings;
+    again.language = "en";
+    auto second = settings::saveSettingsOver(data(), *saved, again, actions);
+    ASSERT_TRUE(second) << second.error().message();
+    EXPECT_EQ(second->settings, again);
+    // Broken by hand meanwhile: not replaced by the window's copy.
+    write(L"data/config/settings.toml", "[core\n");
+    EXPECT_FALSE(settings::saveSettingsOver(data(), *second, second->settings, actions));
+    std::ifstream file(data() / L"config" / L"settings.toml", std::ios::binary);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(file), {}), "[core\n");
+}
+
+TEST(SettingsMerge, EachSideKeepsWhatItChanged)
+{
+    domain::Settings base;
+    base.keepInTray = true;
+    base.tiling.gap = 8;
+    domain::Settings edited = base; // the window
+    edited.tiling.gap = 12;
+    edited.language = "en";
+    domain::Settings onDisk = base; // a text editor
+    onDisk.tiling.enabled = true;
+    onDisk.keepInTray = false;
+    onDisk.language = "pt-BR";
+    const domain::Settings merged = settings::mergeSettings(base, edited, onDisk);
+    EXPECT_EQ(merged.tiling.gap, 12);                               // the window's
+    EXPECT_TRUE(merged.tiling.enabled);                             // the editor's, in the same table
+    EXPECT_FALSE(merged.keepInTray);                                // the editor's
+    EXPECT_EQ(merged.language, "en");                               // both: the window, which saves last
+    EXPECT_EQ(settings::mergeSettings(base, base, onDisk), onDisk); // the window changed nothing
 }
 
 } // namespace

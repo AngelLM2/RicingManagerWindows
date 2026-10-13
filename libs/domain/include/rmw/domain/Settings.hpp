@@ -38,12 +38,16 @@ struct ActionCall
     std::string name;     // "appearance.toggle", "rice.apply", "restore.original", ...
     std::string ricePath; // only for rice.apply (absolute folder)
     std::string app;      // only for launch.app (an id of platform::installedApps())
+
+    friend bool operator==(const ActionCall&, const ActionCall&) = default;
 };
 
 struct Hotkey
 {
     KeyChord keys;
     ActionCall action;
+
+    friend bool operator==(const Hotkey&, const Hotkey&) = default;
 };
 
 enum class RuleTrigger
@@ -60,6 +64,8 @@ struct Rule
     std::optional<TimeOfDay> at;            // Time
     std::optional<MonitorSelector> monitor; // MonitorConnected
     ActionCall action;
+
+    friend bool operator==(const Rule&, const Rule&) = default;
 };
 
 // ---- M13: the tiler (settings.toml [tiling]) ----
@@ -207,6 +213,8 @@ struct Settings
     {
         return keepInTray || !hotkeys.empty() || !rules.empty() || tiling.enabled;
     }
+
+    friend bool operator==(const Settings&, const Settings&) = default;
 };
 
 // Daily times on the local clock, in seconds of the day (0..86399).

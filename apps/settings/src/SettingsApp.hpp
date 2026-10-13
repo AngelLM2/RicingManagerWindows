@@ -153,6 +153,8 @@ private:
     std::optional<Edit> m_edit;
     bool m_preparingEdit = false;
     std::optional<domain::Settings> m_settings;
+    // settings.toml as it was when m_settings was read: a save tells from it what changed outside since.
+    std::optional<settings::ReadSettings> m_settingsRead;
     ipc::Json m_status;
     ipc::Json m_plugins = ipc::Json::array();
     ipc::Json m_monitors = ipc::Json::array();
