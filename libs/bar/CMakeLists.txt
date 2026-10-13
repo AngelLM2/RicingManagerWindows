@@ -8,6 +8,7 @@ rmw_add_library(bar
         src/Geometry.cpp
         src/Plan.cpp
         src/Source.cpp
+        src/Space.cpp
         src/Tray.cpp
         src/WidgetSource.cpp
     PUBLIC_DEPS

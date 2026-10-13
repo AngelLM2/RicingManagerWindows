@@ -34,6 +34,7 @@ namespace rmw::core
 {
 
 class Resident;
+class WorkQueue;
 
 struct CoreOptions
 {
@@ -135,9 +136,14 @@ public:
     [[nodiscard]] std::optional<std::filesystem::path> barSource() const;
     // Work queue: reads the bars of that rice again (the rest waits for the next apply).
     [[nodiscard]] Result<void> reloadBars();
-    // The rmw-bar worker (window thread).
+    // The rmw-bar worker (window thread). Stopping asks it to leave: it gives back the strips it set
+    // aside, Windows' taskbar and the tray's icons itself; one that has not left in a moment is ended
+    // and the core gives them back (giveBackBarSpace). Returns at once.
     [[nodiscard]] Result<void> startBar();
     void stopBar();
+    // What a bar that ended badly kept of the screen (<data>\bar\space.json): its app bars removed and
+    // its strips handed back to the work area. Nothing when it gave them back itself. Any thread.
+    void giveBackBarSpace();
     [[nodiscard]] ipc::Json barStatus() const;
     // Video wallpapers: the plan rmw-wallpaper plays (JSON, also in <data>\wallpaper\video.json).
     [[nodiscard]] std::optional<std::string> videoPlan() const;
@@ -204,8 +210,12 @@ private:
     [[nodiscard]] ipc::Json coreState() const;
     // Sets it back as coreState() saw it; an empty one ends it all (bars, video, look, schedule...).
     void bringBack(const ipc::Json& core);
-    // The tiler, asked to put every window back and leave (the core is exiting); waits a moment.
-    void leaveTiler();
+    // The core is exiting (on a thread of its own while the window keeps answering): clients, the
+    // resident's work, then the workers — the tiler asked to put every window back and the bar to give its
+    // space back, both given a moment — and what a worker that did not leave could not put back.
+    void stopEverything(std::jthread& accept, WorkQueue& work);
+    // A tiler that ended without putting everything back: its windows and the keys it held.
+    void afterTilerFailed() const;
     [[nodiscard]] Result<ipc::Json> monitors();
     [[nodiscard]] Result<ipc::Json> inspect(const ipc::Json& params);
     [[nodiscard]] Result<ipc::Json> exportRice(const ipc::Json& params);
@@ -285,12 +295,16 @@ private:
     std::optional<std::string> m_hostPlan; // the plan the host was last started for (window thread)
     std::atomic<bool> m_pluginsWanted{false};
 
-    // Set before the accept thread starts and cleared after every client thread is joined.
+    // Set before the accept thread starts. The window is cleared after every other thread is joined; the
+    // resident as soon as the core starts stopping (what it would be told then is dropped).
     platform::MessageWindow* m_window = nullptr;
-    Resident* m_resident = nullptr;
+    std::atomic<Resident*> m_resident{nullptr};
+    std::mutex m_barSpaceMutex; // giveBackBarSpace() from the supervisor's and the window's threads
 
     std::atomic<int> m_clients{0};
     std::atomic<bool> m_stop{false};
+    void* m_stopping = nullptr; // HANDLE, manual-reset event: set as stopping starts (ends the accept wait)
+    void beginStopping() noexcept;
     std::atomic<std::chrono::steady_clock::rep> m_lastActivity{0};
     struct Worker
     {
