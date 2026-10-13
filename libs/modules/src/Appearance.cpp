@@ -119,14 +119,11 @@ bool isLightPeriod(const domain::AppearanceSchedule& schedule, domain::TimeOfDay
     return now >= schedule.lightAt || now < schedule.darkAt; // light period crosses midnight
 }
 
-void AppearanceLogic::forOriginal(Json& state) const
+void AppearanceLogic::forOriginal(Json& /*state*/) const
 {
-    // A theme of ours as the original: the snapshot was taken over an earlier install's rice. What
-    // Windows ships comes back instead.
-    if (const auto theme = state.find("theme"); theme != state.end() && isOurTheme(*theme))
-    {
-        *theme = kWindowsTheme;
-    }
+    // A theme of ours as the original (the snapshot was taken over an earlier install's rice) stays ours:
+    // until v1.8 it became the theme Windows ships, and a restore brought Windows' defaults back over a
+    // look the person had made their own. Its colors come back as they were taken.
 }
 
 AppearanceLogic::AppearanceLogic(std::function<domain::TimeOfDay()> now)
@@ -280,38 +277,31 @@ Result<void> AppearanceSystem::apply(const Json& desired)
         }
     }
 
-    // A restore: the theme the user had selected comes back first (its look only; the pointers and the
-    // recent colors stay as they are). The fields below then set what it does not. A theme that is gone
-    // (or "windows") is the one Windows ships for the mode.
+    // A restore: the theme the user had selected comes back first (its look only; the pointers, the
+    // wallpaper, the sounds and the rest stay as they are). The fields below then set what it does not.
+    // A theme of theirs that is gone is never replaced by one of Windows' (that brought Windows' defaults
+    // back over a system the person had made their own): its look comes back through ours, and its name is
+    // the current theme again, as they had it. ("windows", what v1.7-v1.8 wrote for an original theme of
+    // ours: the look only.)
     bool themeApplied = false;
-    std::string themeFile;
-    if (const auto theme = desired.find("theme"); theme != desired.end() && theme->is_string() && !isOurTheme(*theme))
+    std::string themeFile; // the user's theme, named the current one at the end
+    if (const auto theme = desired.find("theme");
+        theme != desired.end() && theme->is_string() && !isOurTheme(*theme) &&
+        theme->get_ref<const std::string&>() != kWindowsTheme)
     {
-        const auto& asked = theme->get_ref<const std::string&>();
-        std::vector<std::string> candidates;
-        if (asked != kWindowsTheme)
+        themeFile = theme->get<std::string>();
+        if (!m_shell.fileExists(themeFile))
         {
-            candidates.push_back(asked);
+            log::info("appearance: the theme {} is gone; its look comes back without it", themeFile);
         }
-        if (asked == kWindowsTheme || !m_shell.fileExists(asked))
+        else if (auto applied = m_theme.applyThemeFile(themeFile); applied)
         {
-            auto light = readDword(m_registry, kPersonalize, "SystemUsesLightTheme", 1);
-            candidates.push_back(m_theme.windowsThemeFile(!systemLight.value_or(light && *light != 0)));
+            themeApplied = true;
         }
-        for (const auto& file : candidates)
+        else
         {
-            auto applied = m_theme.applyThemeFile(file);
-            if (applied)
-            {
-                themeApplied = true;
-                themeFile = file;
-                break;
-            }
-            log::warn("appearance: the theme {} cannot come back ({})", file, applied.error().toString());
-        }
-        if (!themeApplied)
-        {
-            log::warn("appearance: no theme came back; the look is set instead");
+            log::warn("appearance: the theme {} cannot come back ({}); its look is set instead", themeFile,
+                      applied.error().toString());
         }
     }
 
@@ -391,12 +381,16 @@ Result<void> AppearanceSystem::apply(const Json& desired)
 
     // The user's theme is the current one (and never one of ours the one to come back to after high
     // contrast), whichever way its look came back: Windows writes these in its own time, or not at all
-    // after our fallback.
-    if (themeApplied)
+    // after our fallback. Ours is no longer needed then: Settings stops listing "Ricing Manager".
+    if (!themeFile.empty())
     {
         if (auto named = m_theme.nameCurrentTheme(themeFile); !named)
         {
             log::warn("appearance: cannot name {} the current theme: {}", themeFile, named.error().toString());
+        }
+        else
+        {
+            m_theme.forgetManagedThemes();
         }
     }
 

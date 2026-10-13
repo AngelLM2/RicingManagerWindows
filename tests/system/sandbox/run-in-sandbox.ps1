@@ -5,7 +5,7 @@
     C:\rmw\out    = results (read-write, visible on the host)
 #>
 param(
-    [ValidateSet('unit', 'system', 'bar', 'plugins', 'tray', 'video', 'settings', 'packages', 'installer', 'tiler', 'break', 'spike')]
+    [ValidateSet('unit', 'system', 'bar', 'plugins', 'tray', 'video', 'settings', 'packages', 'installer', 'tiler', 'break', 'fidelity', 'spike')]
     [string] $Suite = 'unit',
     [string] $Spike,
     [string] $SpikeArgs = '',
@@ -106,6 +106,16 @@ try {
             for ($i = 0; $i -lt 60 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
             Start-Sleep -Seconds 5
             & (Join-Path $PSScriptRoot 'break-tests.ps1') -Bin (Join-Path $work 'bin') -Work $work -Out $out *> $log
+            $exitCode = $LASTEXITCODE
+        }
+        'fidelity' {
+            # v1.9: a Windows made someone's own first; every path leaves all of it as it was.
+            $work = 'C:\rmw\work'
+            New-Item -ItemType Directory -Force $work | Out-Null
+            Copy-Item 'C:\rmw\build\bin' (Join-Path $work 'bin') -Recurse -Force
+            for ($i = 0; $i -lt 60 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
+            Start-Sleep -Seconds 5
+            & (Join-Path $PSScriptRoot 'fidelity-tests.ps1') -Bin (Join-Path $work 'bin') -Work $work -Out $out *> $log
             $exitCode = $LASTEXITCODE
         }
         'packages' {

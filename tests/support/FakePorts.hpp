@@ -176,13 +176,11 @@ public:
         return {};
     }
 
-    std::string windowsThemeFile(bool dark) override
-    {
-        return dark ? R"(C:\Windows\resources\Themes\dark.theme)" : R"(C:\Windows\resources\Themes\aero.theme)";
-    }
+    void forgetManagedThemes() override { ++forgotten; }
 
     std::vector<std::string> files;
     std::vector<std::string> named;
+    int forgotten = 0;
     std::map<std::string, ports::ThemeLook> looks;
 
     std::vector<ports::ThemeLook> applied;

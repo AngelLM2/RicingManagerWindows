@@ -18,8 +18,10 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <format>
+#include <optional>
 #include <span>
 #include <fstream>
 #include <thread>
@@ -190,9 +192,22 @@ std::string lookDifference(const ports::ThemeLook& look)
                        shown(readDword(kDwm, L"ColorizationColor")));
 }
 
+// The fidelity suite takes the legacy manager's path on purpose (the one a theme that does not show
+// takes): RMW_TEST_THEME_LEGACY=1 in the core's environment.
+bool legacyForTests() noexcept
+{
+    std::array<wchar_t, 4> value{};
+    return GetEnvironmentVariableW(L"RMW_TEST_THEME_LEGACY", value.data(), static_cast<DWORD>(value.size())) == 1 &&
+           value[0] == L'1';
+}
+
 // Fresh manager (it re-reads the Themes folders), find ours by name, apply it by index.
 HRESULT applyByIndex(std::wstring_view displayName)
 {
+    if (legacyForTests())
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
     wil::com_ptr_nothrow<IThemeManager2> manager;
     HRESULT hr = CoCreateInstance(kClsidThemeManager2, nullptr, CLSCTX_ALL, __uuidof(IThemeManager2),
                                   manager.put_void());
@@ -237,11 +252,84 @@ HRESULT applyLegacy(const std::filesystem::path& path)
     return bstr ? legacy->ApplyTheme(bstr.get()) : E_OUTOFMEMORY;
 }
 
-// What a theme apply may change that is not the look, kept before it and put back after: every value
-// of Control Panel\Cursors (the pointers, their scheme, their size), the pointer style of Accessibility
-// (size, type, color), Settings' recent colors and the theme to come back to after high contrast. The legacy theme manager applies a whole theme file,
-// its pointer section included (and that section is often older than the pointers in use), and every
-// apply adds its accent to the recent colors.
+// Each monitor's picture and the fit, through IDesktopWallpaper (a theme's picture goes to every monitor:
+// one SetWallpaper per monitor puts each back). Not while a slideshow runs: putting its current picture
+// back would stop it.
+class Wallpapers
+{
+public:
+    static Wallpapers take()
+    {
+        Wallpapers kept;
+        Win32WallpaperApi api;
+        if (const auto slideshow = api.slideshow(); !slideshow || slideshow->active)
+        {
+            return kept;
+        }
+        const auto monitors = api.monitors();
+        if (!monitors)
+        {
+            return kept;
+        }
+        for (const auto& monitor : *monitors)
+        {
+            if (auto file = api.wallpaper(monitor.devicePath); file && !file->empty())
+            {
+                kept.m_pictures.emplace_back(monitor.devicePath, std::move(*file));
+            }
+        }
+        if (const auto position = api.position())
+        {
+            kept.m_position = *position;
+        }
+        return kept;
+    }
+
+    void putBack() const
+    {
+        if (m_pictures.empty())
+        {
+            return;
+        }
+        Win32WallpaperApi api;
+        bool changed = false;
+        for (const auto& [device, file] : m_pictures)
+        {
+            const auto now = api.wallpaper(device);
+            if (now && !sameText(*now, file) && api.setWallpaper(device, file))
+            {
+                changed = true;
+            }
+        }
+        if (const auto now = api.position(); m_position && now && *now != *m_position && api.setPosition(*m_position))
+        {
+            changed = true;
+        }
+        if (changed)
+        {
+            log::info("theme: the wallpaper a theme apply changed is back");
+        }
+    }
+
+private:
+    static bool sameText(const std::string& a, const std::string& b)
+    {
+        const auto left = utf8To16Lossy(a);
+        const auto right = utf8To16Lossy(b);
+        return equalsIgnoreCase(left, right);
+    }
+
+    std::vector<std::pair<std::string, std::string>> m_pictures; // device path, picture
+    std::optional<ports::WallpaperPosition> m_position;
+};
+
+// What a theme apply may change that is not the look, kept before it and put back after. The legacy theme
+// manager applies a whole theme file: the fidelity suite (v1.9) saw it turn "No sounds" into Windows'
+// sounds and, with a theme of Windows' as the base, the person's picture into Windows'. Kept: every value
+// of Control Panel\Cursors (the pointers, their scheme, their size) and the pointer style of Accessibility
+// (size, type, color); the wallpaper and the screen saver; the sound scheme and every event's sound; the
+// desktop icons shown and their pictures; Settings' recent colors (every apply adds its accent to them) and
+// the theme to come back to after high contrast.
 class Kept
 {
 public:
@@ -250,8 +338,14 @@ public:
         Kept kept;
         for (const auto& spec : kKeys)
         {
-            kept.m_keys.push_back(read(spec));
+            const std::span<const std::wstring_view> names(spec.names.data(), spec.count);
+            kept.m_keys.push_back(read(std::wstring(spec.path), {names.begin(), names.end()}, spec.refresh));
         }
+        for (auto& path : soundEvents())
+        {
+            kept.m_keys.push_back(read(std::move(path), {}, Refresh::None));
+        }
+        kept.m_wallpapers = Wallpapers::take();
         return kept;
     }
 
@@ -266,21 +360,23 @@ public:
         }
     }
 
-    // Writes back what changed, deletes what appeared; the pointers are reloaded when they changed.
+    // Writes back what changed, deletes what appeared; what Windows holds in memory is told again.
     void putBack() const
     {
         bool cursors = false;
+        bool saver = false;
+        bool icons = false;
         std::optional<DWORD> size;
-        for (std::size_t k = 0; k < m_keys.size(); ++k)
+        for (const Key& before : m_keys)
         {
-            const Key& before = m_keys[k];
-            const Key now = read(kKeys[k]);
+            const Key now = read(before.path, before.names, before.refresh);
             HKEY handle = nullptr;
             if (RegCreateKeyExW(HKEY_CURRENT_USER, before.path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr,
                                 &handle, nullptr) != ERROR_SUCCESS)
             {
                 continue;
             }
+            bool changed = false;
             for (const auto& value : before.values)
             {
                 const auto there = std::ranges::find(now.values, value.name, &Value::name);
@@ -288,9 +384,9 @@ public:
                 {
                     RegSetValueExW(handle, value.name.c_str(), 0, value.type, value.data.data(),
                                    static_cast<DWORD>(value.data.size()));
-                    cursors = cursors || k == 0;
-                    if (k == 0 && value.name == L"CursorBaseSize" && value.type == REG_DWORD &&
-                        value.data.size() == sizeof(DWORD))
+                    changed = true;
+                    if (before.refresh == Refresh::Cursors && value.name == L"CursorBaseSize" &&
+                        value.type == REG_DWORD && value.data.size() == sizeof(DWORD))
                     {
                         DWORD pixels = 0;
                         std::memcpy(&pixels, value.data.data(), sizeof(pixels));
@@ -303,10 +399,13 @@ public:
                 if (std::ranges::find(before.values, value.name, &Value::name) == before.values.end())
                 {
                     RegDeleteValueW(handle, value.name.c_str());
-                    cursors = cursors || k == 0;
+                    changed = true;
                 }
             }
             RegCloseKey(handle);
+            cursors = cursors || (changed && before.refresh == Refresh::Cursors);
+            saver = saver || (changed && before.refresh == Refresh::ScreenSaver);
+            icons = icons || (changed && before.refresh == Refresh::DesktopIcons);
         }
         if (cursors)
         {
@@ -320,9 +419,37 @@ public:
             }
             log::info("theme: the pointers a theme apply changed are back");
         }
+        if (saver)
+        {
+            // Windows keeps the screen saver's switch and wait in memory too.
+            const auto text = [](const wchar_t* name) {
+                return readString(LR"(Control Panel\Desktop)", name).value_or(L"");
+            };
+            const bool active = text(L"ScreenSaveActive") == L"1";
+            const UINT seconds = static_cast<UINT>(std::wcstoul(text(L"ScreenSaveTimeOut").c_str(), nullptr, 10));
+            SystemParametersInfoW(SPI_SETSCREENSAVEACTIVE, active ? TRUE : FALSE, nullptr, SPIF_SENDCHANGE);
+            if (seconds > 0)
+            {
+                SystemParametersInfoW(SPI_SETSCREENSAVETIMEOUT, seconds, nullptr, SPIF_SENDCHANGE);
+            }
+            log::info("theme: the screen saver a theme apply changed is back");
+        }
+        if (icons)
+        {
+            SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSHNOWAIT, nullptr, nullptr);
+            log::info("theme: the desktop icons a theme apply changed are back");
+        }
+        m_wallpapers.putBack();
     }
 
 private:
+    enum class Refresh : std::uint8_t
+    {
+        None,
+        Cursors,
+        ScreenSaver,
+        DesktopIcons,
+    };
     struct Value
     {
         std::wstring name;
@@ -332,27 +459,85 @@ private:
     struct Key
     {
         std::wstring path;
+        std::vector<std::wstring_view> names; // none: every value of the key
+        Refresh refresh = Refresh::None;
         std::vector<Value> values;
     };
     struct Spec
     {
         std::wstring_view path;
-        std::array<std::wstring_view, 3> names; // `count` of them; none: every value of the key
+        std::array<std::wstring_view, 4> names; // `count` of them; none: every value of the key
         std::size_t count = 0;
+        Refresh refresh = Refresh::None;
     };
-    static constexpr std::array<Spec, 5> kKeys = {{
-        {LR"(Control Panel\Cursors)", {}, 0},
-        {LR"(Software\Microsoft\Accessibility)", {L"CursorSize", L"CursorType", L"CursorColor"}, 3},
-        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes\History\Colors)", {}, 0},
-        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes\History)", {L"AutoColor"}, 1},
+    static constexpr std::array<Spec, 15> kKeys = {{
+        {LR"(Control Panel\Cursors)", {}, 0, Refresh::Cursors},
+        {LR"(Software\Microsoft\Accessibility)", {L"CursorSize", L"CursorType", L"CursorColor"}, 3, Refresh::Cursors},
+        {LR"(Control Panel\Desktop)", {L"WallPaper", L"WallpaperStyle", L"TileWallpaper"}, 3, Refresh::None},
+        {LR"(Control Panel\Desktop)",
+         {L"SCRNSAVE.EXE", L"ScreenSaveActive", L"ScreenSaveTimeOut", L"ScreenSaverIsSecure"},
+         4,
+         Refresh::ScreenSaver},
+        {LR"(AppEvents\Schemes)", {}, 0, Refresh::None},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel)", {}, 0,
+         Refresh::DesktopIcons},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\ClassicStartMenu)", {}, 0,
+         Refresh::DesktopIcons},
+        // The desktop icons' pictures (This PC, the user's files, Network, Recycle Bin, Control Panel).
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon)",
+         {}, 0, Refresh::DesktopIcons},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{59031a47-3f72-44a7-89c5-5595fe6b30ee}\DefaultIcon)",
+         {}, 0, Refresh::DesktopIcons},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}\DefaultIcon)",
+         {}, 0, Refresh::DesktopIcons},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon)",
+         {}, 0, Refresh::DesktopIcons},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0}\DefaultIcon)",
+         {}, 0, Refresh::DesktopIcons},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes\History\Colors)", {}, 0, Refresh::None},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes\History)", {L"AutoColor"}, 1, Refresh::None},
         // The theme Windows goes back to after high contrast: the user's, never a theme of ours.
-        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes)", {L"Pre-High Contrast Scheme"}, 1},
+        {LR"(Software\Microsoft\Windows\CurrentVersion\Themes)", {L"Pre-High Contrast Scheme"}, 1, Refresh::None},
     }};
 
-    static Key read(const Spec& spec)
+    // Every event's sound: AppEvents\Schemes\Apps\<app>\<event>\.Current.
+    static std::vector<std::wstring> soundEvents()
     {
-        Key key{std::wstring(spec.path), {}};
-        const std::span<const std::wstring_view> names(spec.names.data(), spec.count);
+        std::vector<std::wstring> paths;
+        const std::wstring apps = LR"(AppEvents\Schemes\Apps)";
+        const auto subkeys = [](const std::wstring& path) {
+            std::vector<std::wstring> names;
+            HKEY handle = nullptr;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, path.c_str(), 0, KEY_ENUMERATE_SUB_KEYS, &handle) != ERROR_SUCCESS)
+            {
+                return names;
+            }
+            for (DWORD i = 0; i < 512; ++i)
+            {
+                std::array<wchar_t, 256> name{};
+                auto size = static_cast<DWORD>(name.size());
+                if (RegEnumKeyExW(handle, i, name.data(), &size, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS)
+                {
+                    break;
+                }
+                names.emplace_back(name.data(), size);
+            }
+            RegCloseKey(handle);
+            return names;
+        };
+        for (const auto& app : subkeys(apps))
+        {
+            for (const auto& event : subkeys(apps + L"\\" + app))
+            {
+                paths.push_back(apps + L"\\" + app + L"\\" + event + L"\\.Current");
+            }
+        }
+        return paths;
+    }
+
+    static Key read(std::wstring path, std::vector<std::wstring_view> names, Refresh refresh)
+    {
+        Key key{std::move(path), std::move(names), refresh, {}};
         HKEY handle = nullptr;
         if (RegOpenKeyExW(HKEY_CURRENT_USER, key.path.c_str(), 0, KEY_QUERY_VALUE, &handle) != ERROR_SUCCESS)
         {
@@ -370,7 +555,7 @@ private:
                 break;
             }
             const std::wstring valueName(name.data(), nameSize);
-            if (!names.empty() && std::ranges::find(names, valueName) == names.end())
+            if (!key.names.empty() && std::ranges::find(key.names, valueName) == key.names.end())
             {
                 continue;
             }
@@ -382,6 +567,7 @@ private:
     }
 
     std::vector<Key> m_keys;
+    Wallpapers m_wallpapers;
 };
 
 // "@%SystemRoot%\System32\themeui.dll,-2013" and the like: the name Settings shows.
@@ -706,13 +892,27 @@ Result<void> Win32ThemeApi::nameCurrentTheme(const std::string& file)
     return {};
 }
 
-std::string Win32ThemeApi::windowsThemeFile(bool dark)
+void Win32ThemeApi::forgetManagedThemes()
 {
-    std::array<wchar_t, MAX_PATH> windows{};
-    const UINT length = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
-    const std::wstring folder =
-        length > 0 && length < windows.size() ? std::wstring(windows.data(), length) : std::wstring(L"C:\\Windows");
-    return utf16To8Lossy(folder + (dark ? L"\\Resources\\Themes\\dark.theme" : L"\\Resources\\Themes\\aero.theme"));
+    wil::unique_cotaskmem_string localAppData;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, localAppData.put())))
+    {
+        return;
+    }
+    const std::filesystem::path themes =
+        std::filesystem::path(localAppData.get()) / L"Microsoft" / L"Windows" / L"Themes";
+    const std::wstring current = expand(readString(kThemesKey, L"CurrentTheme").value_or(L""));
+    for (const auto* name : {L"RicingManager.theme", L"RicingManager-2.theme"})
+    {
+        const std::filesystem::path file = themes / name;
+        if (equalsIgnoreCase(file.lexically_normal().native(), std::filesystem::path(current).lexically_normal().native()))
+        {
+            return; // one of ours is the current theme after all: both stay
+        }
+    }
+    std::error_code ec;
+    std::filesystem::remove(themes / L"RicingManager.theme", ec);
+    std::filesystem::remove(themes / L"RicingManager-2.theme", ec);
 }
 
 Result<void> Win32ThemeApi::applyThemeFile(const std::string& file)
