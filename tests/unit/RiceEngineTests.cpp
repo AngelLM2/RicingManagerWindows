@@ -662,6 +662,24 @@ TEST_F(RiceEngineTest, GoingBackPastALaterRiceBringsBackWhatItTookFirst)
     EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg");
 }
 
+// The fidelity suite caught the first take on the one above: undoing a rice put back to the original what
+// the rice before it had set (the last snapshot never held it, and nothing changed it since).
+TEST_F(RiceEngineTest, UndoingALaterRiceLeavesWhatTheOneBeforeSet)
+{
+    m_appearance.desired = wants({{"dark", true}});
+    build();
+    ASSERT_TRUE(m_engine->apply(m_rice, package()).has_value());
+    m_appearance.desired = wants(Json::object());
+    m_wallpaper.desired = wants({{"monitor:A", "rice-b.jpg"}});
+    const auto second = m_engine->apply(m_rice, package());
+    ASSERT_TRUE(second.has_value()) << second.error().toString();
+
+    const auto undone = m_engine->restoreHistory(second->historyId);
+    ASSERT_TRUE(undone.has_value()) << undone.error().toString();
+    EXPECT_EQ(m_wallpaper.fields()["monitor:A"], "orig-a.jpg"); // undone
+    EXPECT_EQ(m_appearance.fields()["dark"], true);             // the first rice's, as it was right before
+}
+
 // The fourth real test: an Explorer restart put back a sound or an icon the person had changed by hand (only
 // a few modules are watched live). What the restart does not reset in Windows is theirs: left as it is.
 TEST_F(RiceEngineTest, AReapplyLeavesWhatThePersonChangedWhereWindowsResetsNothing)

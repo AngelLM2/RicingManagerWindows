@@ -858,12 +858,28 @@ Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std:
 
     OperationReport report;
     std::vector<Step> steps;
-    std::optional<SnapshotRecord> base;
+    // Going back in the history: the snapshots of the operations after the target, oldest first.
+    std::vector<SnapshotRecord> later;
     if (update == AppliedUpdate::Merge)
     {
-        if (auto found = m_state.baseSnapshot(); found && *found)
+        if (auto entries = m_state.history(); entries)
         {
-            base = std::move(**found);
+            std::vector<std::int64_t> ids;
+            for (const auto& entry : *entries)
+            {
+                if (entry.snapshotId > target.id)
+                {
+                    ids.push_back(entry.snapshotId);
+                }
+            }
+            std::ranges::sort(ids);
+            for (const auto snapshotId : ids)
+            {
+                if (auto found = m_state.snapshot(snapshotId); found && *found)
+                {
+                    later.push_back(std::move(**found));
+                }
+            }
         }
     }
     for (const auto* module : m_catalog.ordered())
@@ -912,16 +928,24 @@ Result<OperationReport> RiceEngine::restoreTo(const SnapshotRecord& target, std:
             continue;
         }
 
-        // Going back in the history: a field that snapshot never took (a later operation took it first) was
-        // the person's then, as the original keeps it. v1.8 left it as the later rice set it.
-        const Json* fallback = update == AppliedUpdate::Merge && base ? stateIn(base->modules, id) : nullptr;
+        // Going back in the history: a field that snapshot never took was as the first later operation to
+        // take it found it (v1.8 left it as that operation set it). One no later operation took has not
+        // changed since: it stays. (Not the original: undoing a rice put the one before it back to Windows'.)
+        const auto takenLater = [&](const std::string& field) -> const Json* {
+            for (const auto& record : later)
+            {
+                if (const Json* state = stateIn(record.modules, id); state != nullptr && state->contains(field))
+                {
+                    return state;
+                }
+            }
+            return nullptr;
+        };
 
         // Three-way, per field: the target / what we set (applied, or what that operation set) / now.
         Json desired = Json::object();
         const auto consider = [&](const std::string& field, const Json& ours, bool managed) {
-            const Json* from = wanted != nullptr && wanted->contains(field) ? wanted
-                               : fallback != nullptr && fallback->contains(field) ? fallback
-                                                                                 : nullptr;
+            const Json* from = wanted != nullptr && wanted->contains(field) ? wanted : takenLater(field);
             if (from == nullptr)
             {
                 if (managed)
