@@ -53,6 +53,9 @@ enum class WorkerEventKind
     Failed,   // see `failure`; restarted after a back-off unless Disabled follows
     Exited,   // ended by itself with code 0: not restarted
     Disabled, // failed too often: not restarted again
+    // Asked to leave (Supervisor::leave), it is gone: `failure` None when it left by itself with code 0,
+    // Hung when it had to be ended, Crashed when it ended with another code. Never restarted.
+    Left,
 };
 
 enum class WorkerFailure
@@ -106,6 +109,41 @@ private:
     std::deque<std::chrono::steady_clock::time_point> m_failures;
 };
 
+// The hang decision for one worker, without processes (unit-tested on its own). Time the supervisor
+// itself did not run (the PC slept: its clock counts on, the worker could not beat) is not silence:
+// a gap between two looks longer than the silence allowed, or a resume, starts a new grace.
+class HangWatch
+{
+public:
+    using Clock = std::chrono::steady_clock;
+
+    HangWatch(std::chrono::milliseconds hangAfter, std::chrono::milliseconds startGrace) noexcept
+        : m_hangAfter(hangAfter)
+        , m_startGrace(startGrace)
+    {
+    }
+
+    // A new process, whose counter starts at 0.
+    void start(Clock::time_point now) noexcept;
+    // One look at the counter at `now`: true when the worker went silent for too long.
+    [[nodiscard]] bool hung(std::int64_t beat, Clock::time_point now) noexcept;
+    // The PC goes to sleep (no verdicts) and comes back (a new grace from `now`).
+    void pause() noexcept { m_paused = true; }
+    void resume(Clock::time_point now) noexcept;
+
+private:
+    void regrace(Clock::time_point now) noexcept;
+
+    std::chrono::milliseconds m_hangAfter;
+    std::chrono::milliseconds m_startGrace;
+    std::int64_t m_lastBeat = 0;
+    bool m_beaten = false;
+    bool m_paused = false;
+    Clock::time_point m_lastBeatAt;
+    Clock::time_point m_graceFrom; // the start, or the end of a gap: the grace counts from here
+    Clock::time_point m_lastLook;
+};
+
 class Supervisor
 {
 public:
@@ -121,8 +159,18 @@ public:
 
     // Starts a worker now (replacing one with the same name).
     [[nodiscard]] Result<void> start(WorkerSpec spec);
-    // Ends a worker for good (no restart).
+    // Ends a worker for good (no restart), now.
     void stop(std::string_view name);
+    // Ends a worker for good, letting it leave by itself first: from now on it is leaving (no restart,
+    // no hang checks), `ask` asks it with its pid (a message to its window), and one still there after
+    // `patience` is ended. Returns at once; a Left event says how it went. False when it was not running.
+    bool leave(std::string_view name, const std::function<void(std::uint32_t pid)>& ask,
+               std::chrono::milliseconds patience);
+    // Until no worker is leaving (or `timeout`): true when none is.
+    [[nodiscard]] bool waitLeft(std::chrono::milliseconds timeout);
+    // The PC goes to sleep (true) or is back (false): no worker is taken for hung meanwhile, and each
+    // gets a new grace after it.
+    void setSuspended(bool suspended);
     [[nodiscard]] std::vector<WorkerStatus> status() const;
 
 private:

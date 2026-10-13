@@ -2,12 +2,14 @@
 #include "rmw/ipc/JsonRpc.hpp"
 #include "rmw/platform/FileSystem.hpp"
 #include "rmw/platform/Pipe.hpp"
+#include "rmw/platform/Process.hpp"
 
 #include <windows.h>
 
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <future>
 #include <string>
 #include <thread>
 
@@ -212,6 +214,53 @@ TEST(Pipe, TimeoutsAreReported)
     ASSERT_TRUE(connection.has_value());
     EXPECT_EQ(connection->receive(100ms).error().code(), rmw::ErrorCode::Timeout);
     client.join();
+}
+
+// The lifecycle review (v1.8.1): a stopping core kept its pipe until it ended; a client connected,
+// waited 10 s for a hello that never came, and said "busy".
+TEST(Pipe, AStoppingServerIsGoneAtOnce)
+{
+    const std::wstring name = widePipe(randomPipeName());
+    auto server = rmw::platform::PipeServer::create(name);
+    ASSERT_TRUE(server.has_value());
+    // Its accept ends when asked, not at its timeout.
+    HANDLE stop = CreateEventW(nullptr, TRUE, TRUE, nullptr);
+    ASSERT_NE(stop, nullptr);
+    const auto asked = std::chrono::steady_clock::now();
+    EXPECT_EQ(server->accept(10s, stop).error().code(), rmw::ErrorCode::Cancelled);
+    EXPECT_LT(std::chrono::steady_clock::now() - asked, 2s);
+    CloseHandle(stop);
+    // Closed, nobody serves the name: a client knows at once (and starts the next core).
+    server->close();
+    const auto self = rmw::platform::currentExecutable().value();
+    EXPECT_EQ(rmw::platform::connectPipe(name, 1s, self).error().code(), rmw::ErrorCode::NotFound);
+    EXPECT_EQ(server->accept(100ms).error().code(), rmw::ErrorCode::Cancelled);
+    // And the name can be served again (by the next core).
+    EXPECT_TRUE(rmw::platform::PipeServer::create(name).has_value());
+}
+
+// A core started while the last one stops waits for it instead of leaving at once.
+TEST(SingleInstance, ASecondOneWaitsForTheFirstToEnd)
+{
+    const std::string token = rmw::platform::randomHex(8).value();
+    const std::wstring purpose = L"test-" + std::wstring(token.begin(), token.end());
+    std::promise<void> held;
+    std::promise<void> letGo;
+    std::thread first([&] {
+        auto instance = rmw::platform::SingleInstance::acquire(purpose);
+        EXPECT_TRUE(instance && instance->owned());
+        held.set_value();
+        letGo.get_future().wait();
+    }); // (the instance ends with the thread)
+    held.get_future().wait();
+    auto second = rmw::platform::SingleInstance::acquire(purpose);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_FALSE(second->owned());
+    EXPECT_FALSE(second->waitOwned(100ms)); // the first still holds it
+    letGo.set_value();
+    EXPECT_TRUE(second->waitOwned(5s));
+    EXPECT_TRUE(second->owned());
+    first.join();
 }
 
 } // namespace
