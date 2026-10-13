@@ -386,11 +386,6 @@ Step 'lifecycle' {
     function Log-Count([string] $Name, [string] $Text) {
         @(Select-String -Path (Join-Path $data "logs\$Name") -SimpleMatch -Pattern $Text -ErrorAction SilentlyContinue).Count
     }
-    # Within 2 px on every edge: the strip a bar set aside is 32 px or more.
-    function Same-Area($A, $B) {
-        [Math]::Abs($A.Left - $B.Left) -le 2 -and [Math]::Abs($A.Top - $B.Top) -le 2 -and
-        [Math]::Abs($A.Right - $B.Right) -le 2 -and [Math]::Abs($A.Bottom - $B.Bottom) -le 2
-    }
     function Bar-Running { $null -ne (Get-Process rmw-bar -ErrorAction SilentlyContinue) }
     [void](Rmw @('restore', '--original', '--wait') 180)
     [void](Rmw @('shutdown', '--wait'))
@@ -420,28 +415,31 @@ Step 'lifecycle' {
     $seen = @(Get-Content $seenFile -ErrorAction SilentlyContinue | Where-Object { $_ -ne 'ready' } | Select-Object -Unique)
     Check 'break:lifecycle-shutdown-starts-nothing' ($ready -and $down.code -eq 0 -and $auto.code -eq 0 -and $seen.Count -eq 0) "watcher=$ready shutdown=$($down.code) '$($down.output)' autostart=$($auto.code) '$($auto.output)' seen: $($seen -join ', ')"
 
-    # (a, d) A bar that reserves a strip; bar.off: it leaves by itself and the strip comes back.
+    # (a, d) A bar that reserves a strip; bar.off: it leaves by itself and the strip comes back. Sakura's bar
+    # is 32 px at the top; Windows' taskbar stays auto-hidden (the rice's, undone by a restore), so the
+    # strip is read at the top edge (the area before had Windows' taskbar at the bottom).
+    function Top-Strip { (Work-Area).Top - (Screen-Bounds).Top }
     $r = Rmw @('apply', $sakura, '--wait') 180
-    $reserved = (Wait-Until { Bar-Running } 15) -and (Wait-Until { -not (Same-Area (Work-Area) $areaBefore) } 15)
+    $reserved = Wait-Until { (Bar-Running) -and (Top-Strip) -ge 30 } 15
     Check 'break:lifecycle-bar-reserves' ($r.code -eq 0 -and $reserved) "before=$areaBefore now=$(Work-Area): $($r.output)"
     $asked = Log-Count 'bar.log' 'bar: asked to leave'
     $stopped = Log-Count 'bar.log' 'bar: stopped'
     $left = Log-Count 'core.log' 'worker bar left'
     $off = Rmw @('action', 'bar.off')
-    $back = Wait-Until { -not (Bar-Running) -and (Same-Area (Work-Area) $areaBefore) } 15
+    $back = Wait-Until { -not (Bar-Running) -and (Top-Strip) -le 2 } 15
     Check 'break:lifecycle-bar-off-gives-the-strip-back' ($off.code -eq 0 -and $back) "before=$areaBefore after=$(Work-Area) bar=$(Bar-Running): $($off.output)"
     $graceful = (Wait-Until { (Log-Count 'bar.log' 'bar: stopped') -gt $stopped } 10) -and (Log-Count 'bar.log' 'bar: asked to leave') -gt $asked -and (Log-Count 'core.log' 'worker bar left') -gt $left
     Check 'break:lifecycle-bar-off-leaves-gracefully' $graceful "asked $asked -> $(Log-Count 'bar.log' 'bar: asked to leave'), stopped $stopped -> $(Log-Count 'bar.log' 'bar: stopped'), core 'worker bar left' $left -> $(Log-Count 'core.log' 'worker bar left')"
 
     # (a, d) The same at exit: `rmw shutdown --wait` with the bar on.
     $on = Rmw @('action', 'bar.on')
-    $reserved = (Wait-Until { Bar-Running } 15) -and (Wait-Until { -not (Same-Area (Work-Area) $areaBefore) } 15)
+    $reserved = Wait-Until { (Bar-Running) -and (Top-Strip) -ge 30 } 15
     Check 'break:lifecycle-bar-on-again' ($on.code -eq 0 -and $reserved) "now=$(Work-Area): $($on.output)"
     $stopped = Log-Count 'bar.log' 'bar: stopped'
     $left = Log-Count 'core.log' 'worker bar left'
     $notLeft = Log-Count 'core.log' 'worker bar did not leave by itself'
     $down = Rmw @('shutdown', '--wait') 90
-    $back = Wait-Until { Same-Area (Work-Area) $areaBefore } 10
+    $back = Wait-Until { (Top-Strip) -le 2 } 10
     Check 'break:lifecycle-exit-gives-the-strip-back' ($down.code -eq 0 -and $back -and -not (Bar-Running)) "before=$areaBefore after=$(Work-Area) bar=$(Bar-Running): $($down.output)"
     $graceful = (Log-Count 'bar.log' 'bar: stopped') -gt $stopped -and (Log-Count 'core.log' 'worker bar left') -gt $left -and (Log-Count 'core.log' 'worker bar did not leave by itself') -eq $notLeft
     Check 'break:lifecycle-exit-bar-leaves-gracefully' $graceful "stopped $stopped -> $(Log-Count 'bar.log' 'bar: stopped'), left $left -> $(Log-Count 'core.log' 'worker bar left'), not left $notLeft -> $(Log-Count 'core.log' 'worker bar did not leave by itself')"

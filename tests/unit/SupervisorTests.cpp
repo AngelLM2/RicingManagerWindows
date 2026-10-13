@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cwctype>
 #include <format>
@@ -247,6 +248,32 @@ TEST(Supervisor, AWorkerAskedToLeaveLeavesAndIsNotRestarted)
     EXPECT_EQ(run.events->count(WorkerEventKind::Started), 1);
     EXPECT_EQ(run.events->count(WorkerEventKind::Failed), 0);
     EXPECT_TRUE(run.supervisor->status().empty());
+}
+
+// The break suite (v1.9): a bar started 48 ms before the core stopped had no window yet for the ask, and was
+// ended after its 2 s. It is asked again until it can hear it.
+TEST(Supervisor, AWorkerAskedBeforeItCanHearItIsAskedAgain)
+{
+    const Running run(L"ok");
+    ASSERT_TRUE(run.supervisor);
+    ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Started));
+    std::atomic_int asks = 0;
+    EXPECT_TRUE(run.supervisor->leave(
+        "test",
+        [&asks](std::uint32_t pid) {
+            if (++asks > 1)
+            {
+                askToQuit(pid); // the first ask never arrives
+            }
+        },
+        5s));
+    EXPECT_TRUE(run.supervisor->waitLeft(10s));
+    ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Left));
+    const auto events = run.events->all();
+    const auto left = std::ranges::find(events, WorkerEventKind::Left, &WorkerEvent::kind);
+    ASSERT_NE(left, events.end());
+    EXPECT_EQ(left->failure, WorkerFailure::None);
+    EXPECT_GE(asks.load(), 2);
 }
 
 TEST(Supervisor, AWorkerThatDoesNotLeaveIsEndedWhenItsTimeIsUp)
