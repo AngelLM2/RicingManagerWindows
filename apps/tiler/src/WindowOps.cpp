@@ -1,5 +1,7 @@
 #include "WindowOps.hpp"
 
+#include "Looks.hpp"
+
 #include "rmw/base/Log.hpp"
 #include "rmw/base/Utf.hpp"
 #include "rmw/platform/FileSystem.hpp"
@@ -534,6 +536,25 @@ std::vector<tiling::Original> putBackFromFile(const std::filesystem::path& file)
     if (bytes)
     {
         const std::string_view text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+        // The rice's look too: a tiler ended before it could left those DWM attributes on apps' windows.
+        if (auto painted = tiling::parsePainted(text); painted && *painted)
+        {
+            std::size_t back = 0;
+            for (const auto& window : (*painted)->windows)
+            {
+                HWND w = hwnd(windowOf(window.window));
+                if (IsWindow(w) != FALSE && processOf(w) == window.process)
+                {
+                    unpaint(w, (*painted)->look, (*painted)->systemDark);
+                    ++back;
+                }
+            }
+            log::info("tiler: {} window(s) given Windows' own look back from the last run", back);
+        }
+        else if (!painted)
+        {
+            log::warn("tiler: {}", painted.error().toString());
+        }
         if (auto windows = tiling::parseOriginals(text))
         {
             auto left = putBack(*windows);
