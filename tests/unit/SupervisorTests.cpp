@@ -7,6 +7,7 @@
 #include <shellapi.h>
 
 #include <gtest/gtest.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <array>
@@ -204,6 +205,154 @@ TEST(Supervisor, AWorkerThatOutlivesTheCoreIsStillEndedOnStop)
     (*supervisor)->stop("test");
     std::this_thread::sleep_for(300ms);
     EXPECT_EQ(events->count(WorkerEventKind::Failed), 0);
+}
+
+// Asks the test worker to leave the way a window is asked: its thread's loop gets WM_QUIT and it returns 0.
+void askToQuit(std::uint32_t pid)
+{
+    auto* const snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+    {
+        return;
+    }
+    THREADENTRY32 entry{};
+    entry.dwSize = sizeof(entry);
+    for (BOOL more = Thread32First(snapshot, &entry); more != FALSE; more = Thread32Next(snapshot, &entry))
+    {
+        if (entry.th32OwnerProcessID == pid)
+        {
+            PostThreadMessageW(entry.th32ThreadID, WM_QUIT, 0, 0);
+        }
+    }
+    CloseHandle(snapshot);
+}
+
+// The lifecycle review (v1.8.1): every exit ended the bar outright, so it never gave back the strip it had
+// set aside. Asked, a worker leaves by itself; its exit is no failure and it is not started again.
+TEST(Supervisor, AWorkerAskedToLeaveLeavesAndIsNotRestarted)
+{
+    const Running run(L"ok");
+    ASSERT_TRUE(run.supervisor);
+    ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Started));
+    std::this_thread::sleep_for(300ms); // its message loop is up
+    EXPECT_TRUE(run.supervisor->leave("test", &askToQuit, 5s));
+    EXPECT_TRUE(run.supervisor->waitLeft(10s));
+    ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Left));
+    const auto events = run.events->all();
+    const auto left = std::ranges::find(events, WorkerEventKind::Left, &WorkerEvent::kind);
+    ASSERT_NE(left, events.end());
+    EXPECT_EQ(left->failure, WorkerFailure::None);
+    EXPECT_EQ(left->exitCode, 0u);
+    std::this_thread::sleep_for(500ms);
+    EXPECT_EQ(run.events->count(WorkerEventKind::Started), 1);
+    EXPECT_EQ(run.events->count(WorkerEventKind::Failed), 0);
+    EXPECT_TRUE(run.supervisor->status().empty());
+}
+
+TEST(Supervisor, AWorkerThatDoesNotLeaveIsEndedWhenItsTimeIsUp)
+{
+    const Running run(L"ok");
+    ASSERT_TRUE(run.supervisor);
+    ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Started));
+    const auto asked = Clock::now();
+    EXPECT_TRUE(run.supervisor->leave("test", [](std::uint32_t) {}, 400ms)); // deaf to it
+    EXPECT_TRUE(run.supervisor->waitLeft(10s));
+    EXPECT_GE(Clock::now() - asked, 400ms);
+    ASSERT_TRUE(run.events->waitFor(WorkerEventKind::Left));
+    const auto events = run.events->all();
+    const auto left = std::ranges::find(events, WorkerEventKind::Left, &WorkerEvent::kind);
+    ASSERT_NE(left, events.end());
+    EXPECT_EQ(left->failure, WorkerFailure::Hung); // its owner puts back what it could not
+    std::this_thread::sleep_for(500ms);
+    EXPECT_EQ(run.events->count(WorkerEventKind::Started), 1);
+    EXPECT_EQ(run.events->count(WorkerEventKind::Failed), 0);
+}
+
+TEST(Supervisor, LeavingWhatIsNotRunningIsNothing)
+{
+    const Running run(L"ok");
+    ASSERT_TRUE(run.supervisor);
+    EXPECT_FALSE(run.supervisor->leave("nobody", [](std::uint32_t) {}, 1s));
+    EXPECT_TRUE(run.supervisor->waitLeft(100ms));
+    run.supervisor->stop("test");
+}
+
+TEST(HangWatch, SilenceAfterBeatsIsAHang)
+{
+    const auto t0 = Clock::time_point{} + 24h;
+    HangWatch watch(1000ms, 5000ms);
+    watch.start(t0);
+    EXPECT_FALSE(watch.hung(1, t0 + 250ms)); // a beat
+    for (int tick = 2; tick <= 5; ++tick)
+    {
+        EXPECT_FALSE(watch.hung(1, t0 + tick * 250ms)) << tick; // silent, within a second
+    }
+    EXPECT_TRUE(watch.hung(1, t0 + 1500ms));
+}
+
+TEST(HangWatch, BeforeTheFirstBeatTheStartGraceCounts)
+{
+    const auto t0 = Clock::time_point{} + 24h;
+    HangWatch watch(1000ms, 5000ms);
+    watch.start(t0);
+    for (auto at = 250ms; at <= 5000ms; at += 250ms)
+    {
+        EXPECT_FALSE(watch.hung(0, t0 + at)) << at.count();
+    }
+    EXPECT_TRUE(watch.hung(0, t0 + 5250ms));
+}
+
+// The PC slept: the supervisor's clock went on, but it did not look and the worker could not beat. A
+// gap between two looks longer than the silence allowed is a new grace, not a hang.
+TEST(HangWatch, ASleepIsNotSilence)
+{
+    const auto t0 = Clock::time_point{} + 24h;
+    HangWatch watch(1000ms, 5000ms);
+    watch.start(t0);
+    EXPECT_FALSE(watch.hung(1, t0 + 250ms));
+    const auto woke = t0 + 2h;
+    EXPECT_FALSE(watch.hung(1, woke)); // the first look after the gap
+    for (auto at = 250ms; at <= 5000ms; at += 250ms)
+    {
+        EXPECT_FALSE(watch.hung(1, woke + at)) << at.count(); // catching up, still silent
+    }
+    EXPECT_TRUE(watch.hung(1, woke + 5250ms)); // a real hang is still found
+    // And a worker that beats again is watched as before.
+    HangWatch beating(1000ms, 5000ms);
+    beating.start(t0);
+    EXPECT_FALSE(beating.hung(1, t0 + 250ms));
+    EXPECT_FALSE(beating.hung(1, woke));
+    EXPECT_FALSE(beating.hung(2, woke + 250ms));
+    EXPECT_FALSE(beating.hung(2, woke + 1000ms));
+    EXPECT_TRUE(beating.hung(2, woke + 1500ms));
+}
+
+TEST(HangWatch, NoVerdictWhileThePcSleeps)
+{
+    const auto t0 = Clock::time_point{} + 24h;
+    HangWatch watch(1000ms, 5000ms);
+    watch.start(t0);
+    EXPECT_FALSE(watch.hung(1, t0 + 250ms));
+    watch.pause();
+    for (auto at = 500ms; at <= 10s; at += 250ms)
+    {
+        EXPECT_FALSE(watch.hung(1, t0 + at)) << at.count();
+    }
+    const auto back = t0 + 10s;
+    watch.resume(back); // a new grace: the worker catches up first
+    for (auto at = 250ms; at <= 5000ms; at += 250ms)
+    {
+        EXPECT_FALSE(watch.hung(1, back + at)) << at.count();
+    }
+    EXPECT_TRUE(watch.hung(1, back + 5250ms));
+}
+
+TEST(HangWatch, ZeroMeansNotWatched)
+{
+    const auto t0 = Clock::time_point{} + 24h;
+    HangWatch watch(0ms, 5000ms);
+    watch.start(t0);
+    EXPECT_FALSE(watch.hung(0, t0 + 1h));
 }
 
 TEST(ProcessesFromFolder, FindsOnlyThisFoldersCopies)

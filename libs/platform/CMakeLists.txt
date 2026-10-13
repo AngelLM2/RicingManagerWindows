@@ -10,6 +10,7 @@ rmw_add_library(platform
         src/Console.cpp
         src/Customizers.cpp
         src/FileSystem.cpp
+        src/Keyboard.cpp
         src/MessageWindow.cpp
         src/NativeTaskbar.cpp
         src/Pipe.cpp

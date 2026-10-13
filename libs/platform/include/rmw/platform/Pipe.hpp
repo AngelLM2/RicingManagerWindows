@@ -71,8 +71,12 @@ public:
 
     // Waits for the next client; Timeout when none came (or one left before it was accepted). The
     // connection is independent of the server (each client gets its own instance). After any other
-    // failure the instance is replaced, so the next accept starts clean.
-    [[nodiscard]] Result<PipeConnection> accept(std::chrono::milliseconds timeout);
+    // failure the instance is replaced, so the next accept starts clean. `cancel` (an event, may be
+    // null) ends the wait at once: Cancelled.
+    [[nodiscard]] Result<PipeConnection> accept(std::chrono::milliseconds timeout, void* cancel = nullptr);
+    // No client can connect from now on: the name is gone once the connections handed out close too.
+    // (A client finds nobody at once, instead of a server that never answers.) Accept fails after it.
+    void close() noexcept;
 
     [[nodiscard]] const std::wstring& name() const noexcept { return m_name; }
 
@@ -85,6 +89,7 @@ private:
     void* m_instance = nullptr;   // HANDLE waiting for a client
     void* m_event = nullptr;      // HANDLE
     void* m_descriptor = nullptr; // PSECURITY_DESCRIPTOR (LocalAlloc)
+    bool m_closed = false;
 };
 
 // Connects to `name`, retrying while all instances are busy. NotFound when nobody serves it.
