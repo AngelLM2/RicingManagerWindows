@@ -1197,16 +1197,18 @@ void SettingsApp::refreshSettings()
     const auto& words = m_ui->global<Words>();
     const auto names = knownActions();
     const std::vector<std::string_view> views(names.begin(), names.end());
-    auto loaded = settings::loadSettings(m_dataDirectory, views);
+    auto loaded = settings::readSettings(m_dataDirectory, views);
     if (!loaded)
     {
         log::warn("settings: settings.toml: {}", loaded.error().toString());
         m_settings.reset();
+        m_settingsRead.reset();
         api.set_settings_problem(shared(loaded.error().message()));
     }
     else
     {
-        m_settings = std::move(*loaded);
+        m_settings = loaded->settings;
+        m_settingsRead = std::move(*loaded);
         api.set_settings_problem({});
     }
 
@@ -2202,15 +2204,22 @@ void SettingsApp::applyFolder(const fs::path& folder)
 
 void SettingsApp::saveSettings()
 {
-    if (!m_settings)
+    if (!m_settings || !m_settingsRead)
     {
         return;
     }
-    if (auto saved = settings::saveSettings(m_dataDirectory, *m_settings); !saved)
+    const auto names = knownActions();
+    const std::vector<std::string_view> views(names.begin(), names.end());
+    // Over what the file holds now: an edit made outside since the window read it stays.
+    auto saved = settings::saveSettingsOver(m_dataDirectory, *m_settingsRead, *m_settings, views);
+    if (!saved)
     {
         failed(saved.error());
+        refreshSettings(); // the window shows the file again
         return;
     }
+    m_settings = saved->settings;
+    m_settingsRead = std::move(*saved);
     call("settings.reload", Json::object(), [this](Reply reply) {
         if (!reply)
         {

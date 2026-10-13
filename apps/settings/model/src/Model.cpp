@@ -756,4 +756,94 @@ Result<void> saveSettings(const fs::path& dataDirectory, const domain::Settings&
     return platform::writeFileAtomic(file, std::as_bytes(std::span(text)));
 }
 
+Result<ReadSettings> readSettings(const fs::path& dataDirectory,
+                                  std::span<const std::string_view> knownActions)
+{
+    const fs::path file = settingsFile(dataDirectory);
+    std::error_code ec;
+    if (!fs::exists(file, ec))
+    {
+        return ReadSettings{domain::Settings{}, std::nullopt};
+    }
+    auto bytes = platform::readFileLimited(file, kSettingsMaxBytes);
+    if (!bytes)
+    {
+        return std::unexpected(std::move(bytes.error()));
+    }
+    std::string text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+    domain::Diagnostics diagnostics;
+    auto settings = domain::parseSettings(text, diagnostics, knownActions);
+    if (!settings)
+    {
+        return std::unexpected(std::move(settings.error()));
+    }
+    return ReadSettings{std::move(*settings), std::move(text)};
+}
+
+domain::Settings mergeSettings(const domain::Settings& base, const domain::Settings& edited,
+                               const domain::Settings& onDisk)
+{
+    domain::Settings merged = onDisk;
+    const auto take = [](auto& into, const auto& before, const auto& after) {
+        if (after != before)
+        {
+            into = after;
+        }
+    };
+    take(merged.keepInTray, base.keepInTray, edited.keepInTray);
+    take(merged.language, base.language, edited.language);
+    take(merged.startWinKey, base.startWinKey, edited.startWinKey);
+    take(merged.machineIcons, base.machineIcons, edited.machineIcons);
+    take(merged.hotkeys, base.hotkeys, edited.hotkeys);
+    take(merged.rules, base.rules, edited.rules);
+    domain::TilingSettings& tiling = merged.tiling;
+    const domain::TilingSettings& was = base.tiling;
+    const domain::TilingSettings& now = edited.tiling;
+    take(tiling.enabled, was.enabled, now.enabled);
+    take(tiling.mode, was.mode, now.mode);
+    take(tiling.layout, was.layout, now.layout);
+    take(tiling.workspaces, was.workspaces, now.workspaces);
+    take(tiling.gap, was.gap, now.gap);
+    take(tiling.outerGap, was.outerGap, now.outerGap);
+    take(tiling.masterPercent, was.masterPercent, now.masterPercent);
+    take(tiling.border, was.border, now.border);
+    take(tiling.borderColor, was.borderColor, now.borderColor);
+    take(tiling.runAsAdmin, was.runAsAdmin, now.runAsAdmin);
+    take(tiling.animations, was.animations, now.animations);
+    take(tiling.keys, was.keys, now.keys);
+    take(tiling.rules, was.rules, now.rules);
+    return merged;
+}
+
+Result<ReadSettings> saveSettingsOver(const fs::path& dataDirectory, const ReadSettings& read,
+                                      const domain::Settings& edited,
+                                      std::span<const std::string_view> knownActions)
+{
+    auto now = readSettings(dataDirectory, knownActions);
+    if (!now)
+    {
+        // Being written, or broken by hand: the person's file is not replaced by the window's copy.
+        return std::unexpected(
+            std::move(now.error()).withContext("settings.toml does not read now; not saved"));
+    }
+    domain::Settings settings = edited;
+    if (now->text != read.text)
+    {
+        settings = mergeSettings(read.settings, edited, now->settings);
+        // The two edits together may not hold (a hotkey on a tiling shortcut): nothing written then.
+        if (const auto problem = domain::tilingProblem(settings);
+            problem && *problem != domain::tilingProblem(edited))
+        {
+            return fail(
+                ErrorCode::InvalidData,
+                std::format("settings.toml changed meanwhile and this change does not fit it: {}", *problem));
+        }
+    }
+    if (auto saved = saveSettings(dataDirectory, settings); !saved)
+    {
+        return std::unexpected(std::move(saved.error()));
+    }
+    return readSettings(dataDirectory, knownActions);
+}
+
 } // namespace rmw::settings

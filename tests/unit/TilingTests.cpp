@@ -469,4 +469,35 @@ TEST(TilingPlan, TheWindowsToPutBack)
     }
 }
 
+// The lifecycle review (v1.8.1): a tiler ended before it left kept the rice's look (DWM attributes) on
+// every app's window; the file it already keeps lists them now, for `rmw-tiler --restore`.
+TEST(TilingPlan, ThePaintedWindowsGoWithTheOnesToPutBack)
+{
+    const std::vector<Original> windows = {{0x1A2B3C, 4242, Rect{0, 0, 800, 600}, false, true}};
+    WindowLook look;
+    look.corners = rmw::domain::WindowCorners::Square;
+    look.noBorder = true;
+    look.dark = true;
+    const Painted painted{look, true, {{0x10, 8}, {0x7FFF0000, 0xFFFFFFFF}}};
+    const std::string text = toJson(windows, painted);
+    const auto again = parsePainted(text);
+    ASSERT_TRUE(again.has_value()) << again.error().toString();
+    ASSERT_TRUE(again->has_value());
+    EXPECT_EQ(**again, painted);
+    EXPECT_EQ(parseOriginals(text).value(), windows); // a tiler from before reads the windows as ever
+    // No look: none listed, and a file of a tiler from before has none either.
+    EXPECT_FALSE(parsePainted(toJson(windows, std::nullopt)).value().has_value());
+    EXPECT_FALSE(parsePainted(toJson(windows)).value().has_value());
+    for (const char* bad : {
+             R"({"version":1,"windows":[],"painted":{"look":{},"systemDark":false,"windows":[[0,1]]}})",
+             R"({"version":1,"windows":[],"painted":{"look":{},"systemDark":false,"windows":[[1,-1]]}})",
+             R"({"version":1,"windows":[],"painted":{"look":{},"windows":[]}})",
+             R"({"version":1,"windows":[],"painted":{"look":7,"systemDark":false,"windows":[]}})",
+             R"({"version":1,"windows":[],"painted":[1,2]})",
+         })
+    {
+        EXPECT_FALSE(parsePainted(bad).has_value()) << bad;
+    }
+}
+
 } // namespace

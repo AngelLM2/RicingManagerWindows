@@ -208,7 +208,11 @@ std::intptr_t MessageWindow::handle(unsigned message, std::uintptr_t wParam, std
         emit({SystemEventKind::TimeChanged});
         return 0;
     case WM_POWERBROADCAST:
-        if (wParam == PBT_APMRESUMEAUTOMATIC)
+        if (wParam == PBT_APMSUSPEND)
+        {
+            emit({SystemEventKind::Suspending});
+        }
+        else if (wParam == PBT_APMRESUMEAUTOMATIC)
         {
             emit({SystemEventKind::Resumed});
         }
@@ -290,6 +294,10 @@ std::intptr_t MessageWindow::handle(unsigned message, std::uintptr_t wParam, std
         {
             const std::scoped_lock lock(m_tasksMutex);
             tasks.swap(m_tasks);
+            if (m_closing)
+            {
+                return 0; // dropped (outside the lock, as `tasks` goes)
+            }
         }
         // One task that throws must not take the rest of the batch with it.
         for (auto& task : tasks)
@@ -541,10 +549,56 @@ int MessageWindow::run()
     }
 }
 
+void MessageWindow::beginClosing() noexcept
+{
+    hideTray();
+    unregisterHotkeys();
+    std::vector<std::function<void()>> dropped;
+    {
+        const std::scoped_lock lock(m_tasksMutex);
+        m_closing = true;
+        dropped.swap(m_tasks);
+    }
+}
+
+bool MessageWindow::pumpUntil(void* handle, std::chrono::milliseconds timeout)
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    HANDLE waited = handle;
+    while (true)
+    {
+        const auto left =
+            std::chrono::ceil<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        const auto ms = static_cast<DWORD>(std::clamp<std::int64_t>(left.count(), 0, INFINITE - 1));
+        const DWORD woken = MsgWaitForMultipleObjectsEx(1, &waited, ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        if (woken == WAIT_OBJECT_0)
+        {
+            return true;
+        }
+        if (woken == WAIT_TIMEOUT || woken == WAIT_FAILED)
+        {
+            return false;
+        }
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
+        {
+            if (message.message != WM_QUIT) // quit was asked already: we are leaving
+            {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+    }
+}
+
 void MessageWindow::post(std::function<void()> task)
 {
     {
         const std::scoped_lock lock(m_tasksMutex);
+        if (m_closing)
+        {
+            return; // nothing runs them any more (the task goes outside the lock)
+        }
         m_tasks.push_back(std::move(task));
     }
     PostMessageW(static_cast<HWND>(m_window), kRunTasks, 0, 0);

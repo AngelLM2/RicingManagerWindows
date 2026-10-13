@@ -102,4 +102,28 @@ struct Original
 [[nodiscard]] std::string toJson(std::span<const Original> windows);
 [[nodiscard]] Result<std::vector<Original>> parseOriginals(std::string_view text);
 
+// The look a tiler put on other apps' windows (the rice's [windows]), kept in the same file: a tiler
+// ended before it gave them Windows' own attributes back left them painted (`rmw-tiler --restore` does it).
+struct PaintedWindow
+{
+    WindowId window = 0;
+    std::uint32_t process = 0; // a handle another process owns now is left alone
+
+    friend bool operator==(const PaintedWindow&, const PaintedWindow&) = default;
+};
+
+struct Painted
+{
+    WindowLook look;
+    bool systemDark = false; // apps' dark mode when the look went on: what dark title bars go back to
+    std::vector<PaintedWindow> windows;
+
+    friend bool operator==(const Painted&, const Painted&) = default;
+};
+
+// The windows to put back and, when a look is on, the painted ones.
+[[nodiscard]] std::string toJson(std::span<const Original> windows, const std::optional<Painted>& painted);
+// A file without a look (or of a tiler from before it kept one): nullopt.
+[[nodiscard]] Result<std::optional<Painted>> parsePainted(std::string_view text);
+
 } // namespace rmw::tiling

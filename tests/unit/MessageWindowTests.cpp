@@ -2,6 +2,8 @@
 
 #include "rmw/platform/MessageWindow.hpp"
 
+#include <windows.h>
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -95,6 +97,51 @@ TEST(MessageWindow, ATaskThatThrowsDoesNotDropTheOthers)
         events);
     EXPECT_EQ(code, 5);
     EXPECT_TRUE(ranAfter);
+}
+
+// The lifecycle review (v1.8.1): while the core stopped (joining clients, the tiler leaving), nobody
+// pumped its window: a sign-out waited on its WM_QUERYENDSESSION, every broadcast waited on it.
+TEST(MessageWindow, AClosingWindowStillAnswersAndDropsWhatIsPosted)
+{
+    bool ranPosted = false;
+    LRESULT answer = 0;
+    bool answered = false;
+    bool signaled = false;
+    std::thread thread([&] {
+        auto window = MessageWindow::create([](const SystemEvent&) {});
+        if (!window)
+        {
+            return;
+        }
+        (*window)->beginClosing();
+        (*window)->post([&ranPosted] { ranPosted = true; });
+        HANDLE done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        const DWORD self = GetCurrentThreadId();
+        // Another program's broadcast: it waits for this window's answer.
+        std::thread asker([&answer, &answered, done, self] {
+            HWND target = nullptr;
+            EnumThreadWindows(
+                self,
+                [](HWND found, LPARAM out) {
+                    *reinterpret_cast<HWND*>(out) = found; // NOLINT(performance-no-int-to-ptr)
+                    return FALSE;
+                },
+                reinterpret_cast<LPARAM>(&target));
+            DWORD_PTR result = 0;
+            answered = target != nullptr &&
+                       SendMessageTimeoutW(target, WM_QUERYENDSESSION, 0, 0, SMTO_BLOCK, 5000, &result) != 0;
+            answer = static_cast<LRESULT>(result);
+            SetEvent(done);
+        });
+        signaled = (*window)->pumpUntil(done, 10s);
+        asker.join();
+        CloseHandle(done);
+    });
+    thread.join();
+    EXPECT_TRUE(signaled);
+    EXPECT_TRUE(answered);
+    EXPECT_EQ(answer, TRUE);
+    EXPECT_FALSE(ranPosted);
 }
 
 } // namespace

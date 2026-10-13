@@ -6,6 +6,7 @@
 #include "WorkQueue.hpp"
 
 #include "rmw/bar/Plan.hpp"
+#include "rmw/bar/Space.hpp"
 #include "rmw/base/Limits.hpp"
 #include "rmw/base/Log.hpp"
 #include "rmw/base/ScopeExit.hpp"
@@ -20,6 +21,7 @@
 #include "rmw/platform/Autostart.hpp"
 #include "rmw/platform/Customizers.hpp"
 #include "rmw/platform/FileSystem.hpp"
+#include "rmw/platform/Keyboard.hpp"
 #include "rmw/platform/NativeTaskbar.hpp"
 #include "rmw/plugins/HostPlan.hpp"
 #include "rmw/tiling/Plan.hpp"
@@ -79,9 +81,18 @@ constexpr std::uint64_t kVideoMaxBytes = std::uint64_t{4} << 30;        // what 
 constexpr std::uint64_t kVideoStatusMaxBytes = std::uint64_t{64} << 10; // rmw-wallpaper's status.json
 // A bar alone takes ~20 MB; with Ricing Manager's Start (its Slint compiled) ~55 MB, measured in the Sandbox.
 constexpr std::uint64_t kBarMemoryLimit = std::uint64_t{128} << 20; // a net for leaks, not the budget
+// rmw-bar's hidden window (apps/bar BarApp.cpp): asked to close, the bar leaves and gives back what it holds.
+constexpr const wchar_t* kBarEventsClass = L"RicingManagerWindows.BarEvents";
+// Its app bars removed and the strips handed back, the tray window gone: a fraction of a second.
+constexpr auto kBarLeaveWait = 2s;
+constexpr std::uint64_t kBarSpaceMaxBytes = std::uint64_t{64} << 10; // <data>\bar\space.json
 constexpr std::string_view kTilerWorker = "tiler";
 constexpr std::uint64_t kTilerMemoryLimit = std::uint64_t{64} << 20; // it keeps a list of windows
 constexpr auto kTilerLeaveWait = 3s; // putting a few hundred windows back takes well under a second
+constexpr auto kEndedAfter = 3s;     // a worker ended after its time is gone within 2 s (ChildProcess)
+// The core stopping: clients finish (an operation running first), the workers leave. The window is
+// answered all along; this only bounds it.
+constexpr auto kStopAtMost = std::chrono::minutes(10);
 constexpr std::string_view kPluginWorker = "plugins";
 // 16 MB per plugin VM (docs/12 §6), a dozen plugins and the host itself.
 constexpr std::uint64_t kPluginHostMemoryLimit = std::uint64_t{256} << 20;
@@ -97,6 +108,22 @@ constexpr std::wstring_view kStartupAttemptsFile = L"startup-attempts";
 std::chrono::steady_clock::rep nowTicks() noexcept
 {
     return std::chrono::steady_clock::now().time_since_epoch().count();
+}
+
+// Asks a worker to leave through its hidden window: every top-level window of `windowClass` that
+// process `pid` owns (0: whichever process) gets WM_CLOSE.
+void postClose(const wchar_t* windowClass, std::uint32_t pid) noexcept
+{
+    for (HWND window = FindWindowExW(nullptr, nullptr, windowClass, nullptr); window != nullptr;
+         window = FindWindowExW(nullptr, window, windowClass, nullptr))
+    {
+        DWORD owner = 0;
+        GetWindowThreadProcessId(window, &owner);
+        if (pid == 0 || owner == pid)
+        {
+            PostMessageW(window, WM_CLOSE, 0, 0);
+        }
+    }
 }
 
 int readStartupAttempts(const std::filesystem::path& file)
@@ -279,13 +306,14 @@ private:
 
 CoreServer::CoreServer(CoreOptions options)
     : m_options(std::move(options))
+    , m_stopping(CreateEventW(nullptr, TRUE, FALSE, nullptr))
     , m_lastActivity(nowTicks())
 {
 }
 
 CoreServer::~CoreServer()
 {
-    m_stop = true;
+    beginStopping();
     m_workers.clear(); // joins
     if (m_helper)
     {
@@ -294,6 +322,19 @@ CoreServer::~CoreServer()
     if (m_blame != nullptr)
     {
         CloseHandle(m_blame);
+    }
+    if (m_stopping != nullptr)
+    {
+        CloseHandle(m_stopping);
+    }
+}
+
+void CoreServer::beginStopping() noexcept
+{
+    m_stop = true;
+    if (m_stopping != nullptr)
+    {
+        SetEvent(m_stopping);
     }
 }
 
@@ -504,9 +545,16 @@ int CoreServer::run(platform::PipeServer& server)
 {
     log::info("core serving {}", utf16To8Lossy(server.name()));
     auto window = platform::MessageWindow::create([this](const platform::SystemEvent& event) {
-        if (m_resident != nullptr)
+        // The PC asleep is no worker's silence: woken, one may take a while to beat again (docs/03 §2.4).
+        if (!m_stop && m_supervisor &&
+            (event.kind == platform::SystemEventKind::Suspending ||
+             event.kind == platform::SystemEventKind::Resumed))
         {
-            m_resident->onEvent(event);
+            m_supervisor->setSuspended(event.kind == platform::SystemEventKind::Suspending);
+        }
+        if (Resident* resident = m_resident.load(); resident != nullptr)
+        {
+            resident->onEvent(event);
         }
     });
     if (!window)
@@ -524,39 +572,95 @@ int CoreServer::run(platform::PipeServer& server)
     {
         log::warn("no worker supervisor: {}", supervisor.error().toString());
     }
+    // A bar that ended badly with the last core (both crashed) may have left strips of the screen set aside.
+    giveBackBarSpace();
     WorkQueue work;
     Resident resident(*this, *m_window, work);
     m_resident = &resident;
     resident.start();
 
-    int code = 0;
-    {
-        const std::jthread accept([this, &server](const std::stop_token& stop) { acceptLoop(server, stop); });
-        code = m_window->run();
-        m_stop = true;
-    } // joins the accept thread, which joins every client thread
-    work.stop();
+    std::jthread accept([this, &server](const std::stop_token& stop) { acceptLoop(server, stop); });
+    const int code = m_window->run();
+    beginStopping(); // the pipe closes at once: a new client finds nobody (and starts the next core)
+    log::info("core stopping");
+    // The rest stops on a thread of its own while this one keeps answering the system — a sign-out asks
+    // every window (WM_QUERYENDSESSION), a broadcast waits for each — and drops what is posted to it. The
+    // tray icon and the hotkeys go now.
+    m_window->beginClosing();
     m_resident = nullptr;
-    // The tiler hides the windows of the other workspaces: asked, it puts every one back and leaves.
-    // Ended with the other workers it could not, and they stayed hidden (a clean exit, the tray's
-    // Exit, the uninstaller's `rmw shutdown --wait`).
-    leaveTiler();
-    m_supervisor.reset(); // ends the bar and the rest...
-    putBackTiledWindows(); // (a tiler that did not leave in time left its list behind)
+    HANDLE done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    std::jthread ending([this, &accept, &work, done] {
+        try
+        {
+            stopEverything(accept, work);
+        }
+        catch (const std::exception& e)
+        {
+            log::error("stopping: {}", e.what());
+        }
+        catch (...)
+        {
+            log::error("stopping: unknown exception");
+        }
+        if (done != nullptr)
+        {
+            SetEvent(done);
+        }
+    });
+    if (done != nullptr)
+    {
+        [[maybe_unused]] const bool ended = m_window->pumpUntil(done, kStopAtMost);
+    }
+    ending.join();
+    if (done != nullptr)
+    {
+        CloseHandle(done);
+    }
+    m_window = nullptr;
+    markHealthy();
+    log::info("core stopped");
+    return code;
+}
+
+void CoreServer::stopEverything(std::jthread& accept, WorkQueue& work)
+{
+    accept.join(); // the pipe closed, every client thread joined (an operation running is finished first)
+    work.stop();
+    if (m_supervisor)
+    {
+        // Asked, the tiler puts every window back (it hides those of the other workspaces) and the bar gives
+        // back the strips it set aside, Windows' taskbar and the tray's icons. Ended with the other workers
+        // they could not (a clean exit, the tray's Exit, the installer's `rmw shutdown --wait`).
+        bool asked = false;
+        if (tilerRunning())
+        {
+            log::info("tiler: asking it to put every window back");
+            asked = m_supervisor->leave(
+                        kTilerWorker, [](std::uint32_t) { postClose(tiling::kControlClass, 0); },
+                        kTilerLeaveWait) ||
+                    asked;
+        }
+        asked = m_supervisor->leave(
+                    kBarWorker, [](std::uint32_t pid) { postClose(kBarEventsClass, pid); }, kBarLeaveWait) ||
+                asked;
+        if (asked && !m_supervisor->waitLeft(kTilerLeaveWait + kEndedAfter))
+        {
+            log::warn("a worker did not leave in time; ended");
+        }
+    }
+    m_supervisor.reset();  // ends the rest (a worker that left badly told onWorkerEvent first)
+    putBackTiledWindows(); // a tiler that did not leave in time left its list behind
+    giveBackBarSpace();    // a bar that did not, its strips
     if (barPlan())
     {
-        // ...so Windows' taskbar comes back, and its tray gets the icons the bar's tray held.
+        // Windows' taskbar back, and its tray gets the icons the bar's tray held.
         platform::showNativeTaskbars();
         platform::askAppsForTrayIcons();
     }
-    m_window = nullptr;
     if (m_helper)
     {
         m_helper->stop();
     }
-    markHealthy();
-    log::info("core stopped");
-    return code;
 }
 
 void CoreServer::acceptLoop(platform::PipeServer& server, const std::stop_token& stop)
@@ -564,7 +668,7 @@ void CoreServer::acceptLoop(platform::PipeServer& server, const std::stop_token&
     auto backOff = kAcceptBackOff;
     while (!m_stop && !stop.stop_requested())
     {
-        auto connection = server.accept(kPoll);
+        auto connection = server.accept(kPoll, m_stopping);
         // Finished client threads are joined as we go.
         std::erase_if(m_workers, [](const Worker& worker) { return worker.done->load(); });
         if (connection)
@@ -599,7 +703,8 @@ void CoreServer::acceptLoop(platform::PipeServer& server, const std::stop_token&
             }
             continue;
         }
-        if (connection.error().code() == ErrorCode::Timeout)
+        if (connection.error().code() == ErrorCode::Timeout ||
+            connection.error().code() == ErrorCode::Cancelled)
         {
             continue;
         }
@@ -609,7 +714,10 @@ void CoreServer::acceptLoop(platform::PipeServer& server, const std::stop_token&
         std::this_thread::sleep_for(backOff);
         backOff = std::min<std::chrono::milliseconds>(backOff * 2, kAcceptMaxBackOff);
     }
-    m_stop = true;
+    // Before waiting for the clients: kept until the core ended, the pipe let new clients connect and
+    // wait 10 s for a hello that never came ("busy"), then a new core found this one still there.
+    server.close();
+    beginStopping();
     m_workers.clear(); // joins: client loops see m_stop within a poll
 }
 
@@ -903,7 +1011,69 @@ void CoreServer::stopBar()
 {
     if (m_supervisor)
     {
-        m_supervisor->stop(kBarWorker);
+        // Ended outright, it never gave back what it held: an empty strip stayed reserved after bar off.
+        m_supervisor->leave(
+            kBarWorker, [](std::uint32_t pid) { postClose(kBarEventsClass, pid); }, kBarLeaveWait);
+    }
+}
+
+void CoreServer::giveBackBarSpace()
+{
+    const std::scoped_lock lock(m_barSpaceMutex);
+    const auto file = m_options.dataDirectory / L"bar" / L"space.json";
+    auto bytes = platform::readFileLimited(file, kBarSpaceMaxBytes);
+    if (!bytes)
+    {
+        return; // none: every bar gave back what it held (or never held any)
+    }
+    const std::string_view text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+    auto entries = bar::parseSpace(text);
+    std::error_code ec;
+    if (!entries)
+    {
+        log::warn("bar space: {}", entries.error().toString());
+        std::filesystem::remove(file, ec);
+        return;
+    }
+    std::size_t given = 0;
+    bool kept = false;
+    for (const auto& entry : *entries)
+    {
+        // NOLINTNEXTLINE(performance-no-int-to-ptr): the handle the bar wrote down
+        const auto window = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(entry.window));
+        if (IsWindow(window) != FALSE)
+        {
+            // A bar's window alive: that bar holds it (or the handle is another window's now). Never touched.
+            kept = true;
+            continue;
+        }
+        APPBARDATA data{};
+        data.cbSize = sizeof(data);
+        data.hWnd = window;
+        SHAppBarMessage(ABM_REMOVE, &data); // the shell forgets it by its handle
+        const RECT monitorRect{entry.monitor.left, entry.monitor.top, entry.monitor.right,
+                               entry.monitor.bottom};
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (!entry.reserved.empty() &&
+            GetMonitorInfoW(MonitorFromRect(&monitorRect, MONITOR_DEFAULTTONULL), &info) != FALSE)
+        {
+            // As the bar does when it leaves: the strip back in the work area, announced, so Explorer works
+            // the area out again its own way (Windows' taskbar and other app bars stay out of it).
+            const bar::Rect work{info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom};
+            const bar::Rect area = bar::workAreaWithout(entry, work);
+            RECT announced{area.left, area.top, area.right, area.bottom};
+            SystemParametersInfoW(SPI_SETWORKAREA, 0, &announced, SPIF_SENDCHANGE);
+        }
+        ++given;
+    }
+    if (given > 0)
+    {
+        log::warn("bar space: a bar that ended badly held {} app bar(s); given back", given);
+    }
+    if (!kept)
+    {
+        std::filesystem::remove(file, ec);
     }
 }
 
@@ -1294,11 +1464,19 @@ void CoreServer::stopTiler(bool force)
         }
         return;
     }
+    const bool running = tilerRunning();
     if (m_supervisor)
     {
         m_supervisor->stop(kTilerWorker);
     }
-    putBackTiledWindows();
+    if (running)
+    {
+        afterTilerFailed();
+    }
+    else
+    {
+        putBackTiledWindows();
+    }
 }
 
 bool CoreServer::tilerRunning() const
@@ -1306,23 +1484,12 @@ bool CoreServer::tilerRunning() const
     return json::boolOr(tilerStatus(), "running", false);
 }
 
-void CoreServer::leaveTiler()
+void CoreServer::afterTilerFailed() const
 {
-    if (!m_supervisor || !tilerRunning())
-    {
-        return;
-    }
-    log::info("tiler: asking it to put every window back");
-    stopTiler(false);
-    const auto deadline = std::chrono::steady_clock::now() + kTilerLeaveWait;
-    while (tilerRunning() && std::chrono::steady_clock::now() < deadline)
-    {
-        std::this_thread::sleep_for(50ms);
-    }
-    if (tilerRunning())
-    {
-        log::warn("tiler: it did not leave in time; ended (its list puts the windows back)");
-    }
+    putBackTiledWindows();
+    // Its key hook holds the release of Ctrl, Alt, Win and Shift back for a moment: ended in that moment,
+    // the key stayed down for every app (a click became Ctrl+click) until pressed again.
+    platform::releaseModifiers();
 }
 
 Json CoreServer::tilerStatus() const
@@ -1407,12 +1574,17 @@ void CoreServer::onWorkerEvent(const platform::WorkerEvent& event)
         onPluginHostFailure(event);
         return;
     }
+    const bool badly =
+        event.kind == platform::WorkerEventKind::Failed ||
+        event.kind == platform::WorkerEventKind::Disabled ||
+        (event.kind == platform::WorkerEventKind::Left && event.failure != platform::WorkerFailure::None);
     if (event.name == kTilerWorker)
     {
-        // Crashed, hung or given up on: no window stays hidden until (or unless) it is back.
-        if (event.kind == platform::WorkerEventKind::Failed || event.kind == platform::WorkerEventKind::Disabled)
+        // Crashed, hung, given up on or ended before it left: no window stays hidden until (or unless) it
+        // is back, no key stays down.
+        if (badly)
         {
-            putBackTiledWindows();
+            afterTilerFailed();
         }
         return;
     }
@@ -1420,13 +1592,15 @@ void CoreServer::onWorkerEvent(const platform::WorkerEvent& event)
     {
         return;
     }
-    // The bar is gone — crashed, hung, leaked or left: Windows' taskbar must not stay hidden, and
-    // its tray gets every app's icons again (the bar's tray window may have held some, ADR-0012).
+    // The bar is gone — crashed, hung, leaked, left or asked to: the strips it could not give back go
+    // back (nothing when it did), Windows' taskbar must not stay hidden, and its tray gets every app's
+    // icons again (the bar's tray window may have held some, ADR-0012).
+    giveBackBarSpace();
     platform::showNativeTaskbars();
     platform::askAppsForTrayIcons();
-    if (event.kind == platform::WorkerEventKind::Disabled && m_window != nullptr && m_resident != nullptr)
+    Resident* resident = m_resident.load();
+    if (event.kind == platform::WorkerEventKind::Disabled && m_window != nullptr && resident != nullptr)
     {
-        Resident* resident = m_resident;
         m_window->post([resident] { resident->onBarDisabled(); });
     }
 }
@@ -1438,9 +1612,8 @@ void CoreServer::pluginStopped(const std::string& id)
     {
         name = entry->manifest->name;
     }
-    if (m_window != nullptr && m_resident != nullptr)
+    if (Resident* resident = m_resident.load(); m_window != nullptr && resident != nullptr)
     {
-        Resident* resident = m_resident;
         auto names = std::make_shared<const std::pair<std::string, std::string>>(std::move(name), id);
         m_window->post([resident, names] { resident->onPluginStopped(names->first, names->second); });
     }
@@ -1448,15 +1621,18 @@ void CoreServer::pluginStopped(const std::string& id)
 
 void CoreServer::notifyResident()
 {
-    if (m_window != nullptr && m_resident != nullptr)
+    if (Resident* resident = m_resident.load(); m_window != nullptr && resident != nullptr)
     {
-        Resident* resident = m_resident;
         m_window->post([resident] { resident->refresh(); });
     }
 }
 
 Result<Json> CoreServer::onWindow(const std::function<Json()>& task)
 {
+    if (m_stop)
+    {
+        return fail(ErrorCode::Busy, "Ricing Manager is stopping");
+    }
     auto promise = std::make_shared<std::promise<Json>>();
     auto answer = promise->get_future();
     m_window->post([promise, task] {
@@ -1473,7 +1649,15 @@ Result<Json> CoreServer::onWindow(const std::function<Json()>& task)
     {
         return fail(ErrorCode::Timeout, "the core did not answer in time");
     }
-    return answer.get();
+    try
+    {
+        return answer.get();
+    }
+    catch (const std::future_error&)
+    {
+        // Dropped unrun: the core began stopping meanwhile.
+        return fail(ErrorCode::Busy, "Ricing Manager is stopping");
+    }
 }
 
 void CoreServer::handleClient(platform::PipeConnection connection)
@@ -1487,9 +1671,9 @@ void CoreServer::handleClient(platform::PipeConnection connection)
     // The first message must be a compatible hello.
     auto first = connection.receive(kHelloTimeout);
     auto hello = first ? ipc::parseRequest(*first) : Result<ipc::Request>(std::unexpected(first.error()));
-    if (!hello || hello->method != "hello")
+    if (!hello || hello->method != "hello" || m_stop)
     {
-        return;
+        return; // (stopping: closed unanswered, the client tries again and finds the next core)
     }
     if (auto compatible = ipc::checkHello(hello->params); !compatible)
     {
@@ -1532,7 +1716,7 @@ void CoreServer::handleClient(platform::PipeConnection connection)
         if (request->method == "shutdown")
         {
             platform::closeSettingsWindow(); // or an open window starts the core again
-            m_stop = true;
+            beginStopping();
             m_window->quit(0);
             reply = ipc::resultText(request->id, Json::object());
         }
@@ -1834,7 +2018,11 @@ Result<Json> CoreServer::dispatch(const ipc::Request& request)
     }
     if (method == "settings.reload")
     {
-        Resident* resident = m_resident;
+        Resident* resident = m_resident.load();
+        if (resident == nullptr)
+        {
+            return fail(ErrorCode::Busy, "Ricing Manager is stopping");
+        }
         return onWindow([resident] { return resident->reloadSettings(); });
     }
     if (method == "autostart.get" || method == "autostart.set")
@@ -1895,6 +2083,7 @@ Result<Json> CoreServer::status()
     }
     Json schedule = nullptr;
     const std::size_t slideshows = rotation().size();
+    const Resident* resident = m_resident.load();
     if (const auto current = this->schedule())
     {
         schedule = {{"lightAt", timeText(current->lightAt)}, {"darkAt", timeText(current->darkAt)}};
@@ -1932,7 +2121,7 @@ Result<Json> CoreServer::status()
                 {"bar", barStatus()},
                 {"video", videoStatus()},
                 {"tiler", tilerStatus()},
-                {"resident", m_resident != nullptr ? m_resident->status() : Json(nullptr)},
+                {"resident", resident != nullptr ? resident->status() : Json(nullptr)},
                 {"otherTools", platform::detectOtherCustomizers()},
                 {"history", std::move(lastOperations)}};
 }

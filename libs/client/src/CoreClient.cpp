@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include <format>
+#include <optional>
 #include <thread>
 
 namespace rmw::client
@@ -16,6 +17,16 @@ namespace rmw::client
 
 using namespace std::chrono_literals;
 using ipc::Json;
+
+namespace
+{
+
+constexpr auto kStartWait = 30s;     // a core starting (an undo first), or one stopping and the next
+constexpr auto kGoingAwayWait = 20s; // a core that closes connections as it stops
+constexpr auto kRetryPause = 200ms;
+constexpr int kMaxStarts = 3;
+
+} // namespace
 
 CoreClient::CoreClient(std::filesystem::path dataDirectory)
     : m_dataDirectory(std::move(dataDirectory))
@@ -50,7 +61,11 @@ Result<void> CoreClient::connect(bool startIfNeeded)
             m_onReplace(false);
         }
     });
-    for (int attempt = 0; attempt < 2; ++attempt)
+    // A core that is stopping may still take a connection and close it unanswered: the next try finds
+    // nobody (and starts a core) or the new one.
+    const auto goingAwayUntil = std::chrono::steady_clock::now() + kGoingAwayWait;
+    int attempt = 0;
+    while (attempt < 2)
     {
         auto connected = connectOrStart();
         if (!connected)
@@ -58,6 +73,12 @@ Result<void> CoreClient::connect(bool startIfNeeded)
             return std::unexpected(std::move(connected.error()));
         }
         auto hello = call("hello", ipc::helloParams(kVersion), 10s);
+        if (!hello && hello.error().code() == ErrorCode::NotFound &&
+            std::chrono::steady_clock::now() < goingAwayUntil)
+        {
+            std::this_thread::sleep_for(kRetryPause);
+            continue;
+        }
         if (hello)
         {
             if (auto compatible = ipc::checkHello(*hello); !compatible)
@@ -86,6 +107,7 @@ Result<void> CoreClient::connect(bool startIfNeeded)
         [[maybe_unused]] const auto stopped = call("shutdown", Json::object(), 5s);
         m_connection.reset();
         std::this_thread::sleep_for(1s);
+        ++attempt;
     }
     return fail(ErrorCode::Unsupported, "the running core is from another version and did not stop");
 }
@@ -154,38 +176,55 @@ Result<void> CoreClient::checkDataDirectory(const Json& hello) const
 Result<void> CoreClient::connectOrStart()
 {
     auto connection = platform::connectPipe(m_pipe, 2s, m_coreExe);
-    if (!connection && connection.error().code() == ErrorCode::NotFound && m_startIfNeeded)
+    // A core that starts after a crash first undoes the interrupted operation (it may take a while). One
+    // that is stopping keeps the pipe busy until its last client goes, and its place until it ends: a
+    // core started meanwhile waits for it (up to 15 s), or ends with 0 if it never goes and is started
+    // once more. One that ends with another code says why in its log.
+    const auto deadline = std::chrono::steady_clock::now() + kStartWait;
+    std::optional<platform::ChildProcess> core;
+    int starts = 0;
+    while (!connection && std::chrono::steady_clock::now() < deadline)
     {
-        std::wstring arguments;
-        if (!m_dataDirectory.empty())
+        const ErrorCode code = connection.error().code();
+        if (!m_startIfNeeded || (code != ErrorCode::Busy && code != ErrorCode::NotFound))
         {
-            arguments = L"--data-dir " + platform::quoteArgument(m_dataDirectory.native());
+            break; // only a core that runs (or none): the caller hears so now
         }
-        // Outside the caller's job: closing a terminal (or the settings) must not end the core.
-        auto core = platform::ChildProcess::spawn(
-            m_coreExe, arguments, {.breakawayFromJob = true, .ownJob = false, .inheritHandles = {}});
-        if (!core)
+        if (core)
         {
-            return std::unexpected(std::move(core.error()).withContext("start rmw-core"));
-        }
-        // A core that starts after a crash first undoes the interrupted operation (it may take a
-        // while); one that exits says why in its log.
-        const auto deadline = std::chrono::steady_clock::now() + 30s;
-        while (true)
-        {
-            connection = platform::connectPipe(m_pipe, 2s, m_coreExe);
-            if (connection || connection.error().code() != ErrorCode::NotFound ||
-                std::chrono::steady_clock::now() > deadline)
+            if (const auto exited = core->wait(0ms))
             {
-                break;
+                if (*exited != 0)
+                {
+                    return fail(
+                        ErrorCode::System,
+                        std::format("rmw-core stopped at start (code {}); see logs\\core.log", *exited));
+                }
+                core.reset();
             }
-            if (const auto exited = core->wait(0ms); exited && *exited != 0)
-            {
-                return fail(ErrorCode::System,
-                            std::format("rmw-core stopped at start (code {}); see logs\\core.log", *exited));
-            }
-            std::this_thread::sleep_for(200ms);
         }
+        if (code == ErrorCode::NotFound && !core && starts < kMaxStarts)
+        {
+            std::wstring arguments;
+            if (!m_dataDirectory.empty())
+            {
+                arguments = L"--data-dir " + platform::quoteArgument(m_dataDirectory.native());
+            }
+            // Outside the caller's job: closing a terminal (or the settings) must not end the core.
+            auto started = platform::ChildProcess::spawn(
+                m_coreExe, arguments, {.breakawayFromJob = true, .ownJob = false, .inheritHandles = {}});
+            if (!started)
+            {
+                return std::unexpected(std::move(started.error()).withContext("start rmw-core"));
+            }
+            core = std::move(*started);
+            ++starts;
+        }
+        std::this_thread::sleep_for(kRetryPause);
+        connection = platform::connectPipe(m_pipe, 2s, m_coreExe);
+    }
+    if (core)
+    {
         core->detach();
     }
     if (!connection)

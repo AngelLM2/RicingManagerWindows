@@ -30,11 +30,13 @@ public:
     // there is.
     void set(const std::optional<tiling::WindowLook>& look);
     // A window appeared: it gets the look, unless its program is left out. Once per window, unless
-    // `again` (something gave it Windows' attributes back).
-    void paint(Window window, bool again = false);
-    void forget(Window window) noexcept;
+    // `again` (something gave it Windows' attributes back). True when the list of painted windows grew.
+    bool paint(Window window, bool again = false);
+    bool forget(Window window) noexcept; // true when it was painted
     // Every window it painted back to Windows' own.
     void reset() noexcept;
+    // What it painted, for the file a crash leaves behind (windows.json); nullopt while no look is on.
+    [[nodiscard]] std::optional<tiling::Painted> painted() const;
 
     // The border a window keeps when the tiler's focus border leaves it: the look's, or Windows'.
     [[nodiscard]] std::optional<std::uint32_t> border() const noexcept;
@@ -45,5 +47,9 @@ private:
     bool m_systemDark = false; // apps' dark mode when the look started: what dark title bars go back to
     std::set<Window> m_painted;
 };
+
+// Windows' own attributes back on `window`, for those `look` set (`systemDark`: apps' dark mode when it
+// went on). Looks::reset, and `rmw-tiler --restore` for a tiler that ended before it could.
+void unpaint(Window window, const tiling::WindowLook& look, bool systemDark) noexcept;
 
 } // namespace rmw::tilerapp

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <condition_variable>
 #include <format>
 #include <map>
 #include <mutex>
@@ -51,27 +52,81 @@ struct Worker
     explicit Worker(WorkerSpec workerSpec)
         : spec(std::move(workerSpec))
         , budget(spec.maxFailures, spec.failureWindow, spec.firstBackoff)
+        , watch(spec.hangAfter, spec.startGrace)
     {
     }
 
     WorkerSpec spec;
     RestartBudget budget;
+    HangWatch watch;
     ChildProcess process;
     wil::unique_handle mapping;
     wil::unique_mapview_ptr<std::int64_t> heartbeat;
     std::uint64_t key = 0; // completion key of the running launch; 0 = not running
-    std::int64_t lastBeat = 0;
-    bool beaten = false;
-    Clock::time_point lastBeatAt;
-    Clock::time_point startedAt;
     WorkerFailure ending = WorkerFailure::None; // why we are ending it
     std::optional<Clock::time_point> restartAt;
     bool disabled = false;
     int restarts = 0;
     WorkerFailure lastFailure = WorkerFailure::None;
+    // Asked to leave (Supervisor::leave): ended at `leaveBy` if still there; `gone` once it is.
+    bool leaving = false;
+    Clock::time_point leaveBy;
+    bool gone = false;
 };
 
 } // namespace
+
+void HangWatch::start(Clock::time_point now) noexcept
+{
+    m_lastBeat = 0;
+    m_beaten = false;
+    m_lastBeatAt = now;
+    m_graceFrom = now;
+    m_lastLook = now;
+}
+
+bool HangWatch::hung(std::int64_t beat, Clock::time_point now) noexcept
+{
+    if (m_hangAfter.count() <= 0)
+    {
+        return false; // not watched
+    }
+    // Looks come every quarter second: a longer gap is time this thread did not run (sleep,
+    // hibernation), in which the worker could not beat either.
+    const bool gap = now - m_lastLook > m_hangAfter;
+    m_lastLook = now;
+    if (beat != m_lastBeat)
+    {
+        m_lastBeat = beat;
+        m_lastBeatAt = now;
+        m_beaten = true;
+    }
+    if (m_paused)
+    {
+        return false;
+    }
+    if (gap)
+    {
+        regrace(now);
+        return false;
+    }
+    return m_beaten ? now - m_lastBeatAt > m_hangAfter : now - m_graceFrom > m_startGrace;
+}
+
+void HangWatch::resume(Clock::time_point now) noexcept
+{
+    m_paused = false;
+    m_lastLook = now;
+    regrace(now);
+}
+
+void HangWatch::regrace(Clock::time_point now) noexcept
+{
+    // As after a start: back from sleep, a window thread first catches up (displays, DWM, broadcasts).
+    m_beaten = false;
+    m_graceFrom = now;
+    m_lastBeatAt = now;
+}
 
 std::optional<std::chrono::milliseconds> RestartBudget::onFailure(Clock::time_point now)
 {
@@ -93,9 +148,11 @@ struct Supervisor::State
     Listener listener;
     wil::unique_handle port;
     mutable std::mutex mutex;
+    std::condition_variable left; // a leaving worker is gone
     std::map<std::string, std::unique_ptr<Worker>, std::less<>> workers;
     std::vector<WorkerEvent> pending; // emitted by the supervisor thread
     std::uint64_t nextKey = 1;
+    bool suspended = false;
     std::jthread thread; // last: starts after everything it uses exists
 
     void wake() const noexcept { PostQueuedCompletionStatus(port.get(), 0, kWakeKey, nullptr); }
@@ -152,9 +209,11 @@ struct Supervisor::State
         worker.mapping = std::move(mapping);
         worker.heartbeat = std::move(view);
         worker.key = key;
-        worker.lastBeat = 0;
-        worker.beaten = false;
-        worker.startedAt = worker.lastBeatAt = Clock::now();
+        worker.watch.start(Clock::now());
+        if (suspended)
+        {
+            worker.watch.pause();
+        }
         log::info("worker {} started (pid {})", worker.spec.name, worker.process.pid());
         pending.push_back(
             {worker.spec.name, WorkerEventKind::Started, WorkerFailure::None, worker.process.pid(), 0});
@@ -187,6 +246,27 @@ struct Supervisor::State
         worker.mapping.reset();
         worker.key = 0;
         WorkerFailure failure = worker.ending;
+        if (worker.leaving)
+        {
+            // Asked to go: never a failure to count, never restarted. Whoever asked hears how it went (a
+            // worker ended before it could clean up leaves things for its owner to put back).
+            if (failure == WorkerFailure::None && code != 0)
+            {
+                failure = WorkerFailure::Crashed;
+            }
+            if (failure == WorkerFailure::None)
+            {
+                log::info("worker {} left", worker.spec.name);
+            }
+            else
+            {
+                log::warn("worker {} did not leave by itself ({}, code 0x{:08X})", worker.spec.name,
+                          failureName(failure), code);
+            }
+            pending.push_back({worker.spec.name, WorkerEventKind::Left, failure, pid, code});
+            worker.gone = true;
+            return;
+        }
         if (failure == WorkerFailure::None)
         {
             if (code == 0)
@@ -247,21 +327,20 @@ struct Supervisor::State
                     ended(worker);
                     continue;
                 }
-                if (worker.spec.hangAfter.count() > 0 && worker.ending == WorkerFailure::None)
+                if (worker.leaving)
                 {
-                    const std::int64_t beat = ReadNoFence64(worker.heartbeat.get());
-                    if (beat != worker.lastBeat)
+                    // Cleaning up, it may not beat: only the deadline counts.
+                    if (worker.ending == WorkerFailure::None && now >= worker.leaveBy)
                     {
-                        worker.lastBeat = beat;
-                        worker.lastBeatAt = now;
-                        worker.beaten = true;
-                    }
-                    const bool silent = worker.beaten ? now - worker.lastBeatAt > worker.spec.hangAfter
-                                                      : now - worker.startedAt > worker.spec.startGrace;
-                    if (silent)
-                    {
+                        log::warn("worker {} did not leave in time; ending it", name);
                         end(worker, WorkerFailure::Hung);
                     }
+                    continue;
+                }
+                if (worker.ending == WorkerFailure::None &&
+                    worker.watch.hung(ReadNoFence64(worker.heartbeat.get()), now))
+                {
+                    end(worker, WorkerFailure::Hung);
                 }
             }
             else if (worker.restartAt && now >= *worker.restartAt && !worker.disabled)
@@ -274,6 +353,15 @@ struct Supervisor::State
                 }
             }
         }
+        if (std::erase_if(workers, [](const auto& entry) { return entry.second->gone; }) > 0)
+        {
+            left.notify_all();
+        }
+    }
+
+    [[nodiscard]] bool anyLeaving() const
+    {
+        return std::ranges::any_of(workers, [](const auto& entry) { return entry.second->leaving; });
     }
 
     [[nodiscard]] DWORD nextWait() const
@@ -380,6 +468,13 @@ Result<void> Supervisor::start(WorkerSpec spec)
         if (slot)
         {
             slot->process.terminate(); // the one it replaces
+            if (slot->leaving && slot->key != 0)
+            {
+                // Replaced before it was done leaving: its owner puts back what it could not.
+                m_state->pending.push_back(
+                    {slot->spec.name, WorkerEventKind::Left, WorkerFailure::Hung, slot->process.pid(), 1});
+                m_state->left.notify_all();
+            }
         }
         slot = std::make_unique<Worker>(std::move(spec));
         started = m_state->launch(*slot);
@@ -404,10 +499,86 @@ void Supervisor::stop(std::string_view name)
         }
         gone = std::move(found->second);
         m_state->workers.erase(found);
+        m_state->left.notify_all();
     }
     gone->process.terminate();
     m_state->wake();
     log::info("worker {} stopped", name);
+}
+
+bool Supervisor::leave(std::string_view name, const std::function<void(std::uint32_t pid)>& ask,
+                       std::chrono::milliseconds patience)
+{
+    std::uint32_t pid = 0;
+    {
+        const std::scoped_lock lock(m_state->mutex);
+        const auto found = m_state->workers.find(name);
+        if (found == m_state->workers.end())
+        {
+            return false;
+        }
+        Worker& worker = *found->second;
+        if (worker.key == 0)
+        {
+            // Not running (waiting for a restart, or given up on): nothing to ask.
+            m_state->workers.erase(found);
+            m_state->left.notify_all();
+            log::info("worker {} stopped", name);
+            return false;
+        }
+        const auto deadline = Clock::now() + patience;
+        worker.leaveBy = worker.leaving ? std::min(worker.leaveBy, deadline) : deadline;
+        worker.leaving = true;
+        worker.restartAt.reset();
+        pid = worker.process.pid();
+    }
+    log::info("worker {}: asked to leave", name);
+    if (ask)
+    {
+        try
+        {
+            ask(pid);
+        }
+        catch (const std::exception& e)
+        {
+            log::warn("worker {}: asking it to leave failed: {}", name, e.what());
+        }
+    }
+    m_state->wake();
+    return true;
+}
+
+bool Supervisor::waitLeft(std::chrono::milliseconds timeout)
+{
+    std::unique_lock lock(m_state->mutex);
+    return m_state->left.wait_for(lock, timeout, [this] { return !m_state->anyLeaving(); });
+}
+
+void Supervisor::setSuspended(bool suspended)
+{
+    {
+        const std::scoped_lock lock(m_state->mutex);
+        if (m_state->suspended == suspended)
+        {
+            return;
+        }
+        m_state->suspended = suspended;
+        const auto now = Clock::now();
+        for (auto& [name, worker] : m_state->workers)
+        {
+            if (suspended)
+            {
+                worker->watch.pause();
+            }
+            else
+            {
+                worker->watch.resume(now);
+            }
+        }
+    }
+    log::info("workers: {}",
+              suspended ? "the PC goes to sleep; no hang checks" : "the PC is back; hang checks resume");
+    m_state->wake();
 }
 
 std::vector<WorkerStatus> Supervisor::status() const
