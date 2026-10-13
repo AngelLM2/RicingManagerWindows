@@ -162,7 +162,8 @@ public:
     // Ends a worker for good (no restart), now.
     void stop(std::string_view name);
     // Ends a worker for good, letting it leave by itself first: from now on it is leaving (no restart,
-    // no hang checks), `ask` asks it with its pid (a message to its window), and one still there after
+    // no hang checks), `ask` asks it with its pid (a message to its window; again every quarter second, on
+    // the supervisor's thread, for one too new to have the window yet), and one still there after
     // `patience` is ended. Returns at once; a Left event says how it went. False when it was not running.
     bool leave(std::string_view name, const std::function<void(std::uint32_t pid)>& ask,
                std::chrono::milliseconds patience);

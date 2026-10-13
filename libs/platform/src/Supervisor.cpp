@@ -13,6 +13,7 @@
 #include <charconv>
 #include <condition_variable>
 #include <format>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -72,6 +73,9 @@ struct Worker
     bool leaving = false;
     Clock::time_point leaveBy;
     bool gone = false;
+    // Asked again every tick while it is leaving: one just started has no window yet to take the first
+    // ask (the break suite: a bar started 48 ms before the core stopped was ended after its 2 s).
+    std::function<void(std::uint32_t pid)> ask;
 };
 
 } // namespace
@@ -151,6 +155,7 @@ struct Supervisor::State
     std::condition_variable left; // a leaving worker is gone
     std::map<std::string, std::unique_ptr<Worker>, std::less<>> workers;
     std::vector<WorkerEvent> pending; // emitted by the supervisor thread
+    std::vector<std::pair<std::function<void(std::uint32_t)>, std::uint32_t>> asks; // made outside the lock
     std::uint64_t nextKey = 1;
     bool suspended = false;
     std::jthread thread; // last: starts after everything it uses exists
@@ -335,6 +340,10 @@ struct Supervisor::State
                         log::warn("worker {} did not leave in time; ending it", name);
                         end(worker, WorkerFailure::Hung);
                     }
+                    else if (worker.ending == WorkerFailure::None && worker.ask)
+                    {
+                        asks.emplace_back(worker.ask, worker.process.pid());
+                    }
                     continue;
                 }
                 if (worker.ending == WorkerFailure::None &&
@@ -402,6 +411,7 @@ struct Supervisor::State
             LPOVERLAPPED overlapped = nullptr;
             const BOOL got = GetQueuedCompletionStatus(port.get(), &message, &key, &overlapped, wait);
             std::vector<WorkerEvent> events;
+            std::vector<std::pair<std::function<void(std::uint32_t)>, std::uint32_t>> asking;
             {
                 const std::scoped_lock lock(mutex);
                 if (got != FALSE && key != kWakeKey)
@@ -410,6 +420,18 @@ struct Supervisor::State
                 }
                 tick();
                 events.swap(pending);
+                asking.swap(asks);
+            }
+            for (const auto& [ask, pid] : asking)
+            {
+                try
+                {
+                    ask(pid);
+                }
+                catch (const std::exception& e)
+                {
+                    log::warn("asking a worker to leave failed: {}", e.what());
+                }
             }
             for (const auto& event : events)
             {
@@ -530,6 +552,7 @@ bool Supervisor::leave(std::string_view name, const std::function<void(std::uint
         worker.leaveBy = worker.leaving ? std::min(worker.leaveBy, deadline) : deadline;
         worker.leaving = true;
         worker.restartAt.reset();
+        worker.ask = ask;
         pid = worker.process.pid();
     }
     log::info("worker {}: asked to leave", name);

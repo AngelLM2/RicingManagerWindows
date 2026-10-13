@@ -164,8 +164,13 @@ struct BarApp::Access
         {
             // The core asks us to leave (bar off, Ricing Manager exiting): the loop ends and ~BarApp gives
             // the strips, Windows' taskbar and the tray's icons back. (Not DefWindowProc: it would destroy
-            // this window and nothing else.)
-            log::info("bar: asked to leave");
+            // this window and nothing else.) The core asks again until we are gone: written down once.
+            static bool asked = false;
+            if (!asked)
+            {
+                asked = true;
+                log::info("bar: asked to leave");
+            }
             slint::quit_event_loop();
             return 0;
         }
