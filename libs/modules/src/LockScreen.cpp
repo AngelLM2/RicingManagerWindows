@@ -215,12 +215,11 @@ Result<void> LockScreenSystem::apply(const Json& desired)
             return fail(ErrorCode::InvalidArgument, "lock screen field 'picture' is malformed");
         }
         const std::string file = json::stringOr(*picture, "file", "");
-        // Spotlight coming back: no picture set (setting one is what turns Spotlight off), only its switch.
-        // v1.8 set Spotlight's last picture first, and the lock screen stayed frozen on it.
+        // The picture first (the one Windows keeps for "Picture"; setting it turns Spotlight off, and setImage
+        // waits until Windows took it), then Spotlight's switch. v1.9's first take skipped the picture when
+        // Spotlight came back, and the system suite saw the rice's picture stay as the person's "Picture".
         const auto wantsSpotlight = picture->find("spotlight");
-        const bool spotlightBack =
-            wantsSpotlight != picture->end() && wantsSpotlight->is_boolean() && wantsSpotlight->get<bool>();
-        if (!file.empty() && !spotlightBack)
+        if (!file.empty())
         {
             const std::string copy = json::stringOr(*picture, "copy", "");
             const std::string chosen = copy.empty() || m_lockScreen.exists(file) ? file : copy;

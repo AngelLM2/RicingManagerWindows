@@ -123,8 +123,9 @@ it cannot be shared or packed.
   theirs.
 - **Lock screen:** at the end of **Wallpapers**, a rice can give the lock screen its own picture
   (`.jpg` or `.png`) or turn **Windows Spotlight** on, and show or hide the fun facts and tips.
-- Restoring brings back the sounds, icons and lock screen picture you had (with Spotlight, Spotlight
-  comes back and shows its next picture). Windows' own sounds, icons and pictures are never copied
+- Restoring brings back the sounds, icons and lock screen picture you had (with Spotlight, your
+  "Picture" comes back first, then Spotlight is turned on again and moves on to its next picture
+  when Windows gets one). Windows' own sounds, icons and pictures are never copied
   into a rice you share.
 
 ## Bars of your own

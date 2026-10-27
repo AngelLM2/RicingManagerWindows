@@ -48,7 +48,7 @@ Depois, cada caminho tem que deixar tudo isso como estava, comparando o registro
 3. **O original acompanha a pessoa.** Um campo que o app não segura guarda o valor dela, seja o de antes da primeira aplicação, seja o que ela escolheu depois (de uma restauração, ou de uma mudança dela que o tirou do app). Esse é o original a trazer de volta; antes, a restauração trazia o Windows de semanas atrás. As regras e as páginas do slideshow também guardam originais.
 4. **A cópia do original mora ao lado da pasta de dados** (`RicingManagerWindows.original.json`), com o que o app segura. A pasta perdida com um rice aplicado (desinstalado sem restaurar, dados removidos) não transforma mais o rice, nem os padrões do Windows, no "original". Uma instalação nova restaura o Windows da pessoa exatamente.
 5. **O papel de parede nunca volta como a foto do Windows.** Quando a foto e a cópia sumiram, fica a foto mostrada, e o log diz por quê. Arquivos .tif, .webp, .heic, .avif e .jxr contam como foto. Depois de um rice com o slideshow do Windows, a foto da pessoa volta e o slideshow para.
-6. **O Destaque da tela de bloqueio volta ligado**, sem uma foto parada por cima. Uma foto definida desligava o Destaque.
+6. **Tela de bloqueio: a foto e depois o Destaque.** A foto que o Windows guarda para "Imagem" volta primeiro, e o app espera o Windows aceitá-la. Só então o Destaque é religado, porque definir uma foto o desliga. A primeira versão desta correção pulava a foto quando o Destaque voltava, e a suíte `system` viu a foto do rice ficar como a "Imagem" da pessoa.
 
 ### O app parando de desfazer o que a pessoa muda
 
