@@ -682,7 +682,10 @@ Start-Sleep -Seconds 2
 $diff = Compare-State $beforeBroken (Read-State)
 Check 'broken-original:the-rest-came-back' ($diff.Count -eq 0) ($diff -join '; ')
 $shown = & $rmw inspect wallpaper --data-dir $brokenData 2>&1 | Out-String
-Check 'broken-original:never-windows-picture' ($shown -notmatch 'img0\.jpg') $shown.Trim()
+# The pictures shown (Settings' recent pictures list Windows' own too: not what is shown).
+$pictures = @(try { ($shown | ConvertFrom-Json).state.PSObject.Properties | Where-Object { $_.Name -like 'monitor:*' } |
+            ForEach-Object { "$($_.Value.file)" } } catch { })
+Check 'broken-original:never-windows-picture' ($pictures.Count -gt 0 -and @($pictures | Where-Object { $_ -match '\\Web\\Wallpaper\\Windows\\img' }).Count -eq 0) "shown: $($pictures -join ', ')"
 & $rmw shutdown --wait --data-dir $brokenData *> $null
 if (Test-Path (Join-Path $brokenData 'logs')) { Copy-Item (Join-Path $brokenData 'logs') (Join-Path $Out 'logs-broken') -Recurse -Force }
 
