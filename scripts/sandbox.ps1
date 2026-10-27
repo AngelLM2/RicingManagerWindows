@@ -40,8 +40,9 @@ if (-not (Test-Path (Join-Path $buildDir 'tests'))) {
     throw "Build '$Preset' not found. Run .\scripts\build.ps1 -Preset $Preset first."
 }
 
-# A running sandbox: its window (or the older client) and its VM. WindowsSandboxServer is a broker
-# that may stay idle after the last sandbox has closed, so it does not count.
+# Windows Sandbox Lifecycle Management
+# Detects active sandbox client GUI sessions and the Hyper-V worker container (vmmemWindowsSandbox).
+# Excludes WindowsSandboxServer which remains resident as an idle service broker.
 function Sandbox-Sessions {
     Get-Process -Name 'WindowsSandbox', 'WindowsSandboxClient', 'WindowsSandboxRemoteSession', 'vmmemWindowsSandbox' -ErrorAction SilentlyContinue
 }

@@ -22,6 +22,9 @@ $ErrorActionPreference = 'Stop'
 $root = $script:RepoRoot
 Push-Location $root
 try {
+    # Phase 1: CMake Preset Configuration
+    # Merges specified presets (debug/release/asan) with supplemental compiler/linker flags.
+    # When -Fresh is passed, CMake clears build caches to force clean dependency evaluation.
     $configureArgs = @('--preset', $Preset) + $CMakeArgs
     if ($Fresh) { $configureArgs += '--fresh' }
     cmake @configureArgs

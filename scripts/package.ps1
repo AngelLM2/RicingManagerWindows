@@ -32,6 +32,8 @@ $rices = Join-Path $build 'rices'
 $out = Join-Path $root "build\package\$version"
 Write-Host "Ricing Manager $version"
 
+# Executable suite audited for release artifact staging.
+# Every listed program must be built fresh by the release preset to prevent stale binary leakage.
 $programs = 'rmw-core.exe', 'rmw.exe', 'rmw-settings.exe', 'rmw-bar.exe', 'rmw-plugin-host.exe', 'rmw-wallpaper.exe', 'rmw-tiler.exe', 'rmw-elevated.exe'
 if (-not $NoBuild) {
     # Every program is made by this build: one a build left out (v1.8.0: no Slint SDK, no bar and no
