@@ -4,6 +4,16 @@
 
 **Status: v1.8.1 (the third real test: a Start that holds any number of apps, windows that fit and slide, smooth bars; and everything we could think of to break it).** A per-user installer with four official rices; a settings window and the command line: apply a rice, edit it, share it as a `.rice`, import one, undo it, go back to the original Windows; light/dark mode on a schedule, global hotkeys and rules, per-monitor slideshows, video wallpapers and live wallpapers (effects and particles; Wallpaper Engine's own wallpapers read from this PC); a custom, fully resizable taskbar with the system tray, five ready-made styles, a dock and its own Start menu; tiling with workspaces (like Linux or a Mac) and Ctrl keys; sounds, icon packs (desktop, folders, programs, file types), the lock screen and the look of every app's window (corners, borders, title bars, Mica); community plugins (bar widgets, skins, tweaks, actions, rules) in a Luau sandbox. User guide: [docs/user-guide.md](docs/user-guide.md).
 
+## Comece por aqui / Start here
+
+| Preciso de / I need | Referência / Reference |
+|---|---|
+| Instalar e usar / Install and use | [Guia de uso / User guide](docs/user-guide.md) |
+| Entender os processos e a restauração / Understand processes and restore | [Visão técnica](docs/arquitetura-atual.md) |
+| Compilar, testar e contribuir / Build, test and contribute | [Contributing](CONTRIBUTING.md) · [testes de sistema](tests/system/README.md) |
+| Criar plugins / Create plugins | [Guia de plugins](docs/plugins/README.md) |
+| Navegar a documentação / Browse documentation | [Índice](docs/README.md) |
+
 ---
 
 ## Português
