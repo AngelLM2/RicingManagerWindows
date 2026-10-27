@@ -251,7 +251,7 @@ A general Windows 11 customizer, **open source (GPLv3)** and **native C++**: sta
 - **Safe and reversible**: every change is snapshotted and can be undone; "Restore original Windows" is always available. No admin by default. The app never injects code into other processes and never modifies system files.
 - **Extensible**: widgets, skins, tweaks, actions and rules can be written by the community, running isolated and with permissions.
 
-The planning documents (in Portuguese) are in [docs/](docs/README.md).
+Browse the [English documentation](docs/en/README.md); the original planning history is available in Portuguese.
 
 ### Install
 

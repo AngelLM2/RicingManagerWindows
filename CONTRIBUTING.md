@@ -27,7 +27,7 @@ Thanks for helping! Ricing Manager for Windows is GPL-3.0-or-later. By contribut
 1. Build and test: `.\scripts\build.ps1 -Preset debug -Test` (and `-Preset asan -Test`).
 2. Format: `.\scripts\format.ps1`.
 3. Commit with [Conventional Commits](https://www.conventionalcommits.org/) (`feat(bar): …`, `fix(cursors): …`).
-4. Open a pull request against `develop`. CI must be green.
+4. Open a pull request against `main` and report the checks you ran.
 
 Significant design changes need an ADR in `docs/adr/`.
 

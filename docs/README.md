@@ -1,5 +1,7 @@
 # Documentação — Ricing Manager for Windows
 
+> Português · [English](en/README.md)
+
 Personalização do Windows por usuário, com rices compartilháveis, restauração e componentes isolados. Esta página é o ponto de entrada; os documentos numerados 01–13 registram o planejamento original e podem conter metas e decisões históricas, não necessariamente o estado atual.
 
 ## Trilhas de leitura
