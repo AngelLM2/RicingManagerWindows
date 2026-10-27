@@ -390,6 +390,10 @@ public:
         for (const Key& before : m_keys)
         {
             const Key now = read(before.path, before.names, before.refresh);
+            if (before.values.empty() && now.values.empty())
+            {
+                continue; // nothing there before or now: a key that is not there is never made (the system suite)
+            }
             HKEY handle = nullptr;
             if (RegCreateKeyExW(HKEY_CURRENT_USER, before.path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr,
                                 &handle, nullptr) != ERROR_SUCCESS)
